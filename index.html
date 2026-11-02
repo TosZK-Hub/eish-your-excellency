@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#ffb300">
+<title>Eish, Your Excellency</title>
+<meta name="description" content="Run Mzansiland one swipe at a time. Fictional satire.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 10 10%27%3E%3Ccircle cx=%275%27 cy=%275%27 r=%275%27 fill=%27%23ffb300%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<div id="app">
+  <section id="title" class="screen active">
+    <h1>Eish,<br>Your Excellency</h1>
+    <p class="tag">President of Mzansiland. One swipe at a time.</p>
+    <div class="titleport" id="titleport"></div>
+    <button class="big" id="startBtn">Take office</button>
+    <button id="collBtn">Endings collected: <span id="collCount">0</span>/10</button>
+    <p class="best">Best term: <span id="bestTitle">0</span> days</p>
+    <p class="disclaim">A work of fictional satire. Any resemblance to real politicians is purely because things are like that.</p>
+  </section>
+
+  <section id="game" class="screen">
+    <div id="meters"></div>
+    <div id="days">Day <span id="dayN">1</span></div>
+    <div id="who"></div>
+    <div id="stage">
+      <div id="card">
+        <div class="hint left" id="hintL"></div><div class="hint right" id="hintR"></div>
+        <div id="portrait"></div>
+        <p id="text"></p>
+      </div>
+    </div>
+    <div id="btns"><button id="bL">◀ <span id="lblL"></span></button><button id="bR"><span id="lblR"></span> ▶</button></div>
+  </section>
+
+  <section id="end" class="screen">
+    <p class="small">Your term is over after</p>
+    <div class="dayscore"><span id="endDays">0</span> days</div>
+    <h2 id="endTitle"></h2>
+    <p id="endLine"></p>
+    <p id="newBest" class="newbest"></p>
+    <button class="big" id="shareBtn">Share my term</button>
+    <button id="againBtn">Run again</button>
+    <button id="endColl">Endings collection</button>
+    <p id="toast"></p>
+  </section>
+
+  <section id="coll" class="screen">
+    <h2>Endings collection</h2>
+    <div id="collList"></div>
+    <button id="collBack">Back</button>
+  </section>
+</div>
+<script src="cards.js"></script>
+<script src="game.js"></script>
+</body></html>
