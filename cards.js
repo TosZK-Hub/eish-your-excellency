@@ -13,6 +13,10 @@ window.CHARACTERS = {
 };
 
 window.CARDS = [
+  { id:"mg_roads", who:"roads", text:"Your Excellency, inspect the roads yourself? The bakkie is fuelled. Mostly.", left:{label:"Send a drone", fx:{treasury:-8}}, right:{label:"Jump in the bakkie!", fx:{}, mg:"pothole"} },
+  { id:"mg_lights", who:"lights", text:"The grid is wobbling like jelly. Want to personally hold it together?", left:{label:"Light a candle", fx:{power:-8}}, right:{label:"I'll do it myself!", fx:{}, mg:"lights"} },
+  { id:"mg_uncle", who:"johan", text:"It's the Cabinet braai. I have prepared 'just a few words'. Forty pages.", left:{label:"Fake a phone call", fx:{uncles:-8}}, right:{label:"Bring the boerewors!", fx:{}, mg:"uncle"} },
+  { id:"mg_budget", who:"treasury", text:"The vault door jammed open. Money is literally falling from the ceiling!", left:{label:"Call a committee", fx:{treasury:-8}}, right:{label:"Grab a briefcase!", fx:{}, mg:"budget"} },
   { id:"l1", who:"lights", text:"Your Excellency, we can end load-shedding by unplugging the stadiums.",
     left:{label:"Not during rugby", fx:{power:-10, mood:5}}, right:{label:"Unplug them", fx:{power:15, mood:-20}, set:"darkstadium"} },
   { id:"l1b", who:"coach", req:"darkstadium", once:true, text:"Coach here. We lost to a team we couldn't see. Literally. Can we get the lights back?",

@@ -10,9 +10,11 @@
 <div id="app">
   <section id="title" class="screen active">
     <h1>Eish,<br>Your Excellency</h1>
-    <p class="tag">President of Mzansiland. One swipe at a time.</p>
+    <p class="tag">Dumb ways to run Mzansiland.</p>
     <div class="titleport" id="titleport"></div>
-    <button class="big" id="startBtn">Take office</button>
+    <button class="big" id="survBtn">Survival</button>
+    <p class="best">Rapid-fire chaos. 3 lives. Best: <span id="sBestTitle">0</span></p>
+    <button class="big blue" id="startBtn">Presidency</button>
     <button id="collBtn">Endings collected: <span id="collCount">0</span>/10</button>
     <p class="best">Best term: <span id="bestTitle">0</span> days</p>
     <p class="disclaim">A work of fictional satire. Any resemblance to real politicians is purely because things are like that.</p>
@@ -41,9 +43,21 @@
     <button class="big" id="shareBtn">Share my term</button>
     <button id="againBtn">Run again</button>
     <button id="endColl">Endings collection</button>
+    <button id="endMenu">Main menu</button>
     <p id="toast"></p>
   </section>
 
+  <section id="sover" class="screen">
+    <p class="small">You survived</p>
+    <div class="dayscore"><span id="sScore">0</span> chaoses</div>
+    <p id="sCap" class="capline"></p>
+    <p id="sBest" class="newbest"></p>
+    <button class="big" id="sShare">Share my chaos</button>
+    <button id="sAgain">Again!</button>
+    <button id="sMenu">Main menu</button>
+    <p id="toast2"></p>
+  </section>
+  <div id="mg"><canvas id="mgc"></canvas></div>
   <section id="coll" class="screen">
     <h2>Endings collection</h2>
     <div id="collList"></div>
@@ -51,5 +65,6 @@
   </section>
 </div>
 <script src="cards.js"></script>
+<script src="mg.js"></script>
 <script src="game.js"></script>
 </body></html>
