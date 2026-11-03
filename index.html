@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="theme-color" content="#ffb300">
+<meta name="theme-color" content="#e8d3a6">
 <title>EISH! Ways to Go</title>
 <meta name="description" content="Lekker little ways to get into trouble in Mzansi. Rapid-fire microgames, 3 lives. Free, offline.">
 <link rel="manifest" href="manifest.webmanifest">
@@ -9,11 +9,11 @@
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="stylesheet" href="style.css">
 </head><body>
-<div id="app">
+<div id="app"><div class="band top"></div><div class="band bot"></div>
   <section id="title" class="screen active">
-    <h1>EISH!<span>Ways to Go</span></h1>
+    <h1 aria-label="EISH! Ways to Go"><span class="col"><b>E</b><b>I</b><b>S</b><b>H</b><b>!</b></span><span class="sub">Ways to Go</span></h1>
     <p class="tag">Lekker little ways to get into trouble in Mzansi.</p>
-    <canvas id="castc"></canvas>
+    <div id="castRow"></div>
     <button class="big" id="playBtn">PLAY</button>
     <button id="collBtn">Deaths collected: <span id="collCount">0</span>/<span id="collTotal">16</span></button>
     <button id="muteBtn">Sound on</button>
