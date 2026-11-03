@@ -15,6 +15,11 @@ jobs:
       url: ${{ steps.d.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Unpack WebP art (stored as base64 tar packs)
+        run: |
+          for p in art/pack*.b64; do base64 -d "$p" | tar -x -C art; done
+          rm -f art/pack*.b64
+          ls -la art
       - uses: actions/configure-pages@v5
         with:
           enablement: true
