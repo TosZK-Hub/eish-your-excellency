@@ -1,11 +1,7 @@
-# Eish, Your Excellency
-A Reigns-style swipe game: run the fictional Republic of Mzansiland. HTML5, no backend, works offline.
-A work of fictional satire. Any resemblance to real politicians is purely because things are like that.
+# EISH! Ways to Go
+Rapid-fire South African microgame chaos. 16 one-thumb microgames (3-5 s each), 3 lives, speed rises every round, boss-speed every 10th round. Every fail is a cute cartoon "way to go"; collect all 16 deaths. Original WebAudio jingle with mute. Free, offline (service worker), no external assets, fictional.
 
-- `cards.js`: characters, cards, endings (add cards here)
-- `game.js`: logic · `style.css`: look · `sw.js`: offline cache
+Play: https://toszk-hub.github.io/eish-your-excellency/
 
-## v0.2 — microgames
-- **Survival** (main mode): 8 Dumb-Ways-style microgames (3-5 s each), back-to-back, 3 lives, speed rises with score. Each fail plays a cute cartoon "dumb way to go" with an SA caption.
-- **Presidency**: the swipe campaign, now with a 3-card tutorial and a microgame every 4-6 cards (plus trigger cards). Win steadies a meter; lose pushes it toward the edge.
-- Debug: `?mg=pothole|lights|uncle|budget|mozzie|snack|rugby|fence|survival` (`&days=N` sets difficulty).
+Debug: `?mg=<id>` plays one microgame (`&sp=1.8` for speed); `?mg=survival` jumps into a run.
+IDs: pothole, lights, uncle, change, mozzie, snack, rugby, fence, lolly, wors, mud, unplug, quantum, salt, umbrella, carseat, sauce, koeksister.

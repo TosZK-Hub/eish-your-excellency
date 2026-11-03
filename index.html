@@ -2,69 +2,43 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#ffb300">
-<title>Eish, Your Excellency</title>
-<meta name="description" content="Run Mzansiland one swipe at a time. Fictional satire.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 10 10%27%3E%3Ccircle cx=%275%27 cy=%275%27 r=%275%27 fill=%27%23ffb300%27/%3E%3C/svg%3E">
+<title>EISH! Ways to Go</title>
+<meta name="description" content="Lekker little ways to get into trouble in Mzansi. Rapid-fire microgames, 3 lives. Free, offline.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <link rel="stylesheet" href="style.css">
 </head><body>
 <div id="app">
   <section id="title" class="screen active">
-    <h1>Eish,<br>Your Excellency</h1>
-    <p class="tag">Dumb ways to run Mzansiland.</p>
-    <div class="titleport" id="titleport"></div>
-    <button class="big" id="survBtn">Survival</button>
-    <p class="best">Rapid-fire chaos. 3 lives. Best: <span id="sBestTitle">0</span></p>
-    <button class="big blue" id="startBtn">Presidency</button>
-    <button id="collBtn">Endings collected: <span id="collCount">0</span>/10</button>
-    <p class="best">Best term: <span id="bestTitle">0</span> days</p>
-    <p class="disclaim">A work of fictional satire. Any resemblance to real politicians is purely because things are like that.</p>
+    <h1>EISH!<span>Ways to Go</span></h1>
+    <p class="tag">Lekker little ways to get into trouble in Mzansi.</p>
+    <canvas id="castc"></canvas>
+    <button class="big" id="playBtn">PLAY</button>
+    <button id="collBtn">Deaths collected: <span id="collCount">0</span>/<span id="collTotal">16</span></button>
+    <button id="muteBtn">Sound on</button>
+    <p class="best">Best: <span id="bestTitle">0</span></p>
+    <p class="disclaim">A silly, fictional cartoon game. No beans were harmed. Probably.</p>
   </section>
-
-  <section id="game" class="screen">
-    <div id="meters"></div>
-    <div id="days">Day <span id="dayN">1</span></div>
-    <div id="who"></div>
-    <div id="stage">
-      <div id="card">
-        <div class="hint left" id="hintL"></div><div class="hint right" id="hintR"></div>
-        <div id="portrait"></div>
-        <p id="text"></p>
-      </div>
-    </div>
-    <div id="btns"><button id="bL">◀ <span id="lblL"></span></button><button id="bR"><span id="lblR"></span> ▶</button></div>
-  </section>
-
-  <section id="end" class="screen">
-    <p class="small">Your term is over after</p>
-    <div class="dayscore"><span id="endDays">0</span> days</div>
-    <h2 id="endTitle"></h2>
-    <p id="endLine"></p>
-    <p id="newBest" class="newbest"></p>
-    <button class="big" id="shareBtn">Share my term</button>
-    <button id="againBtn">Run again</button>
-    <button id="endColl">Endings collection</button>
-    <button id="endMenu">Main menu</button>
-    <p id="toast"></p>
-  </section>
-
-  <section id="sover" class="screen">
+  <section id="play" class="screen full"><canvas id="mgc"></canvas></section>
+  <section id="over" class="screen">
     <p class="small">You survived</p>
-    <div class="dayscore"><span id="sScore">0</span> chaoses</div>
+    <div class="dayscore"><span id="sScore">0</span> <span id="sUnit">chaoses</span></div>
     <p id="sCap" class="capline"></p>
     <p id="sBest" class="newbest"></p>
-    <button class="big" id="sShare">Share my chaos</button>
-    <button id="sAgain">Again!</button>
-    <button id="sMenu">Main menu</button>
-    <p id="toast2"></p>
+    <button class="big" id="shareBtn">Share my chaos</button>
+    <button id="againBtn">Again!</button>
+    <button id="overColl">Death collection</button>
+    <button id="menuBtn">Main menu</button>
+    <p id="toast"></p>
   </section>
-  <div id="mg"><canvas id="mgc"></canvas></div>
   <section id="coll" class="screen">
-    <h2>Endings collection</h2>
+    <h2>Death collection</h2>
     <div id="collList"></div>
+    <h2 class="h2s">The cast</h2>
+    <ul id="castList"></ul>
     <button id="collBack">Back</button>
   </section>
 </div>
-<script src="cards.js"></script>
-<script src="mg.js"></script>
 <script src="game.js"></script>
 </body></html>
