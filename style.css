@@ -44,3 +44,7 @@ button.big{background:#e53935;color:#fff;font-size:22px}
 .ce{background:#fff;border:3px solid #111;border-radius:12px;padding:8px;text-align:left}
 .ce.locked{opacity:.5}
 .ce b{display:block}
+#mg{display:none;position:absolute;inset:0;z-index:10;background:#111}#mg.on{display:block}
+#mgc{width:100%;height:100%;display:block;touch-action:none}
+button.big.blue{background:#1e88e5}
+.capline{font-size:20px;font-weight:bold;background:#fff;border:3px solid #111;border-radius:14px;padding:12px}
