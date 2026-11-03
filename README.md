@@ -19,3 +19,10 @@ IDs: pothole, lights, uncle, change, mozzie, snack, rugby, fence, lolly, wors, m
 - Juice: paper-tear transitions, impact frames, confetti, speed lines, shake, sticker HUD, bead-band timer.
 - Debug: `?death=dog|flat` jumps to a death screen.
 - Fonts: Luckiest Guy and Permanent Marker (both Apache License 2.0), ASCII-subset WOFF in `art/`.
+
+## v0.6 — performance pass
+- Rig groups (head, torso, hands, shoes, props), dog, taxi and wors pre-rendered into an LRU ImageBitmap sprite cache; limbs stay live.
+- Backgrounds on a separate canvas layer redrawn only on change; HUD timer strip, bead pattern, text strips and captions cached.
+- Shadows merged into sprites (no per-frame shadow passes); halftone baked into sprites.
+- Canvas backing capped at DPR 2 with adaptive quality (drops when frame EMA > 20 ms, persisted in localStorage `ewg_q`).
+- Menu animation redraws only on 12 fps frame changes. Cache bumped to ewg-v7.
