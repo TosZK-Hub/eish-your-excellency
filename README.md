@@ -11,3 +11,11 @@ IDs: pothole, lights, uncle, change, mozzie, snack, rugby, fence, lolly, wors, m
 - Re-skinned: Rescue the Wors (`?mg=wors`) and Taxi Rank Crossing (`?mg=quantum`, now 4 lanes) with layered photo-texture backgrounds, tape and marker accents, plus their deaths.
 - Menu/UI: kraft-paper background, cut-out title letters, sticker buttons, original beadwork/Ndebele-inspired pattern bands.
 - Art is ~550 KB WebP, cached offline by the service worker (`ewg-v5`). Packed as base64 tars in `art/pack*.b64` and unpacked by the Pages workflow at deploy time.
+
+
+## v0.5 — slice quality pass
+- Characters rebuilt as one vector sticker-puppet rig (shared skeleton, separate limbs, die-cut outline, ink line, halftone shade) with eased pose blending, squash/stretch and 12 fps stop-motion stepping. `?sheet=1` shows the model sheet.
+- Vector props (wors, dog, fictional minibus taxi), calmer backgrounds with clear focal areas.
+- Juice: paper-tear transitions, impact frames, confetti, speed lines, shake, sticker HUD, bead-band timer.
+- Debug: `?death=dog|flat` jumps to a death screen.
+- Fonts: Luckiest Guy and Permanent Marker (both Apache License 2.0), ASCII-subset WOFF in `art/`.
