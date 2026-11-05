@@ -1,44 +1,72 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#e8d3a6">
 <title>EISH! Ways to Go</title>
-<meta name="description" content="Lekker little ways to get into trouble in Mzansi. Rapid-fire microgames, 3 lives. Free, offline.">
+<meta name="description" content="Lekker little ways to get into trouble in Mzansi. 24 rapid-fire microgames, 3 lives, a daily challenge and a sticker album. Free, offline.">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preload" href="art/lg.woff" as="font" type="font/woff" crossorigin>
 <link rel="stylesheet" href="style.css">
 </head><body>
+<div id="splash"><div class="col"><b>E</b><b>I</b><b>S</b><b>H</b><b>!</b></div><p>loading the chaos...</p></div>
 <div id="app"><div class="band top"></div><div class="band bot"></div>
   <section id="title" class="screen active">
+    <div class="topbar"><button id="setBtn" class="ico" aria-label="Settings">⚙</button><button id="muteBtn" class="ico" aria-label="Sound">🔊</button></div>
     <h1 aria-label="EISH! Ways to Go"><span class="col"><b>E</b><b>I</b><b>S</b><b>H</b><b>!</b></span><span class="sub">Ways to Go</span></h1>
     <p class="tag">Lekker little ways to get into trouble in Mzansi</p>
     <canvas id="castc" aria-label="The cast: tap one!"></canvas>
     <button class="big" id="playBtn">PLAY</button>
-    <button id="collBtn">Deaths collected: <span id="collCount">0</span>/<span id="collTotal">16</span></button>
-    <button id="muteBtn">Sound on</button>
+    <button id="dailyBtn" class="daily">Daily challenge <small id="dailyInfo"></small></button>
+    <div class="row"><button id="collBtn">Album <span id="collCount">0</span>/<span id="collTotal">24</span></button><button id="wardBtn">Wardrobe</button></div>
     <p class="best">Best: <span id="bestTitle">0</span></p>
     <p class="disclaim">A silly, fictional cartoon game. No beans were harmed. Probably.</p>
+  </section>
+  <section id="onb" class="screen">
+    <h2>How to play</h2>
+    <canvas id="obc" width="720" height="480"></canvas>
+    <h3 id="obT"></h3><p id="obP" class="obp"></p><p id="obDots" class="dots"></p>
+    <button class="big" id="obN">Next</button><button id="obSkip" class="link">Skip</button>
   </section>
   <section id="play" class="screen full"><canvas id="bgc"></canvas><canvas id="mgc"></canvas></section>
   <section id="over" class="screen">
     <p class="small">You survived</p>
     <div class="dayscore"><span id="sScore">0</span> <span id="sUnit">chaoses</span></div>
+    <p id="sBest" class="newbest"></p><p id="sDaily" class="small"></p>
     <p id="sCap" class="capline"></p>
-    <p id="sBest" class="newbest"></p>
-    <button class="big" id="shareBtn">Share my chaos</button>
+    <div id="sNew"></div>
+    <button class="big" id="shareBtn">Share score card</button>
     <button id="againBtn">Again!</button>
-    <button id="overColl">Death collection</button>
-    <button id="menuBtn">Main menu</button>
+    <div class="row"><button id="overColl">Album</button><button id="menuBtn">Menu</button></div>
     <p id="toast"></p>
   </section>
-  <section id="coll" class="screen">
-    <h2>Death collection</h2>
+  <section id="album" class="screen">
+    <h2>Sticker album <small id="albumCount"></small></h2>
+    <p class="small">Every silly way to go is a sticker. Tap one to replay it.</p>
     <div id="collList"></div>
     <h2 class="h2s">The cast</h2>
     <ul id="castList"></ul>
     <button id="collBack">Back</button>
+    <div id="modal"><canvas id="modc"></canvas><p id="modCap"></p><p class="small">tap to close</p></div>
+  </section>
+  <section id="ward" class="screen">
+    <h2>Wardrobe</h2>
+    <div id="wTabs" class="tabs"></div>
+    <canvas id="wPrev" width="360" height="300"></canvas>
+    <div id="wHats"></div>
+    <p id="wNote" class="small"></p>
+    <button id="wBack">Back</button>
+  </section>
+  <section id="set" class="screen">
+    <h2>Settings</h2>
+    <label class="tog"><input type="checkbox" id="sSound"><span>Sound</span></label>
+    <label class="tog"><input type="checkbox" id="sMusic"><span>Music</span></label>
+    <label class="tog"><input type="checkbox" id="sVib"><span>Vibration</span></label>
+    <label class="tog"><input type="checkbox" id="sRm"><span>Reduced motion</span></label>
+    <p class="small">Everything works offline. No account, no tracking.</p>
+    <button id="setBack">Back</button>
   </section>
 </div>
 <script src="game.js"></script>
