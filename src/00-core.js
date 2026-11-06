@@ -3,7 +3,7 @@
 "use strict";
 var $=function(i){return document.getElementById(i)};
 var LS={get:function(k,d){try{var v=localStorage.getItem("ewg_"+k);return v?JSON.parse(v):d}catch(e){return d}},set:function(k,v){try{localStorage.setItem("ewg_"+k,JSON.stringify(v))}catch(e){}}};
-var cv,ctx,W=360,H=640,raf=0,last=0,shake=0,parts=[],flashT=0,run=null;
+var cv,ctx,W=360,H=640,raf=0,last=0,shake=0,parts=[],flashT=0,HIT=0,popT=0,run=null;
 var ptr={x:180,y:500,taps:[]};
 // seeded RNG for the daily challenge (Math.random otherwise)
 var RNG=Math.random;function seeded(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
@@ -44,6 +44,9 @@ var SFX={pop:function(k){tone(520+(k||0)*60,0.07,"triangle",0.09,0,900+(k||0)*60
  fanfare:function(){var t=AC&&AC.currentTime;[0,4,7,12,7,12,16].forEach(function(n,i){tone(mtof(64+n),0.14,"square",0.05,t+i*0.09);tone(mtof(52+n),0.14,"triangle",0.05,t+i*0.09)})}};
 function sfx(n,a,b){try{if(ac()&&!muted&&SFX[n])SFX[n](a,b)}catch(e){}}
 function vib(p){if(!SET.vib)return;try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
+function hitStop(sec){if(SET.rm)return;HIT=Math.max(HIT,sec||0.06)}
+function goodTap(x,y,col){burst(x,y,col||"#f2c230",6);popT=SET.rm?0:0.1;sfx("pop");vib(8)}
+function punch(x,y){hitStop(0.07);shake=Math.max(shake,0.22);burst(x,y,"#fffaf0",8);star(x,y-20,10,CLK*4);vib(18)}
 
 // ---------- drawing helpers ----------
 function rr(x,y,w,h,r,fill,lw){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();ctx.fillStyle=fill;ctx.fill();if(lw!==0){ctx.lineWidth=lw||4;ctx.strokeStyle="#111";ctx.stroke()}}
@@ -129,7 +132,7 @@ var LOOK={
 function dirv(a,side){return[side*Math.sin(a),Math.cos(a)]}
 // pose library (t already stop-motion quantised)
 function poseOf(m,t,ph){var s=Math.sin,P={lean:0,head:0,lift:0,sx:1,sy:1,aL:0.28,bL:0.35,aR:0.28,bR:0.35,lL:0.06,lR:0.06,face:"calm",look:0,sec:0};
- if(m==="calm"){P.sy=1+0.022*s(t*3+ph);P.sx=2-P.sy;P.lean=0.03*s(t*1.6+ph);P.head=0.06*s(t*1.9+ph);P.aR=0.3+0.08*s(t*2.2+ph);P.aL=0.26-0.06*s(t*2.2+ph);P.sec=s(t*1.9-0.8+ph);P.look=0.6*s(t*0.7+ph)}
+ if(m==="calm"){P.sy=1+0.03*s(t*2.6+ph);P.sx=2-P.sy;P.lean=0.04*s(t*1.4+ph);P.head=0.08*s(t*1.7+ph);P.aR=0.32+0.1*s(t*2+ph);P.aL=0.24-0.08*s(t*2+ph);P.sec=s(t*1.7-0.8+ph);P.look=0.85*s(t*0.55+ph)}
  else if(m==="happy"){var j=Math.abs(s(t*8+ph));P.lift=j*9;P.sy=0.9+0.16*j;P.sx=2-P.sy;P.aL=2.55+0.25*s(t*16);P.aR=2.55-0.25*s(t*16);P.bL=P.bR=-0.5;P.lL=0.25*j;P.lR=-0.25*j;P.head=0.1*s(t*8);P.face="happy";P.sec=s(t*8-1)}
  else if(m==="panic"||m==="run"){var f=m==="run"?17:15;P.lean=m==="run"?0.16:0.06*s(t*9+ph);P.head=0.14*s(t*11+ph);P.aL=2.3+0.55*s(t*f+ph);P.aR=2.3+0.55*s(t*f+2+ph);P.bL=0.7*s(t*f+1);P.bR=0.7*s(t*f+3);
   P.lL=0.75*s(t*f+ph);P.lR=-0.75*s(t*f+ph);P.lift=Math.abs(s(t*f+ph))*4;P.sy=1+0.05*s(t*f*2);P.sx=2-P.sy;P.face="panic";P.sec=s(t*f-1.2)}
@@ -146,8 +149,10 @@ function poseOf(m,t,ph){var s=Math.sin,P={lean:0,head:0,lift:0,sx:1,sy:1,aL:0.28
 function mixP(a,b,k){var o={};for(var key in b)o[key]=typeof b[key]==="number"?a[key]+(b[key]-a[key])*k:(k>0.35?b[key]:a[key]);return o}
 // actor: smooth eased transitions between poses + anticipation impulses
 function actor(id){return{id:id,m:"calm",pm:"calm",mt:9,imp:0,it:9}}
-function setM(a,m){if(a.m===m)return;a.pm=a.m;a.m=m;a.mt=0}
-function face(C,P,t){var bl=(P.face==="calm"&&(t%3.1)<0.1),lx=P.look*1.4;
+function setM(a,m){if(a.m===m)return;a.pm=a.m;a.m=m;a.mt=0;a.it=0;
+ // anticipation: squash into the new mood for a beat
+ a.imp=(m==="shock"||m==="dizzy"||m==="duck")?1.1:(m==="happy"||m==="cheer")?0.7:(m==="panic"||m==="run"||m==="reach")?0.85:(m==="sad"||m==="sleep")?0.4:0.55}
+function face(C,P,t){var bl=((P.face==="calm"||P.face==="happy"||P.face==="reach")&&((t+P.look)%(P.face==="calm"?2.6:3.4))<0.09),lx=P.look*1.4;
  // eyes
  [-1,1].forEach(function(sd){var ex=sd*8.5,ey=-83;
   if(P.face==="x"){inkLine([ex-4,ey-4,ex+4,ey+4],3);inkLine([ex+4,ey-4,ex-4,ey+4],3);return}
@@ -218,7 +223,9 @@ function body(C,P,t){var sd=1;ctx.translate(0,-P.lift);
  arm(1,P.aR,P.bR,true);ctx.restore()}
 // draw one character with feet at x,y, height h. o:{flip,pop,sx,sy,rot,ph,actor,ground}
 var CID="",HATN="none";function drawChar(id,x,y,h,mood,t,o){o=o||{};var C=LOOK[id]||LOOK.boet,tq=sq12(t),ph=o.ph||0,P;
- var A=o.actor;if(A){var k=easeOut(A.mt/0.16);P=k<1?mixP(poseOf(A.pm,tq,ph),poseOf(A.m,tq,ph),k):poseOf(A.m,tq,ph)}else P=poseOf(mood,tq,ph);
+ var A=o.actor;if(A){var k=easeOut(A.mt/0.22);P=k<1?mixP(poseOf(A.pm,tq,ph),poseOf(A.m,tq,ph),k):poseOf(A.m,tq,ph);
+  if(A.imp>0.02){var ik=Math.exp(-A.mt*12);P.sy*=1-0.14*A.imp*ik;P.sx*=1+0.12*A.imp*ik;P.lift=(P.lift||0)-3*A.imp*ik}}
+ else P=poseOf(mood,tq,ph);
  if(o.P)for(var key in o.P)P[key]=o.P[key];
  var s0=h/112*(o.pop==null?1:o.pop),fx=o.flip?-1:1,sxx=P.sx*(o.sx||1),syy=P.sy*(o.sy||1);if(s0<0.02)return;
  ctx.save();ctx.translate(x,y);if(o.rot)ctx.rotate(o.rot);

@@ -5,13 +5,15 @@ function adapt(ms){if(ms>250)return;FEMA+=(ms-FEMA)*0.15;if(FEMA>20&&DPRC>1.01){
 ptr.down=false;ptr.swipes=[];
 var BOTI={tap:function(x,y){ptr.x=x;ptr.y=y;ptr.taps.push({x:x,y:y})},move:function(x,y){ptr.x=x;ptr.y=y},hold:function(on,x,y){ptr.down=!!on;if(x!=null){ptr.x=x;ptr.y=y}},swipe:function(x,y,dx,dy){ptr.swipes.push({x:x,y:y,dx:dx,dy:dy})}};
 function frame(now){raf=requestAnimationFrame(frame);if(last)adapt(now-last);var dt=Math.min(0.05,(now-(last||now))/1000);last=now;if(!run)return;CLK+=dt;step(dt);if(run)draw();ptr.taps.length=0;ptr.swipes.length=0}
-function step(dt){var r=run;r.pt+=dt;shake=SET.rm?0:Math.max(0,shake-dt);flashT=Math.max(0,flashT-dt);stepParts(dt);
+function step(dt){var r=run;HIT=Math.max(0,HIT-dt);popT=Math.max(0,popT-dt);shake=SET.rm?0:Math.max(0,shake-dt);flashT=Math.max(0,flashT-dt);stepParts(dt);
+ // hit-stop: freeze gameplay clocks briefly so impacts read
+ var pdt=(r.phase==="play"&&HIT>0)?dt*0.08:dt;r.pt+=pdt;
  if(r.phase==="intro"){if(r.pt>=r.introT){r.phase="play";r.pt=0;ptr.taps.length=0;ptr.swipes.length=0;RNG=r.rng}return}
- if(r.phase==="play"){if(BOT&&r.g.bot&&r.pt>0.05)r.g.bot(BOTI);r.g.update(dt);var dur=r.g.dur/Math.pow(r.sp,0.5);r.left=Math.max(0,dur-r.pt);if(r.g.fail)end(false);else if(r.g.done)end(true);else if(r.pt>=dur)end(!!r.g.timeoutWin);return}
- if(r.phase==="res"&&r.pt>=r.resT){r.phase="wait";if(BOT)ptr.down=false;r.cb(r.win)}}
-function end(win){var r=run;r.win=win;r.phase="res";r.pt=0;RNG=Math.random;
- if(win){r.resT=0.75;flashT=SET.rm?0:0.18;confetti(180,H*0.4,22);sfx(pick(["win","win","coin"]),3);vib(12)}
- else{r.resT=2.4;shake=SET.rm?0:0.35;sfx("fail");vib([40,30,90]);
+ if(r.phase==="play"){if(BOT&&r.g.bot&&r.pt>0.05)r.g.bot(BOTI);r.g.update(pdt);var dur=r.g.dur/Math.pow(r.sp,0.5);r.left=Math.max(0,dur-r.pt);if(r.g.fail)end(false);else if(r.g.done)end(true);else if(r.pt>=dur)end(!!r.g.timeoutWin);return}
+ if(r.phase==="res"){r.pt+=dt-pdt;if(r.pt>=r.resT){r.phase="wait";if(BOT)ptr.down=false;r.cb(r.win)}}}
+function end(win){var r=run;r.win=win;r.phase="res";r.pt=0;RNG=Math.random;HIT=0;
+ if(win){r.resT=0.85;flashT=SET.rm?0:0.22;popT=SET.rm?0:0.2;confetti(180,H*0.4,26);sfx(pick(["win","fanfare","coin"]),3);vib(14);hitStop(0.05)}
+ else{r.resT=2.5;shake=SET.rm?0:0.42;hitStop(0.1);sfx("fail");vib([40,30,90]);
   if(S){S.lives--;S.deaths.push(r.id);var col=LS.get("dead",{});if(!col[r.id]){col[r.id]=1;LS.set("dead",col);r.newDeath=true;S.newD.push(r.id)}}}}
 function capOf(id){var d=DEF[id];return CAST[d.who].name+" "+d.cap.charAt(0).toLowerCase()+d.cap.slice(1)+"."}
 function hud(r){if(S){for(var i=0;i<3;i++)heart(28+i*30,34+(i===S.lives?Math.sin(CLK*20)*2:0),22,i<S.lives);stxt(String(S.score),W-34,34,30,"#fffaf0",0.04);if(S.daily)marker("DAILY "+(S.score+S.lost)+"/"+S.list.length,180,30,15,"#fffaf0",0)}}
@@ -37,7 +39,7 @@ function draw1(r){
  else{var t=r.pt;if(t<0.16){r.g.draw();ctx.fillStyle=t<0.05?"rgba(255,250,240,.85)":"rgba(43,27,51,.35)";ctx.fillRect(0,0,W,H);if(!SET.rm)speedLines(r.g.ix||180,r.g.iy||H/2,t,"#fffaf0");stxt("EISH!",clamp(r.g.ix||180,90,270),clamp((r.g.iy||H/2)-70,60,H-60),64,"#f2c230",-0.1,popK(t*2.5))}
   else if(t<0.46){var k=easeOut((t-0.16)/0.3);r.g.draw();ctx.save();tearPath(H*k+10,9);ctx.clip();FORCESPR=1;deathScreen(r,t-0.16);FORCESPR=0;ctx.restore();ctx.save();tearPath(H*k+10,9);ctx.lineWidth=6;ctx.strokeStyle=CUT;ctx.stroke();ctx.restore()}
   else deathScreen(r,t-0.16)}
- drawParts();if(flashT>0){ctx.fillStyle="rgba(255,250,240,"+flashT+")";ctx.fillRect(0,0,W,H)}if(r.phase!=="intro")hud(r)}
+ drawParts();if(flashT>0){ctx.fillStyle="rgba(255,250,240,"+(flashT*1.1)+")";ctx.fillRect(0,0,W,H)}if(popT>0){ctx.save();ctx.globalAlpha=popT*2;ctx.strokeStyle="#f2c230";ctx.lineWidth=6;ctx.beginPath();ctx.arc(180,H*0.42,30+(1-popT)*80,0,7);ctx.stroke();ctx.restore()}if(r.phase!=="intro")hud(r)}
 function toL(e){var b=cv.getBoundingClientRect();return{x:(e.clientX-b.left)*W/b.width,y:(e.clientY-b.top)*W/b.width}}
 function resize(){var b=cv.getBoundingClientRect();if(!b.width)return;var dpr=DPRC;cv.width=Math.round(b.width*dpr);cv.height=Math.round(b.height*dpr);if(BGC){BGC.width=cv.width;BGC.height=cv.height;BGKEY=""}H=W*b.height/b.width}
 function play(id,sp,boss,cb,seed){parts.length=0;RNG=seed!=null?seeded(seed):Math.random;var g=G[id](sp);var rng=RNG;RNG=Math.random;run={id:id,g:g,rng:rng,sp:sp,boss:boss,phase:"intro",pt:0,introT:boss?1.15:Math.max(0.7,1.0/Math.sqrt(sp))+(S&&S.score===0?0.4:0),cb:cb,winWord:pick(["LEKKER!","SHARP!","YOH, NICE!","HOWZIT!","EASY!"])};if(!raf){last=0;raf=requestAnimationFrame(frame)}}
