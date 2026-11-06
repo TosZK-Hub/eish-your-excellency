@@ -6,11 +6,11 @@ def("pothole",{name:"Pothole Dash",word:"DODGE!",who:"boet",cap:"Tried to fix th
  var g={cx:180,obs:[],sp0:0.35,road:0,tilt:0};
  g.update=function(dt){g.t+=dt;g.road=(g.road+dt*(300+120*sp))%80;var nx=clamp(g.cx+(ptr.x-g.cx)*Math.min(1,dt*14),60,300);g.tilt=clamp((nx-g.cx)/(dt*900+0.001),-0.35,0.35);g.cx=nx;g.sp0-=dt;
   if(g.sp0<=0){g.sp0=Math.max(0.36,0.66/sp);g.obs.push({x:RNG()<0.4?clamp(g.cx+rnd(-25,25),60,300):rnd(60,300),y:-40,k:pick(["hole","hole","cone","goat"])})}
-  g.obs.forEach(function(o){o.y+=dt*(300+120*sp);if(!o.hit&&Math.abs(o.y-(H-150))<44&&Math.abs(o.x-g.cx)<40){g.fail=true;g.ix=o.x;g.iy=o.y;sfx("thud")}});g.obs=g.obs.filter(function(o){return o.y<H+60})};
+  g.obs.forEach(function(o){o.y+=dt*(300+120*sp);if(!o.hit&&Math.abs(o.y-(H-150))<44&&Math.abs(o.x-g.cx)<40){g.fail=true;g.ix=o.x;g.iy=o.y;punch(o.x,o.y);sfx("thud")}});g.obs=g.obs.filter(function(o){return o.y<H+60})};
  g.draw=function(){scene("pothole",function(){paper("#86b84a");ctx.fillStyle="rgba(60,110,40,.5)";for(var i=0;i<40;i++){var x=(i*53)%30,y=(i*97)%H;ctx.fillRect(i%2?x:W-30+x%26,y,3,8)}tornRect(28,-20,304,H+40,"#5d5866",4,0);for(var y=0;y<H;y+=28){ctx.fillStyle=(y/28)%2?"#e53935":"#fffaf0";ctx.fillRect(30,y,6,28);ctx.fillRect(324,y,6,28)}ctx.fillStyle="rgba(255,255,255,.06)";for(var k=0;k<60;k++)ctx.fillRect(40+(k*67)%280,(k*131)%H,3,3);sceneLabel("SLOW: POTHOLES",70,90,-1.57,"#fffaf0")});
   ctx.fillStyle="#fffaf0";for(var y=-80+g.road;y<H;y+=80)ctx.fillRect(177,y,6,40);
-  g.obs.forEach(function(o){if(o.k==="hole")pholeP(o.x,o.y,1);else if(o.k==="cone")coneP(o.x,o.y,1);else goatP(o.x,o.y,0.8,o.x>180,Math.floor(g.t*6)%2)});
-  bakkieTop(g.cx,H-150,1,g.tilt,"boet")};
+  g.obs.forEach(function(o){if(o.k==="hole"){pholeP(o.x,o.y,1.1);halo(o.x,o.y,32,"#e53935",g.t);ctx.save();ctx.globalAlpha=0.35;ctx.strokeStyle="#f2c230";ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(o.x,o.y,28,12,0,0,7);ctx.stroke();ctx.restore()}else if(o.k==="cone")coneP(o.x,o.y,1);else goatP(o.x,o.y,0.8,o.x>180,Math.floor(g.t*6)%2)});
+  bakkieTop(g.cx,H-150,1.05,g.tilt,"boet");if(g.t<1.5)hand(g.cx+50,H-120,g.t,"drag")};
  g.bot=function(B){var best=g.cx,bs=-1e9;for(var c=60;c<=300;c+=8){var m=999,bad=false;g.obs.forEach(function(o){if(o.y>H-470&&o.y<H-100)m=Math.min(m,Math.abs(o.x-c)+(H-150-o.y)*0.08);if(o.y>H-250&&o.y<H-110&&Math.min(c,g.cx)<o.x+46&&Math.max(c,g.cx)>o.x-46)bad=true});var sc=Math.min(m,90)-(bad?200:0)-Math.abs(c-g.cx)*0.05;if(sc>bs){bs=sc;best=c}}B.move(best,H-150)};
  return g});
 // ===== 2. Lights Back On =====
