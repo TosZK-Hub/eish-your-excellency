@@ -1,13 +1,15 @@
 @font-face{font-family:Lucky;src:url(art/lg.woff) format("woff");font-display:swap}
 @font-face{font-family:Marker;src:url(art/pm.woff) format("woff");font-display:swap}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;background:#1a1a2e;font-family:"Trebuchet MS",system-ui,sans-serif;color:#111;overscroll-behavior:none}
-#app{max-width:480px;height:100%;margin:0 auto;position:relative;overflow:hidden;background:#e8d3a6;background-image:radial-gradient(#7a5a2a22 1px,transparent 1.2px),radial-gradient(#fff6 1px,transparent 1.2px);background-size:7px 7px,11px 11px;background-position:0 0,3px 5px}
+html,body{height:100%;background:#1c140f;font-family:"Trebuchet MS",system-ui,sans-serif;color:#241820;overscroll-behavior:none}
+#sat{position:fixed;left:0;top:0;height:env(safe-area-inset-top,0px);width:0;pointer-events:none}
+#sab{position:fixed;left:0;bottom:0;height:env(safe-area-inset-bottom,0px);width:0;pointer-events:none}
+#app{max-width:480px;height:100%;margin:0 auto;position:relative;overflow:hidden;background:#f3e2c4;background-image:radial-gradient(#6a4a2a18 1px,transparent 1.3px);background-size:9px 9px}
 /* beadwork / Ndebele-inspired bands (original pattern) */
 .band{position:absolute;left:0;right:0;height:24px;background:url(art/beadband.svg) repeat-x;background-size:48px 24px;z-index:2;pointer-events:none}
 .band.top{top:0}.band.bot{bottom:0;transform:scaleX(-1)}
 .screen.full{position:relative;z-index:3}
-.screen{display:none;flex-direction:column;align-items:center;height:100%;padding:34px 18px 34px;gap:12px;text-align:center;overflow:auto}
+.screen{display:none;flex-direction:column;align-items:center;height:100%;padding:max(34px,calc(env(safe-area-inset-top) + 18px)) 18px max(34px,calc(env(safe-area-inset-bottom) + 18px));gap:12px;text-align:center;overflow:auto}
 .screen.active{display:flex}.screen.full{padding:0;overflow:hidden}
 #play{position:relative}#bgc{position:absolute;left:0;top:0;width:100%;height:100%;display:none;pointer-events:none}#mgc{position:relative;width:100%;height:100%;display:block;touch-action:none}
 h1{margin-top:6px;line-height:1}
@@ -40,7 +42,7 @@ button{font-weight:normal;font-size:19px;color:#2b1b33}
 .col b{font-family:Lucky,Impact,sans-serif;font-weight:normal;font-size:66px;padding:8px 9px 0}
 .sub{font-family:Marker,cursive;font-size:28px;font-weight:normal}
 .tag{font-family:Marker,cursive;font-weight:normal;font-size:13px;background:#2b1b33;color:#fffaf0;padding:3px 10px;transform:rotate(1.5deg)}
-#castc{width:100%;max-width:400px;height:180px;display:block;margin:-4px 0 -6px;touch-action:manipulation;cursor:pointer;background:radial-gradient(ellipse 55% 16% at 50% 92%,#2b1b3322,transparent)}
+#castc{width:100%;max-width:420px;height:230px;display:block;margin:-8px 0 -4px;touch-action:manipulation;cursor:pointer;background:radial-gradient(ellipse 60% 14% at 50% 96%,#2b1b3328,transparent)}
 button.big{font-size:38px;padding:10px 18px 26px;letter-spacing:3px}
 .disclaim{font-family:"Trebuchet MS",sans-serif}
 .best{font-family:Marker,cursive;font-weight:normal}
@@ -49,7 +51,7 @@ button.big{font-size:38px;padding:10px 18px 26px;letter-spacing:3px}
 h2{font-family:Lucky,sans-serif;font-weight:normal}
 
 /* v1.0 */
-#splash{position:fixed;inset:0;z-index:99;background:#e8d3a6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity .35s}
+#splash{position:fixed;inset:0;z-index:99;background:#f3e2c4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity .35s}
 #splash.gone{opacity:0;pointer-events:none}#splash p{font-family:Marker,cursive}
 .topbar{position:absolute;top:30px;right:12px;display:flex;gap:8px;z-index:4}
 button.ico{width:46px;height:46px;padding:0;font-size:20px;border-radius:50%;transform:none}

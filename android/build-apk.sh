@@ -5,8 +5,9 @@ cd "$(dirname "$0")"
 SDK=${SDK:-/workspace/android/sdk}; ROOT=..
 for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do mkdir -p res/mipmap-${d%:*}; cp $ROOT/icons/icon-${d#*:}.png res/mipmap-${d%:*}/ic_launcher.png; done
 rm -rf assets && mkdir -p assets/www/art assets/www/icons
-cp $ROOT/index.html $ROOT/game.js $ROOT/style.css $ROOT/manifest.webmanifest $ROOT/icon.svg assets/www/
-cp $ROOT/art/*.svg $ROOT/art/*.webp $ROOT/art/*.woff assets/www/art/ && cp $ROOT/icons/*.png assets/www/icons/
+cp $ROOT/index.html $ROOT/game.js $ROOT/style.css $ROOT/manifest.webmanifest $ROOT/icon.svg $ROOT/sw.js assets/www/
+cp -a $ROOT/art/. assets/www/art/
+cp $ROOT/icons/*.png assets/www/icons/
 export JAVA_HOME=${JAVA_HOME:-/workspace/android/jdk-17.0.21+9}; export PATH=$JAVA_HOME/bin:$PATH
 BT=$SDK/build-tools/34.0.0; AJ=$SDK/platforms/android-34/android.jar
 rm -rf out && mkdir -p out/c out/cls out/dex
