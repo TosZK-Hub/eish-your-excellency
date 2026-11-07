@@ -46,7 +46,7 @@ The 6× pass did **not** pull this machine off vsync, apart from one 33 ms frame
 
 Backing DPR cap is 1.75 and still drops when the frame average goes over 22 ms (`ewg_q`). Backgrounds are not redrawn every frame. Characters and props are single `drawImage` calls from bitmaps decoded up front.
 
-Illustrated art on disk is about **1.7 MB** of WebP, cached by `ewg-v10`.
+Illustrated art on disk is about **2.3 MB** of WebP, cached by `ewg-v11`.
 
 ## Honest visual notes
 
@@ -54,10 +54,9 @@ What holds up: the cast reads as one picture-book family; Salt, the candle room,
 
 What is still weak:
 
-- Taxi Rank lays flat lane strips and repeated open-door minibuses on a perspective painting. The taxis read as stickers on a photo, not vehicles in that lot.
-- The slamming door is a separate illustration. It does not match the van's own door, so that game is a close-up of the door rather than the van shutting.
-- Pose changes are whole-body swaps plus squash. Arms and hair do not move on their own. Drag lag is the follow-through we actually have.
-- Hats are small vector stickers. They sit on the calm head point and will miss on the big panic poses.
+- These are authored pose drawings, not a frame-by-frame limb cycle. Braai alternates two fan drawings. Salt holds one pinch drawing. Pothole swaps two leans. A short crossfade still sits between drawings.
+- The win word often covers the landing. On the CROSSED! frame Gogo is still in the air drawing.
+- While the door is moving, a crop of the closed van's door slides over the open van. They share the livery. They are not one registered painting. The shut result and the rank traffic are the closed van.
+- Hats sit on each pose's crown point. They are still simple vector stickers, and every hat on every panic pose was not re-shot.
 - Uncle is painted more naturalistically than the candy-coloured rest of the cast.
-- A few keyed edges still carry a cyan speck (biltong, the odd cheek).
-- The menu lineup is crowded. Shoes sit close to the bottom of the cast strip.
+- A few keyed edges still carry a cyan speck.
