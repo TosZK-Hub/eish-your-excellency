@@ -91,6 +91,9 @@ function draw(){
   hud(r);
  }
  drawParts();
+ if(window.__box&&r&&r.phase==="play"&&r.g&&r.g.pub&&r.g.pub.dbg){ctx.save();ctx.strokeStyle="#ff2bd6";ctx.lineWidth=2;ctx.setLineDash([5,3]);
+  for(var bi=0;bi<r.g.pub.dbg.length;bi++){var b=r.g.pub.dbg[bi];if(!b)continue;ctx.strokeRect(b.x-b.w/2,b.y-b.h/2,b.w,b.h)}
+  ctx.setLineDash([]);ctx.fillStyle="#00e5ff";ctx.beginPath();ctx.arc(ptr.x,ptr.y,6,0,7);ctx.fill();ctx.restore()}
  if(flashT>0&&!SET.rm){ctx.fillStyle="rgba(255,250,240,"+(flashT*1.3)+")";ctx.fillRect(0,0,W,H)}
  if(BGC){BGC.style.display=BGUSE?"block":"none";var cs=(cv.clientWidth||1)/W;BGC.style.transform=shx||shy?"translate("+(shx*cs).toFixed(1)+"px,"+(shy*cs).toFixed(1)+"px)":""}
 }
@@ -103,18 +106,19 @@ function end(win){
 }
 function stepLogic(dt){
  var r=run;if(!r)return;
- if(r.phase==="intro"){r.pt+=dt;if(r.pt>=r.introT){r.phase="play";r.pt=0;ptr.down=false;ptr.wasDown=false;ptr.taps.length=0;ptr.swipes.length=0}return}
+ if(r.phase==="intro"){r.pt+=dt;if(r.pt>=r.introT){r.phase="play";r.pt=0;r.grace=SIM?0:0.22;ptr.taps.length=0;ptr.swipes.length=0;ptr.stroke=null;ptr.wasDown=ptr.down}return}
  if(r.phase==="play"){
   if(window.__freeze)return;
   if(BOT&&r.g.bot)r.g.bot(BOTI);
   ptr.pressed=ptr.down&&!ptr.wasDown;ptr.released=!ptr.down&&ptr.wasDown;
+  if(r.grace>0){r.grace-=dt;ptr.pressed=false;ptr.released=false;if(r.grace<=0&&ptr.down)ptr.pressed=true}
   if(ptr.pressed&&ptr.stamp){LAT.push(performance.now()-ptr.stamp);if(LAT.length>120)LAT.shift();ptr.stamp=0}
-  var pdt=(HIT>0&&!SET.rm)?dt*0.08:dt;HIT=Math.max(0,HIT-dt);
+  var pdt=(HIT>0&&!SET.rm)?dt*0.55:dt;HIT=Math.max(0,HIT-dt);
   var prev=RNG;RNG=r.rng||Math.random;r.g.update(pdt);RNG=prev;
   ptr.wasDown=ptr.down;r.pt+=pdt;
   var dur=r.g.dur;r.left=Math.max(0,dur-r.pt);
   if(r.g.fail)end(false);else if(r.g.done)end(true);else if(r.pt>=dur)end(!!r.g.timeoutWin);
-  ptr.taps.length=0;ptr.swipes.length=0;return}
+  ptr.taps.length=0;ptr.swipes.length=0;if(ptr.stroke&&ptr.stroke.up)ptr.stroke=null;return}
  if(r.phase==="res"){r.pt+=dt;if(r.pt>=r.resT&&!SIM){var cb=r.cb;r.phase="wait";cb(r.win)}}
 }
 function frame(now){

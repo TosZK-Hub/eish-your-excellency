@@ -63,7 +63,10 @@ var SFX={
 };
 function sfx(n,a){try{if(ac()&&!muted&&SFX[n])SFX[n](a)}catch(e){}}
 function vib(p){if(!SET.vib)return;try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
-function hitStop(s){if(SET.rm)return;HIT=Math.max(HIT,s||0.06)}
+function hitStop(s){if(SET.rm)return;HIT=Math.max(HIT,Math.min(0.045,s||0.04))}
+function bgFit(name){var im=ART.bg[name];if(!im)return{x:0,y:0,w:W,h:H};var s=Math.max(W/im.width,H/im.height),w=im.width*s,h=im.height*s;return{x:(W-w)/2,y:(H-h)/2,w:w,h:h}}
+function propBox(name,x,y,w,pad){var im=ART.prop[name];var bh=im?im.height*(w/im.width):w;pad=pad||0;return{x:x,y:y,w:w+pad*2,h:bh+pad*2}}
+function ground(){return H-8-SAB}
 
 // ---------- art ----------
 var ART={cast:{},bg:{},prop:{},bead:null}, META={};
