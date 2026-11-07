@@ -1,12 +1,15 @@
 # EISH! Ways to Go
-Rapid-fire, cute and silly South African microgame chaos. 24 one-thumb microgames, 3 lives, speed rises every round, boss rounds every 10th. Every fail is a cartoon "way to go" sticker for your album. Free, offline (service worker), tiny, fictional.
+Rapid-fire, cute and silly South African microgame chaos. Twelve one-thumb microgames, 3 lives, speed rises every round, boss rounds every 10th. Every fail is a cartoon "way to go" sticker for your album. Free, offline (service worker), fictional.
 
-Play: https://toszk-hub.github.io/eish-your-excellency/
+Play (production, previous build): https://toszk-hub.github.io/eish-your-excellency/
 
-Debug: `?mg=<id>&sp=1.8` plays one microgame; `?mg=survival` / `?mg=daily` start runs; `?death=<id>` shows a death screen; `&bot=1` lets the built-in bot play.
-IDs: pothole, lights, uncle, change, mozzie, snack, koeksister, rugby, fence, lolly, mud, unplug, salt, umbrella, carseat, sauce, wors, quantum, candle, vuvu, hawker, door, braai, spaza.
+Debug: `?mg=<id>&sp=1.8&seed=3` plays one microgame; `?mg=survival` / `?mg=daily` start runs; `?death=<id>` shows a death; `&bot=1` lets the built-in bot play; `&fair=1` turns that bot off so an outside driver can play from the public picture only.
+Active IDs: salt, quantum, wors, door, pothole, candle, braai, vuvu, fence, carseat, mozzie, lights.
 
-Build: `./build.sh` concatenates `src/*.js` into `game.js`.
+Build: `./build.sh` concatenates `src/00-core.js`, `src/10-stage.js`, `src/20-games.js` and `src/90-meta.js` into `game.js`. Illustrations are packed with `tools/packart.py`.
+
+## v2 — illustrated overhaul
+Painted sets, gouache cast (calm / happy / panic), and twelve gestures that are not the same tap. Salt stays the easy one: hold the shaker, let go inside the green. Saved `ewg_*` progress is kept. Stickers from the retired games stay in the album under "Kept from earlier sets". See `docs/OVERHAUL.md`.
 
 ## v0.4 - Sticker Collage vertical slice
 - All 6 cast members are rigged sticker cut-outs (`art/<who>-calm|panic.webp`): head/body parts, die-cut white border, baked drop shadow, pop-in, wobble, paper squash, 12 fps stop-motion timing, calm/panic expression swap. Canvas beans remain as fallback.
