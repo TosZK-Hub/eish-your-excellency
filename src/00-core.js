@@ -68,8 +68,9 @@ function hitStop(s){if(SET.rm)return;HIT=Math.max(HIT,s||0.06)}
 // ---------- art ----------
 var ART={cast:{},bg:{},prop:{},bead:null}, META={};
 var CASTS=["boet","auntie","uncle","tannie","gaatjie","gogo"];
+var EXTRA={gogo:["crouch","air","land","cup","swat"],uncle:["reach","fan","fanb","pull"],boet:["leanl","leanr","toot","sit"],gaatjie:["shove","slam"],auntie:["flip"],tannie:["pinch"]};
 var BGS=["kitchen","rank","braai","highway","road","night","stoep","car","stadium","bed"];
-var PROPS=["shaker","wors","dog","taxi","door","bakkie","candle","vuvu","mozzie","paper","biltong","petrol","pot","switch","hole"];
+var PROPS=["shaker","wors","dog","taxi","taxi-closed","taxi-teal","taxi-orange","taxi-panel","door","bakkie","candle","vuvu","mozzie","paper","biltong","petrol","pot","switch","hole"];
 var CAST={
  boet:{name:"Boet Bennie",line:"Rugby jersey, zero fear, even less planning."},
  auntie:{name:"Auntie Thandi",line:"Doek on point. Knows everybody's business."},
@@ -90,10 +91,11 @@ function loadBitmap(url){
  });
 }
 function loadArt(onp){
- return fetch("art/manifest.json").then(function(r){if(!r.ok)throw new Error("manifest");return r.json()}).then(function(m){
+ var got=window.ART_MANIFEST?Promise.resolve(window.ART_MANIFEST):fetch("art/manifest.json").then(function(r){if(!r.ok)throw new Error("manifest");return r.json()});
+ return got.then(function(m){
   META=m; var jobs=[], n=0, tot=CASTS.length*3+BGS.length+PROPS.length+1;
   function add(url,fn){n++;jobs.push(loadBitmap(url).then(function(im){fn(im);if(onp)onp(jobs.length,tot)}))}
-  CASTS.forEach(function(id){ART.cast[id]={};["calm","happy","panic"].forEach(function(p){add("art/cast/"+id+"-"+p+".webp",function(im){ART.cast[id][p]=im})})});
+  CASTS.forEach(function(id){ART.cast[id]={};["calm","happy","panic"].concat(EXTRA[id]||[]).forEach(function(p){add("art/cast/"+id+"-"+p+".webp",function(im){ART.cast[id][p]=im})})});
   BGS.forEach(function(id){add("art/bg/"+id+".webp",function(im){ART.bg[id]=im})});
   PROPS.forEach(function(id){add("art/prop/"+id+".webp",function(im){ART.prop[id]=im})});
   add("art/beadband.svg",function(im){ART.bead=im});
@@ -139,11 +141,9 @@ function paintChar(id,pose,x,y,h,o){
  ctx.drawImage(im,-m.fx*dw,-m.fy*dh,dw,dh);ctx.restore();
  var hat=o.hat!=null?o.hat:(OUT[id]||"none");
  if(hat&&hat!=="none"){
-  var hm=META["cast/"+id+"/calm"]||m;
-  var hx=x+(o.x||0)+(hm.hx-m.fx)*dw*flip*sx;
-  var hy=y+(o.y||0)+(hm.hy-m.fy)*dh*sy - h*0.02;
-  if(pose==="panic"){hy-=h*0.08;ctx.save();ctx.translate(hx,hy);ctx.rotate(-0.4);hatDraw(hat,h*0.34);ctx.restore()}
-  else hatAt(hat,hx,hy,h*0.34);
+  var hx=x+(o.x||0)+(m.hx-m.fx)*dw*flip*sx;
+  var hy=y+(o.y||0)+(m.hy-m.fy)*dh*sy;
+  hatAt(hat,hx,hy,h*0.26);
  }
 }
 function hatAt(h,x,y,s){ctx.save();ctx.translate(x,y);hatDraw(h,s);ctx.restore()}
@@ -176,15 +176,27 @@ function playPop(a,pose){clipTo(a,[
  {t:0.2,sy:1.1,sx:0.92,y:-18,rot:0,pose:pose||"happy"},{t:0.34,sy:0.94,sx:1.06,y:0,rot:0,pose:pose||"happy"},
  {t:0.5,sy:1,sx:1,y:0,rot:0,pose:pose||"happy"}])}
 function playOuch(a){clipTo(a,[
- {t:0,sy:1,sx:1,y:0,rot:0,pose:a.pose},{t:0.08,sy:1.16,sx:0.86,y:-12,rot:0,pose:"panic"},
- {t:0.18,sy:0.82,sx:1.16,y:4,rot:0,pose:"panic"},{t:0.36,sy:1,sx:1,y:0,rot:0,pose:"panic"}])}
+ {t:0,sy:1,sx:1,y:0,rot:0,x:0,pose:a.pose||"calm"},
+ {t:0.07,sy:1,sx:1,y:-6,rot:0,x:0,pose:"panic"},
+ {t:0.18,sy:1,sx:1,y:2,rot:0,x:0,pose:"panic"},
+ {t:0.34,sy:1,sx:1,y:0,rot:0,x:0,pose:"panic"}])}
+function setPose(a,p){if(!p||a.clip||a.pose===p)return;a.pose2=a.pose;a.pose=p;a.blend=SET.rm?1:0}
+function playClip(a,keys){clipTo(a,keys)}
+var CLIP={
+ hop:[{t:0,pose:"crouch",x:0,y:2,sx:1,sy:1,rot:0},{t:0.08,pose:"crouch",x:0,y:4,sx:1,sy:1,rot:0},{t:0.12,pose:"air",x:0,y:-14,sx:1,sy:1,rot:0},{t:0.22,pose:"air",x:0,y:-4,sx:1,sy:1,rot:0},{t:0.28,pose:"land",x:0,y:0,sx:1,sy:1,rot:0},{t:0.44,pose:"calm",x:0,y:0,sx:1,sy:1,rot:0}],
+ snatch:[{t:0,pose:"reach",x:0,y:0,sx:1,sy:1,rot:0},{t:0.1,pose:"happy",x:0,y:-8,sx:1,sy:1,rot:0},{t:0.28,pose:"happy",x:0,y:0,sx:1,sy:1,rot:0}],
+ slam:[{t:0,pose:"shove",x:0,y:0,sx:1,sy:1,rot:0},{t:0.08,pose:"slam",x:0,y:3,sx:1,sy:1,rot:0},{t:0.26,pose:"happy",x:0,y:0,sx:1,sy:1,rot:0}],
+ toot:[{t:0,pose:"calm",x:0,y:0,sx:1,sy:1,rot:0},{t:0.05,pose:"toot",x:0,y:-3,sx:1,sy:1,rot:0},{t:0.26,pose:"toot",x:0,y:0,sx:1,sy:1,rot:0},{t:0.4,pose:"calm",x:0,y:0,sx:1,sy:1,rot:0}],
+ swat:[{t:0,pose:"calm",x:0,y:0,sx:1,sy:1,rot:0},{t:0.05,pose:"swat",x:8,y:0,sx:1,sy:1,rot:0},{t:0.2,pose:"swat",x:0,y:0,sx:1,sy:1,rot:0},{t:0.34,pose:"calm",x:0,y:0,sx:1,sy:1,rot:0}],
+ flip:[{t:0,pose:"calm",x:0,y:0,sx:1,sy:1,rot:0},{t:0.07,pose:"flip",x:0,y:2,sx:1,sy:1,rot:0},{t:0.22,pose:"happy",x:0,y:0,sx:1,sy:1,rot:0}]
+};
 function tick(a,dt){
  if(a.clip){a.t+=dt;var k=sampleKeys(a.clip,a.t);
   if(k.pose&&k.pose!==a.pose){a.pose2=a.pose;a.pose=k.pose;a.blend=0}
   a.x=k.x||0;a.y=k.y||0;a.sx=k.sx==null?1:k.sx;a.sy=k.sy==null?1:k.sy;a.rot=k.rot||0;
   if(a.t>=a.clip[a.clip.length-1].t)a.clip=null;
  } else if(!SET.rm&&a.pose==="calm"){var b=Math.sin(CLK*1.6+(a.ph||0));a.sy=1+b*0.012;a.sx=1-b*0.008}
- if(a.blend<1)a.blend=Math.min(1,a.blend+dt*(SET.rm?20:7));
+ if(a.blend<1)a.blend=Math.min(1,a.blend+dt*(SET.rm?24:14));
 }
 function drawActor(id,a,x,y,h,o){
  o=o||{};

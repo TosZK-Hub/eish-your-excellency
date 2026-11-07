@@ -1,5 +1,5 @@
 // Twelve microgames. Bots read this.pub only (the same positions and meters that are drawn).
-function lanesY(i){return H*0.74-i*(H*0.112)}
+function lanesY(i){return H*[0.90,0.76,0.61,0.46][i]}
 
 def("salt",{name:"Over-Salted Pap",word:"LET GO",who:"tannie",bg:"kitchen",cap:"Let Gogo season the pap 'just a little'",dur:5.4,timeoutWin:false,how:"hold",hint:"Hold, then let go in the green",win:"JUST RIGHT",title:"SNOW!",sub:"that is not 'a little'",
 paintDeath:function(t){backdrop("kitchen");stamp("pot",180,H*0.48,220);ctx.fillStyle="#fff";ctx.beginPath();ctx.ellipse(180,H*0.4,78,16,0,0,7);ctx.fill();cameo("gogo",100,H*0.64,190,"panic",t);cameo("tannie",246,H*0.82,250,"panic",t,{delay:0.08})}},
@@ -8,8 +8,9 @@ function(sp){
  return {pub:{fill:0,lo:lo,hi:hi,pouring:false,shaker:{x:200,y:280}},
   update:function(dt){this.t+=dt;tick(tan,dt);tick(go,dt);
    if(ptr.pressed&&!pouring&&fill<0.02){pouring=true;sfx("pop")}
-   if(pouring){fill+=rate*dt;if(Math.random()<dt*16)burst(198,H*0.36,"#fffaf0",1);if(fill>0.93){this.fail=true;playOuch(tan)}}
-   if(ptr.released&&pouring){pouring=false;if(fill>=lo&&fill<=hi){this.done=true;playPop(tan,"happy");sfx("coin")}else{this.fail=true;playOuch(tan)}}
+   if(pouring){setPose(tan,"pinch");fill+=rate*dt;if(Math.random()<dt*16)burst(198,H*0.36,"#fffaf0",1);if(fill>0.93){this.fail=true;playOuch(tan)}}
+   else if(!this.done)setPose(tan,"calm");
+   if(ptr.released&&pouring){pouring=false;if(fill>=lo&&fill<=hi){this.done=true;playClip(tan,[{t:0,pose:"pinch",x:0,y:0,sx:1,sy:1,rot:0},{t:0.16,pose:"happy",x:0,y:-6,sx:1,sy:1,rot:0},{t:0.34,pose:"happy",x:0,y:0,sx:1,sy:1,rot:0}]);sfx("coin")}else{this.fail=true;playOuch(tan)}}
    tilt=lag(tilt,pouring?0.62:0.06,dt,9);
    this.pub={fill:fill,lo:lo,hi:hi,pouring:pouring,shaker:{x:198,y:H*0.34}}},
   draw:function(){backdrop("kitchen");stamp("pot",150,H*0.54,190);meter(16,H*0.26,34,H*0.4,fill,lo,hi);
@@ -18,7 +19,7 @@ function(sp){
   bot:function(api){var p=this.pub;if(!p.pouring)api.hold(true,p.shaker.x,p.shaker.y);else if(p.fill>=p.lo+0.05)api.hold(false);else api.hold(true,p.shaker.x,p.shaker.y)}}});
 
 def("quantum",{name:"Taxi Rank Crossing",word:"HOP",who:"gogo",bg:"rank",cap:"Stood in the taxi lane arguing about the fare",dur:8.4,timeoutWin:false,how:"swipe",hint:"Swipe up when the next lane glows",win:"CROSSED!",title:"FLAT!",sub:"but the fare, my child",
-paintDeath:function(t){backdrop("rank");stamp("taxi",180,H*0.3,200);cameo("gogo",180,H*0.62,200,"panic",t,{rot:1.25,sy:0.55})}},
+paintDeath:function(t){backdrop("rank");stamp("taxi-closed",180,H*0.32,220);cameo("gogo",180,H*0.62,200,"panic",t,{rot:1.25,sy:0.55})}},
 function(sp){
  var dir=RNG()<0.5?-1:1,taxis=[],lane=0,hop=0,from=0,gx=180,act=actor(3),speed=100*tempo(sp);
  var span=460,shift=230;
@@ -29,18 +30,18 @@ function(sp){
  return {pub:pub,
   update:function(dt){this.t+=dt;tick(act,dt);
    for(var i=0;i<taxis.length;i++){var t=taxis[i];t.x=wrapX(t.x+180+dir*speed*dt)}
-   if(hop>0){hop-=dt;if(hop<=0){hop=0;if(lane>=3){this.done=true;playPop(act,"happy")}else if(threat(lane,gx,14)){this.fail=true;playOuch(act);sfx("thud")}}}
+   if(hop>0){hop-=dt;if(hop<=0){hop=0;if(lane>=3){this.done=true;playClip(act,CLIP.hop)}else if(threat(lane,gx,14)){this.fail=true;playOuch(act)}}}
    else{var up=false;for(var s=0;s<ptr.swipes.length;s++)if(ptr.swipes[s].dy<-32)up=true;
-    if(up&&lane<3&&!threat(lane+1,gx,80)){from=lane;lane++;hop=0.12;sfx("swish");playPop(act,"calm")}
+    if(up&&lane<3&&!threat(lane+1,gx,80)){from=lane;lane++;hop=0.22;sfx("swish");playClip(act,CLIP.hop)}
     else if(threat(lane,gx,14)){this.fail=true;playOuch(act);sfx("thud")}}
    var list=[];for(var k=0;k<taxis.length;k++)list.push({x:taxis[k].x,y:lanesY(taxis[k].lane),w:120,h:40,lane:taxis[k].lane});
-   var gy=hop>0?lanesY(from)+(lanesY(lane)-lanesY(from))*(1-hop/0.12):lanesY(lane);
+   var gy=hop>0?lanesY(from)+(lanesY(lane)-lanesY(from))*clamp(1-hop/0.22,0,1):lanesY(lane);
    this.pub={lane:lane,gx:gx,gy:gy,hop:hop>0,nextClear:lane<3&&!threat(lane+1,gx,80),taxis:list}},
   draw:function(){backdrop("rank");
-   for(var i=0;i<4;i++){var y=lanesY(i);ctx.fillStyle=this.pub.nextClear&&i===lane+1?"rgba(242,194,48,.38)":"rgba(20,16,24,.32)";ctx.fillRect(0,y-26,W,52);
-    ctx.strokeStyle="rgba(255,250,240,.7)";ctx.setLineDash([14,12]);ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(10,y);ctx.lineTo(W-10,y);ctx.stroke();ctx.setLineDash([])}
-   for(var k=0;k<taxis.length;k++){var t=taxis[k];ctx.fillStyle="rgba(20,12,16,.35)";ctx.beginPath();ctx.ellipse(t.x,lanesY(t.lane)+16,36,8,0,0,7);ctx.fill();stamp("taxi",t.x,lanesY(t.lane)-8,128,{flip:dir>0})}
-   drawActor("gogo",act,gx,this.pub.gy+36,150)},
+   var fleet=["taxi-closed","taxi-teal","taxi-orange"];
+   if(this.pub.nextClear){var y=lanesY(lane+1);ctx.fillStyle="rgba(242,194,48,.33)";ctx.fillRect(0,y-H*0.045,W,H*0.09)}
+   for(var k=0;k<taxis.length;k++){var t=taxis[k];stamp(fleet[t.lane%3],t.x,lanesY(t.lane)-10,150,{flip:dir>0})}
+   drawActor("gogo",act,gx,this.pub.gy,168)},
   bot:function(api){var p=this.pub;if(!p.hop&&p.lane<3&&p.nextClear)api.swipe(p.gx,p.gy,0,-90)}}});
 
 def("wors",{name:"Rescue the Wors",word:"SNATCH",who:"uncle",bg:"braai",cap:"Turned his back on the wors 'for one second'",dur:4.2,timeoutWin:false,how:"drag",hint:"Drag him onto the wors",win:"SAVED!",title:"GONE!",sub:"the dog says thanks",
@@ -51,7 +52,8 @@ function(sp){
   update:function(dt){this.t+=dt;tick(act,dt);if(got||this.fail)return;
    var px=ux,py=uy;if(ptr.down){ux=lag(ux,ptr.x,dt,11);uy=lag(uy,ptr.y,dt,11)}vx=lag(vx,(ux-px)/Math.max(dt,0.016),dt,6);
    var dogT=this.t-wind,dogX=wx+170-(dogT>0?dogT*240*tempo(sp):0);
-   if(boxHit({x:ux,y:uy-40,w:70,h:80},{x:wx,y:wy,w:74,h:64})){got=true;this.done=true;playPop(act,"happy");sfx("coin");hitStop(0.06)}
+   if(ptr.down&&!got)setPose(act,"reach");
+   if(boxHit({x:ux,y:uy-40,w:70,h:80},{x:wx,y:wy,w:74,h:64})){got=true;this.done=true;playClip(act,CLIP.snatch);sfx("coin");hitStop(0.06)}
    else if(dogT>0&&dogX<wx+24){this.fail=true;playOuch(act);sfx("bark")}
    this.pub={uncle:{x:ux,y:uy,w:80,h:100},wors:{x:wx,y:wy,w:80,h:70},dog:{x:dogX,y:wy},wind:dogT<0}},
   draw:function(){backdrop("braai");stamp("wors",wx,wy,100,{rot:Math.sin(this.t*3)*0.08});
@@ -70,15 +72,13 @@ function(){
    var ax=(openX-hx)*3.4;if(ptr.down&&armed)ax+=(ptr.x+grab-hx)*22;
    hx=clamp(hx+ax*dt,42,276);
    if(hx<shutX+24)latch+=dt;else latch=0;
-   if(latch>0.16&&!this.done){this.done=true;playPop(act,"happy");sfx("thud");hitStop(0.07)}
-   if(hx>200&&Math.sin(this.t*8)>0.9)act.pose=act.clip?act.pose:"panic";
+   if(latch>0.16&&!this.done){this.done=true;playClip(act,CLIP.slam);sfx("thud");hitStop(0.07)}
+   else if(armed&&!this.done)setPose(act,"shove");
    this.pub={open:(hx-shutX)/(openX-shutX),hx:hx,hy:hy,shutX:shutX,armed:armed}},
-  draw:function(){backdrop("highway");var hy=this.pub.hy;
-   ctx.save();ctx.beginPath();ctx.rect(0,hy-90,Math.max(0,hx-20),180);ctx.clip();
-   ctx.fillStyle="rgba(20,24,32,.25)";ctx.fillRect(0,hy-70,W,140);
-   for(var x=-40;x<W;x+=40){ctx.fillStyle=GOLD;ctx.fillRect(x+scroll,hy+30,18,6)}ctx.restore();
-   stamp("door",hx+70,hy,200);ctx.strokeStyle="#e23b3b";ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(hx+150,hy);ctx.quadraticCurveTo(300,hy-30,320,hy+10);ctx.stroke();
-   drawActor("gaatjie",act,100,H*0.9,240)},
+  draw:function(){backdrop("highway");var hy=this.pub.hy,open=this.pub.open;
+   if(this.done){stamp("taxi-closed",190,hy,300)}
+   else{stamp("taxi",190,hy,300);stamp("taxi-panel",190-70+open*150,hy-6,118)}
+   drawActor("gaatjie",act,78,H*0.9,210)},
   bot:function(api){var p=this.pub;if(!p.armed)api.hold(true,p.hx,p.hy);else api.hold(true,32,p.hy)}}});
 
 def("pothole",{name:"Pothole Dash",word:"STEER",who:"boet",bg:"road",cap:"Tried to fix the pothole with a spade and positive thinking",dur:6.4,timeoutWin:true,how:"drag",hint:"Drag to steer. Miss the dark middles",win:"SMOOTH!",title:"BUMP!",sub:"positive thinking lost",
@@ -96,14 +96,15 @@ function(sp){
     if(!wh&&p.z>0.9&&p.z<1.05&&Math.abs(p.x-bx)<58){wh=true;sfx("whoosh")}
     if(p.z>1.2)obs.splice(i,1)}
    if(hit){this.fail=true;playOuch(act);sfx("thud");hitStop(0.06)}
+   else if(bx<155)setPose(act,"leanl");else if(bx>205)setPose(act,"leanr");else setPose(act,"calm");
    this.pub={x:bx,y:H*0.8,obs:list}},
   draw:function(){backdrop("road");var scroll=(this.t*240)%50;
    for(var i=0;i<8;i++){var z=i/8,y=H*0.5+z*H*0.32;ctx.fillStyle="rgba(255,250,240,.8)";ctx.fillRect(180-z*8,y+(scroll*z)%40,10+z*16,4)}
    var ordered=this.pub.obs.slice().sort(function(a,b){return a.z-b.z});
    for(var k=0;k<ordered.length;k++){var p=ordered[k];stamp("hole",p.x,p.y,78*p.sc)}
    var lean=clamp((bx-180)/180, -0.18,0.18);
-   stamp("bakkie",bx,H*0.8,150,{rot:lean});
-   if(this.done)drawActor("boet",act,bx,H*0.78,80)},
+   stamp("bakkie",bx,H*0.72,130,{rot:lean});
+   drawActor("boet",act,bx,H*0.97,210)},
   bot:function(api){var p=this.pub,threat=null;(p.obs||[]).forEach(function(o){if(o.z>0.42&&o.z<0.92&&(!threat||o.z>threat.z))threat=o});
    var target=p.x;if(threat&&Math.abs(threat.x-p.x)<78)target=threat.x>=p.x?64:296;api.hold(true,target,p.y)}}});
 
@@ -115,10 +116,11 @@ function(sp){
   update:function(dt){this.t+=dt;tick(act,dt);if(!alive)return;
    var gust=false,hit=false,travel=0.78/sp1;
    for(var i=0;i<gusts.length;i++){var u=(this.t-gusts[i]);if(u>=0&&u<=travel){gust=true;var x=-40+(u/travel)*(180+40);if(Math.abs(x-180)<36)hit=true;this._gx=x}}
+   if(ptr.down&&gust)setPose(act,"cup");else if(alive)setPose(act,"calm");
    if(hit&&!ptr.down){alive=false;this.fail=true;playOuch(act);sfx("puff")}
    if(ptr.down&&!gust)smother+=dt*0.95;else smother=Math.max(0,smother-dt*0.55);
    if(smother>=1){alive=false;this.fail=true;playOuch(act);sfx("puff")}
-   if(alive&&this.t>gusts[gusts.length-1]+travel+0.25){this.done=true;playPop(act,"happy")}
+   if(alive&&this.t>gusts[gusts.length-1]+travel+0.25){this.done=true;playClip(act,[{t:0,pose:"cup",x:0,y:0,sx:1,sy:1,rot:0},{t:0.22,pose:"happy",x:0,y:0,sx:1,sy:1,rot:0}])}
    this.pub={gust:gust,hit:hit,smother:smother,flame:{x:180,y:H*0.42},gx:this._gx||0}},
   draw:function(){backdrop("night");
    if(this.pub.gust){ctx.strokeStyle="rgba(255,250,240,.85)";ctx.lineWidth=8;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(this.pub.gx-50,H*0.42);ctx.lineTo(this.pub.gx,H*0.42-8);ctx.lineTo(this.pub.gx-50,H*0.42-16);ctx.stroke()}
@@ -140,7 +142,8 @@ function(sp){
     var rr=Math.hypot(ptr.x-cx,ptr.y-cy);
     if(lx!=null&&rr>24&&rr<115){var moved=Math.hypot(ptr.x-lx,ptr.y-ly);if(moved>0.5&&moved<90)heat+=moved*0.62}
     lx=ptr.x;ly=ptr.y}else{lx=null;ly=null}
-   if(heat>=100){this.done=true;playPop(act,"happy");sfx("sizzle");hitStop(0.05)}
+   if(ptr.down){var fang=Math.atan2(ptr.y-cy,ptr.x-cx);setPose(act,Math.sin(fang)>0?"fan":"fanb")}
+   if(heat>=100){this.done=true;playClip(act,[{t:0,pose:act.pose,x:0,y:0,sx:1,sy:1,rot:0},{t:0.2,pose:"happy",x:0,y:-4,sx:1,sy:1,rot:0}]);sfx("sizzle");hitStop(0.05)}
    this.pub={heat:heat,coals:{x:cx,y:cy},petrol:petrol}},
   draw:function(){backdrop("braai");
    ctx.strokeStyle="rgba(255,250,240,.7)";ctx.setLineDash([6,8]);ctx.lineWidth=3;ctx.beginPath();ctx.arc(cx,cy,62,0,7);ctx.stroke();ctx.setLineDash([]);
@@ -161,9 +164,9 @@ function(sp){
    var on=false,inside=null;
    for(var i=0;i<notes.length;i++){var n=notes[i],u=(this.t-n.t0)/travel;n.u=u;
     if(u>=0&&u<=1){n.x=-30+u*410;n.y=zy;on=true;if(!n.hit&&Math.abs(n.x-zone.x)<zone.r)inside=n;if(!n.hit&&!n.counted&&u>0.84){n.counted=true;misses++}}}
-   if(ptr.taps.length){if(inside){inside.hit=true;hits++;sfx("pop");burst(zone.x,zone.y,GOLD,6)}else if(on){misses++;sfx("tick")}}
+   if(ptr.taps.length){if(inside){inside.hit=true;hits++;sfx("pop");playClip(act,CLIP.toot)}else if(on){misses++;sfx("tick")}}
    if(misses>=2){this.fail=true;playOuch(act)}
-   else if(hits>=4||(hits>=3&&this.t>notes[3].t0+travel)){this.done=true;playPop(act,"happy")}
+   else if(hits>=4||(hits>=3&&this.t>notes[3].t0+travel)){this.done=true;if(!act.clip)playClip(act,CLIP.toot)}
    this.pub={notes:notes.filter(function(n){return n.u>=0&&n.u<=1}).map(function(n){return {x:n.x,y:n.y,r:16,hit:n.hit}}),zone:zone}},
   draw:function(){backdrop("stadium");ctx.strokeStyle=GOLD;ctx.lineWidth=6;ctx.beginPath();ctx.arc(zone.x,zone.y,zone.r,0,7);ctx.stroke();
    for(var i=0;i<notes.length;i++)if(notes[i].u>=0&&notes[i].u<=1){ctx.fillStyle=notes[i].hit?"#b6e2a1":PAPER;ctx.beginPath();ctx.arc(notes[i].x,notes[i].y,14,0,7);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke()}
@@ -179,7 +182,7 @@ function(sp){
    var wave=Math.sin(this.t*2.4),lung=wave>0.72;
    if(wave>0.42&&wave<=0.72&&!act.clip)clipTo(act,[{t:0,sy:1,sx:1,y:0,rot:0,pose:"calm"},{t:0.16,sy:0.9,sx:1.08,y:4,rot:-0.05,pose:"panic"},{t:0.28,sy:1,sx:1,y:0,rot:0,pose:"calm"}]);
    x+=dt*(creep+(lung?110:0));creep+=dt*10*tempo(sp);
-   if(ptr.down)x=lag(x,clamp(ptr.x,48,wire-16),dt,10);
+   if(ptr.down){x=lag(x,clamp(ptr.x,48,wire-16),dt,10);setPose(act,"pull")}else setPose(act,"calm");
    if(x>=wire){this.fail=true;playOuch(act);sfx("zap");hitStop(0.08)}
    this.pub={x:x,y:H*0.8,wire:wire,safe:72,lunge:lung}},
   draw:function(){backdrop("stoep");
@@ -201,7 +204,7 @@ function(){
    if(!covered&&boxHit(paper,seat)){covered=true;paper.x=seat.x;paper.y=seat.y;sfx("pop");burst(seat.x,seat.y,PAPER,8)}
    var sit=false;if(ptr.pressed&&boxHit({x:ptr.x,y:ptr.y,w:12,h:12},seat))sit=true;
    for(var i=0;i<ptr.taps.length;i++)if(boxHit(ptr.taps[i],seat))sit=true;
-   if(sit&&!grab){if(covered){this.done=true;playPop(act,"happy")}else{this.fail=true;playOuch(act);sfx("splat")}}
+   if(sit&&!grab){if(covered){this.done=true;setPose(act,"sit")}else{this.fail=true;playOuch(act);sfx("splat")}}
    this.pub={paper:{x:paper.x,y:paper.y,w:paper.w,h:paper.h},seat:seat,covered:covered,held:held}},
   draw:function(){backdrop("car");
    ctx.strokeStyle=covered?"#2e6b32":"#e23b3b";ctx.lineWidth=4;ctx.setLineDash([8,6]);ctx.strokeRect(seat.x-seat.w/2,seat.y-seat.h/2,seat.w,seat.h);ctx.setLineDash([]);
@@ -219,7 +222,7 @@ function(sp){
  return {pub:{ring:ring},
   update:function(dt){this.t+=dt;tick(act,dt);if(this.fail||this.done)return;
    age+=dt;var shrink=0.72,r=age<shrink?70-(age/shrink)*42:26;ring.x=spots[n].x;ring.y=spots[n].y;ring.r=r;ring.hot=age>=shrink;
-   if(ring.hot){for(var s=0;s<ptr.swipes.length;s++){var sw=ptr.swipes[s];if(segHits(sw.x,sw.y,sw.dx,sw.dy,ring.x,ring.y,ring.r+8)){hits++;n++;age=0;sfx("swish");burst(ring.x,ring.y,GOLD,8);hitStop(0.04);if(hits>=3){this.done=true;playPop(act,"happy")}return}}}
+   if(ring.hot){for(var s=0;s<ptr.swipes.length;s++){var sw=ptr.swipes[s];if(segHits(sw.x,sw.y,sw.dx,sw.dy,ring.x,ring.y,ring.r+8)){hits++;n++;age=0;sfx("swish");burst(ring.x,ring.y,GOLD,8);hitStop(0.04);if(hits>=3){this.done=true;playClip(act,CLIP.swat)}else playClip(act,CLIP.swat);return}}}
    if(age>shrink+hotFor){this.fail=true;playOuch(act);sfx("puff")}
    this.pub={ring:{x:ring.x,y:ring.y,r:ring.r,hot:ring.hot}}},
   draw:function(){backdrop("bed");var ring=this.pub.ring;
@@ -239,7 +242,7 @@ function(sp){
     for(var s=0;s<ptr.swipes.length&&!this.fail&&!this.done;s++){var sw=ptr.swipes[s];if(sw.dy<28)continue;
      var best=-1,bd=1e9;for(var i=0;i<4;i++){var dd=Math.abs(sw.y-ys(i));if(Math.abs(sw.x-180)<70&&dd<46&&dd<bd){bd=dd;best=i}}
      if(best<0)continue;
-     if(best===idx){round++;sfx("pop");burst(180,ys(best),GOLD,6);if(round>=2){this.done=true;playPop(act,"happy")}else pause=0.42}
+     if(best===idx){round++;sfx("pop");playClip(act,CLIP.flip);if(round>=2){this.done=true}else pause=0.42}
      else {this.fail=true;playOuch(act);sfx("zap")}}}
    var sws=[];for(var i=0;i<4;i++)sws.push({x:180,y:ys(i),w:130,h:84,hot:pause<=0&&i===idx,danger:pause<=0&&i===idx?danger:0});
    this.pub={switches:sws}},

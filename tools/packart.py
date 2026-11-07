@@ -61,18 +61,28 @@ def anchors(alpha):
     y0, y1 = int(ys.min()), int(ys.max())
     sub = alpha[y0:y1 + 1, x0:x1 + 1]
     h, w = sub.shape
-    row = h - 1
-    cols = np.where(sub[row] > 24)[0]
-    while len(cols) == 0 and row > 0:
-        row -= 1
-        cols = np.where(sub[row] > 24)[0]
-    fx = float(cols.mean()) / w
-    fy = float(row) / max(1, h - 1)
-    c0, c1 = int(w * 0.32), int(w * 0.68)
-    band = sub[:, max(0, c0):max(c0 + 1, c1)]
-    rows = np.where((band > 24).any(1))[0]
-    hy = float(rows[0]) / h if len(rows) else 0.12
-    return x0, y0, x1 + 1, y1 + 1, fx, fy, 0.5, hy
+    # Feet: lowest pixels in the middle half, so a stick or ball at the side does not become the ground.
+    c0, c1 = int(w * 0.30), int(w * 0.70)
+    mid = sub[:, c0:c1]
+    mrows = np.where((mid > 24).any(1))[0]
+    if len(mrows) == 0:
+        mrows = np.where((sub > 24).any(1))[0]
+    foot_row = int(mrows[-1])
+    y_from = max(0, foot_row - max(2, int(h * 0.04)))
+    fcols = np.where((mid[y_from:foot_row + 1] > 24).any(0))[0]
+    fx = float(fcols.mean() + c0) / w if len(fcols) else 0.5
+    fy = float(foot_row) / max(1, h - 1)
+    # Crown: top of a narrow center column, so raised arms do not steal the hat.
+    k0, k1 = int(w * 0.42), int(w * 0.58)
+    crown = sub[:, k0:k1]
+    crows = np.where((crown > 24).any(1))[0]
+    if len(crows):
+        hy = float(crows[0]) / h
+        cc = np.where(crown[int(crows[0])] > 24)[0]
+        hx = float(cc.mean() + k0) / w if len(cc) else 0.5
+    else:
+        hy, hx = 0.08, 0.5
+    return x0, y0, x1 + 1, y1 + 1, fx, fy, hx, hy
 
 def save_webp(im, path, q):
     os.makedirs(os.path.dirname(path), exist_ok=True)

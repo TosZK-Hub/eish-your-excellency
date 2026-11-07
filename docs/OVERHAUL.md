@@ -4,7 +4,7 @@ This is a gameplay and art rebuild of the playable game. It is not a score. Prod
 
 ## What changed
 
-The vector sticker-puppet is gone. The six characters are painted illustrations in three poses (calm, happy, panic), feet-anchored, with a short anticipation squash before a pose change and a contact squash when something lands. Dragged characters and the taxi door follow the finger with a lag, then settle. Backgrounds are painted scenes, drawn once onto a separate canvas. Props are individual keyed stickers.
+The vector sticker-puppet is gone. The six characters are painted illustrations. Each active verb has at least one action drawing (crouch, air, land, reach, fan, pull, lean, toot, sit, shove, slam, cup, swat, flip, pinch) played as a short clip: the wind-up drawing, then the action drawing, then the settle. Scale stays at 1. A dragged character still lags the finger. Backgrounds paint once onto a second canvas. Taxi Rank is a flat side-on street with closed vans in cream, blue and orange cut from one drawing. The shut-door result is that same van with the door closed.
 
 The roster is **12 games**, chosen so each one is a different physical verb. Salt stays the approachable one.
 
