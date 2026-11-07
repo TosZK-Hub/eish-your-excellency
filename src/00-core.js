@@ -73,7 +73,7 @@ var ART={cast:{},bg:{},prop:{},bead:null}, META={};
 var CASTS=["boet","auntie","uncle","tannie","gaatjie","gogo"];
 var EXTRA={gogo:["crouch","air","land","cup","swat"],uncle:["reach","fan","fanb","pull"],boet:["leanl","leanr","toot","sit"],gaatjie:["shove","slam"],auntie:["flip"],tannie:["pinch"]};
 var BGS=["kitchen","rank","braai","highway","road","night","stoep","car","stadium","bed"];
-var PROPS=["shaker","wors","dog","taxi","taxi-closed","taxi-teal","taxi-orange","taxi-panel","door","bakkie","candle","vuvu","mozzie","paper","biltong","petrol","pot","switch","hole"];
+var PROPS=["shaker","wors","dog","taxi","taxi-closed","taxi-teal","taxi-orange","taxi-panel","taxi-shell","taxi-slab","taxi-inside","door","bakkie","candle","vuvu","mozzie","paper","biltong","petrol","pot","switch","hole"];
 var CAST={
  boet:{name:"Boet Bennie",line:"Rugby jersey, zero fear, even less planning."},
  auntie:{name:"Auntie Thandi",line:"Doek on point. Knows everybody's business."},
