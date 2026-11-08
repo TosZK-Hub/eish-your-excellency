@@ -1,5 +1,9 @@
 html, body { margin: 0; height: 100%; background: #1b2430; overflow: hidden; touch-action: none; font-family: "Trebuchet MS", Verdana, sans-serif; color: #241820; }
-#view, #view canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#view { position: fixed; inset: 0; }
+#view canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+/* Menu keeps the whole runner in the 3D view. The card sits below it, not on top of the mesh. */
+body.menu #view { top: 62px; bottom: auto; height: calc(100vh - 62px - 430px); }
+.build { position: fixed; z-index: 6; left: 8px; bottom: 6px; margin: 0; color: #fffaf2; font-size: 12px; font-weight: 800; text-shadow: 0 1px 2px #241820; pointer-events: none; }
 #sat { position: fixed; top: 0; height: env(safe-area-inset-top); width: 0; }
 #sab { position: fixed; bottom: 0; height: env(safe-area-inset-bottom); width: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -68,7 +72,8 @@ button.mode b { font-size: 18px; }
 }
 #pad button { width: 64px; height: 56px; font-size: 20px; background: rgba(255, 250, 242, 0.88); }
 @media (min-width: 900px) and (orientation: landscape) {
+  body.menu #view { top: 0; height: 100vh; right: 460px; left: 0; width: auto; }
   .sheet { flex-direction: row; align-items: center; justify-content: flex-end; padding-right: 28px; }
-  .sheet .mark { position: absolute; top: 18px; left: 50%; transform: translateX(-70%); }
+  .sheet .mark { position: absolute; top: 18px; left: 24px; transform: none; }
   .card { margin: 0; }
 }

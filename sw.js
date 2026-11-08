@@ -1,4 +1,4 @@
-var C = "ewg-v16";
+var C = "ewg-v17";
 var F = ["./","index.html","style.css","game.js","boot.js","vendor/three.module.js","icon.svg","manifest.webmanifest"];
 self.addEventListener("install", function (e) {
   self.skipWaiting();
@@ -12,11 +12,11 @@ self.addEventListener("activate", function (e) {
 self.addEventListener("fetch", function (e) {
   var u = new URL(e.request.url);
   if (u.origin !== location.origin) return;
-  e.respondWith(caches.match(e.request).then(function (hit) {
-    return hit || fetch(e.request).then(function (r) {
-      var copy = r.clone();
-      if (r.ok) caches.open(C).then(function (c) { c.put(e.request, copy); });
-      return r;
-    }).catch(function () { return caches.match("./"); });
+  e.respondWith(fetch(e.request).then(function (r) {
+    var copy = r.clone();
+    if (r.ok) caches.open(C).then(function (c) { c.put(e.request, copy); });
+    return r;
+  }).catch(function () {
+    return caches.match(e.request).then(function (hit) { return hit || caches.match("./"); });
   }));
 });

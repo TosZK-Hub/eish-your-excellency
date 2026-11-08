@@ -64,7 +64,8 @@
   var canvas = started.canvas;
 
   function resize() {
-    var w = window.innerWidth, h = window.innerHeight;
+    var w = view.clientWidth || window.innerWidth;
+    var h = view.clientHeight || window.innerHeight;
     var dpr = window.devicePixelRatio || 1;
     if (app.reduced) dpr = Math.min(dpr, 1.25);
     WORLD.resize(w, h, dpr);
@@ -147,8 +148,12 @@
   }
 
   function show(id, on) { var el = $(id); if (el) el.hidden = !on; }
+  var buildTag = $("buildTag");
+  if (buildTag) buildTag.textContent = q.build ? ("build " + q.build) : "";
 
   function paintUI() {
+    document.body.classList.toggle("menu", app.screen === "title" || app.screen === "how");
+    resize();
     var title = app.screen === "title";
     show("title", title);
     show("how", app.screen === "how");

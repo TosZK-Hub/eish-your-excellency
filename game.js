@@ -980,7 +980,7 @@
         hipY = 0.92 + Math.sin((info.t || 0) * 1.6) * 0.012;
         hipTwist = w * 0.03;
         spineTwist = -w * 0.03;
-        headP.rotation.y = -0.35;
+        headP.rotation.y = 0.12;
         headP.rotation.x = -0.06;
         bob = 0;
       }
@@ -1633,15 +1633,10 @@
     var wide = !VIEW.mobile && camera.aspect > 1.15;
     var title = app.screen === "title" || app.screen === "how";
     if (title) {
-      // Character is turned to face +Z. Camera sits on that side and looks down the street behind them.
-      if (wide) {
-        camera.position.set(1.85, 1.4, 3.1);
-        camera.lookAt(-0.25, 1.12, -0.6);
-      } else {
-        camera.position.set(1.35, 1.48, 3.15);
-        camera.lookAt(0.0, 1.05, -0.2);
-      }
-      camera.fov = wide ? 42 : 44;
+      // In front of the face, a little to screen-right, so both eyes and the whole body read.
+      camera.position.set(0.62, 1.02, 3.25);
+      camera.lookAt(-0.02, 0.86, 0);
+      camera.fov = wide ? 32 : 30;
     } else {
       var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.025;
       camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.62, wide ? 4.6 : 4.05);
@@ -1682,8 +1677,8 @@
       travel = app.menuT || 0;
       var blink = !app.reduced && Math.sin(app.time * 0.7) > 0.96;
       runner.animate({ mode: "idle", phase: 0, t: app.time, blink: blink });
-      runner.object.position.set(0, 0, 0);
-      runner.object.rotation.y = Math.PI - 0.55;
+      runner.object.position.set(-0.12, 0, 0);
+      runner.object.rotation.y = Math.PI + 0.32;
       frameCamera(app, 0);
       sun.target.position.set(0, 0, -4);
     }
@@ -1779,7 +1774,8 @@
   var canvas = started.canvas;
 
   function resize() {
-    var w = window.innerWidth, h = window.innerHeight;
+    var w = view.clientWidth || window.innerWidth;
+    var h = view.clientHeight || window.innerHeight;
     var dpr = window.devicePixelRatio || 1;
     if (app.reduced) dpr = Math.min(dpr, 1.25);
     WORLD.resize(w, h, dpr);
@@ -1862,8 +1858,12 @@
   }
 
   function show(id, on) { var el = $(id); if (el) el.hidden = !on; }
+  var buildTag = $("buildTag");
+  if (buildTag) buildTag.textContent = q.build ? ("build " + q.build) : "";
 
   function paintUI() {
+    document.body.classList.toggle("menu", app.screen === "title" || app.screen === "how");
+    resize();
     var title = app.screen === "title";
     show("title", title);
     show("how", app.screen === "how");

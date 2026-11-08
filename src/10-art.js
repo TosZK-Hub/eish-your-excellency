@@ -326,7 +326,7 @@
         hipY = 0.92 + Math.sin((info.t || 0) * 1.6) * 0.012;
         hipTwist = w * 0.03;
         spineTwist = -w * 0.03;
-        headP.rotation.y = -0.35;
+        headP.rotation.y = 0.12;
         headP.rotation.x = -0.06;
         bob = 0;
       }
