@@ -1,7 +1,7 @@
 {
- "name": "EISH! Ways to Go",
+ "name": "EISH! Jozi Run",
  "short_name": "EISH!",
- "description": "Rapid-fire, cute and silly South African microgames. Free, offline, tiny.",
+ "description": "An original Johannesburg endless runner. Three lanes, three modes, free and offline.",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",

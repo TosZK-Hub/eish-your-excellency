@@ -1,42 +1,32 @@
-# EISH! Ways to Go
-Rapid-fire, cute and silly South African microgame chaos. Twelve one-thumb microgames, 3 lives, speed rises every round, boss rounds every 10th. Every fail is a cartoon "way to go" sticker for your album. Free, offline (service worker), fictional.
+# EISH! Jozi Run
 
-Play (production, previous build): https://toszk-hub.github.io/eish-your-excellency/
+An original three-lane runner set on a Johannesburg street. This branch replaces the microgame set with one playable run so the new direction can be reviewed before anything replaces production.
 
-Debug: `?mg=<id>&sp=1.8&seed=3` plays one microgame; `?mg=survival` / `?mg=daily` start runs; `?death=<id>` shows a death; `&bot=1` lets the built-in bot play; `&fair=1` turns that bot off so an outside driver can play from the public picture only.
-Active IDs: salt, quantum, wors, door, pothole, candle, braai, vuvu, fence, carseat, mozzie, lights.
+Production Pages is unchanged. Do not treat this branch as the live game.
 
-Build: `./build.sh` concatenates `src/00-core.js`, `src/10-stage.js`, `src/20-games.js` and `src/90-meta.js` into `game.js`. Illustrations are packed with `tools/packart.py`.
+## Play
 
-## v2 — illustrated overhaul
-Painted sets, gouache cast (calm / happy / panic), and twelve gestures that are not the same tap. Salt stays the easy one: hold the shaker, let go inside the green. Saved `ewg_*` progress is kept. Stickers from the retired games stay in the album under "Kept from earlier sets". See `docs/OVERHAUL.md`.
+Open `index.html` (after `./build.sh` if you changed `src/`). Pick a runner, then a mode.
 
-## v0.4 - Sticker Collage vertical slice
-- All 6 cast members are rigged sticker cut-outs (`art/<who>-calm|panic.webp`): head/body parts, die-cut white border, baked drop shadow, pop-in, wobble, paper squash, 12 fps stop-motion timing, calm/panic expression swap. Canvas beans remain as fallback.
-- Re-skinned: Rescue the Wors (`?mg=wors`) and Taxi Rank Crossing (`?mg=quantum`, now 4 lanes) with layered photo-texture backgrounds, tape and marker accents, plus their deaths.
-- Menu/UI: kraft-paper background, cut-out title letters, sticker buttons, original beadwork/Ndebele-inspired pattern bands.
-- Art is ~550 KB WebP, cached offline by the service worker (`ewg-v5`). Packed as base64 tars in `art/pack*.b64` and unpacked by the Pages workflow at deploy time.
+- **Jozi Run** — endless. Distance and coins. A bead bracelet absorbs one hit.
+- **Taxi Rush** — 75 seconds. Run through waving passengers to bank fares. A crash costs time, not the whole shift. The clock ending is you making the rank.
+- **Green Robot** — the open boom is the only safe lane. Three wrong robots end the run. Hurdles between robots are lighter.
 
+Swipe, or the arrow keys / WASD. Up jumps drums, barriers and potholes. Down slides under signs, scaffolds and branches. Esc pauses. On-screen arrows are there for a thumb that does not want to swipe.
 
-## v0.5 — slice quality pass
-- Characters rebuilt as one vector sticker-puppet rig (shared skeleton, separate limbs, die-cut outline, ink line, halftone shade) with eased pose blending, squash/stretch and 12 fps stop-motion stepping. `?sheet=1` shows the model sheet.
-- Vector props (wors, dog, fictional minibus taxi), calmer backgrounds with clear focal areas.
-- Juice: paper-tear transitions, impact frames, confetti, speed lines, shake, sticker HUD, bead-band timer.
-- Debug: `?death=dog|flat` jumps to a death screen.
-- Fonts: Luckiest Guy and Permanent Marker (both Apache License 2.0), ASCII-subset WOFF in `art/`.
+A kota pulls coins in for a few seconds. The road paints the next verb: gold marks a jump, blue a slide, red a taxi.
 
-## v0.6 — performance pass
-- Rig groups (head, torso, hands, shoes, props), dog, taxi and wors pre-rendered into an LRU ImageBitmap sprite cache; limbs stay live.
-- Backgrounds on a separate canvas layer redrawn only on change; HUD timer strip, bead pattern, text strips and captions cached.
-- Shadows merged into sprites (no per-frame shadow passes); halftone baked into sprites.
-- Canvas backing capped at DPR 2 with adaptive quality (drops when frame EMA > 20 ms, persisted in localStorage `ewg_q`).
-- Menu animation redraws only on 12 fps frame changes. Cache bumped to ewg-v7.
+`?bot=1&play=1&mode=rush&seed=3&mute=1` lets the built-in runner drive. `?sheet=1` is the pose sheet. `?freeze=2` holds a frame a couple of seconds in.
 
-## v1.0 — full game
-- All 16 original microgames ported to the sticker rig with polished death vignettes; Taxi Rank death redrawn; difficulty rebalanced (salt stays easy); varied verbs (CATCH, SWAT, DIP, DUCK, ROCK, SHAKE, HOLD...).
-- 6 new microgames: Candle (hold through gusts), Vuvuzela (rhythm), Robot Hawker (swipe offers away), Taxi Door (drag against the spring), Fan the Braai (draw circles), Spaza Queue (tap the list in order).
-- Meta: 3-card onboarding, game-over screen with new-sticker reveal, sticker album with replayable death vignettes, cosmetic hats wardrobe, daily seeded set with streak, settings (sound, music, vibration, reduced motion), haptics, more SFX and music variants.
-- Share card (1080x1350 PNG via Web Share, download fallback).
-- PNG icons 48-512 plus maskable 192/512, manifest polish, splash; cache `ewg-v8`.
-- Android: offline WebView debug APK built from `android/` (see `docs/PLAY_STORE.md`).
-- QA: bot wins every game at speeds 1.0/1.8/2.6/3.1, no console errors, ≥45 fps on every screen under 6x CPU throttle.
+## Layout
+
+- `src/00-logic.js` — modes, fair chunks, collision. No drawing. `node tools/sim-runner.js` checks it.
+- `src/10-art.js` — Lerato, Jabu, Naledi, taxis and street props.
+- `src/15-world.js` — trailing camera, street, HUD.
+- `src/20-main.js` — input, sound, screens.
+
+`./build.sh` writes `game.js`. Lane positions live in `EISH.LANE_X`. The camera fit lives in `camera()` in `src/15-world.js`. Obstacle patterns and the gap between them live in `src/00-logic.js`.
+
+Sound is a small original loop made in the browser. Nothing here is a commercial runner's characters, name, or music.
+
+The illustrated microgame art is still in `art/` from the previous build. This mode does not load it.
