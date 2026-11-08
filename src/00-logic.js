@@ -148,7 +148,7 @@
       phase: 0,
       queued: 0,
       ents: [],
-      cursor: 34,
+      cursor: 50,
       nextGate: 72,
       prevChunk: null,
       tut: 0,

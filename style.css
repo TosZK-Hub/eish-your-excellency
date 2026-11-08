@@ -1,5 +1,74 @@
-html, body { margin: 0; height: 100%; background: #1b2430; overflow: hidden; touch-action: none; }
-#c { display: block; width: 100%; height: 100%; touch-action: none; }
-#sat { position: fixed; top: 0; left: 0; height: env(safe-area-inset-top); width: 0; }
-#sab { position: fixed; bottom: 0; left: 0; height: env(safe-area-inset-bottom); width: 0; }
+html, body { margin: 0; height: 100%; background: #1b2430; overflow: hidden; touch-action: none; font-family: "Trebuchet MS", Verdana, sans-serif; color: #241820; }
+#view, #view canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#sat { position: fixed; top: 0; height: env(safe-area-inset-top); width: 0; }
+#sab { position: fixed; bottom: 0; height: env(safe-area-inset-bottom); width: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#boot, #glfail {
+  position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; background: #1b2430; color: #fffaf2; text-align: center; padding: 24px;
+}
+#boot[hidden], #glfail[hidden], [hidden] { display: none !important; }
+#glfail h1 { font-size: 28px; margin: 0 0 8px; }
+#ui { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+#ui button, #ui .card { pointer-events: auto; }
+button {
+  font: inherit; font-weight: 800; border: 3px solid #241820; border-radius: 14px; background: #fffaf2;
+  color: #241820; padding: 10px 12px; cursor: pointer;
+}
+button.hot, button.mode.hot { background: #ffb703; }
+button:active { transform: scale(0.98); }
+.mark { display: flex; gap: 4px; justify-content: center; margin: 0; }
+.mark span {
+  display: inline-block; min-width: 36px; text-align: center; color: #fffaf2; border-radius: 8px;
+  padding: 6px 6px 4px; font-size: 32px; border: 3px solid #fffaf2; box-shadow: 0 0 0 2px #241820;
+}
+.mark span:nth-child(1) { background: #e23b3b; transform: rotate(-6deg); }
+.mark span:nth-child(2) { background: #128f86; transform: rotate(4deg); }
+.mark span:nth-child(3) { background: #f0c14d; color: #241820; transform: rotate(-2deg); }
+.mark span:nth-child(4) { background: #7a4ad4; transform: rotate(5deg); }
+.mark span:nth-child(5) { background: #241820; transform: rotate(-4deg); }
+.sheet { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); gap: 8px; }
+.sheet .mark { margin-bottom: auto; padding-top: 8px; }
+.card {
+  width: min(420px, 100%); margin: 0 auto; background: rgba(255, 248, 236, 0.94);
+  border: 4px solid #241820; border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.card h2 { margin: 0; text-align: center; }
+.card p { margin: 0; text-align: center; }
+.who { display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; gap: 8px; text-align: center; }
+.who b { display: block; font-size: 22px; }
+.who small, .line, button small { display: block; font-weight: 600; color: #5c4a42; font-size: 13px; }
+button.mode { text-align: center; }
+button.mode b { font-size: 18px; }
+.row { display: flex; gap: 8px; }
+.row button { flex: 1; }
+#hud {
+  position: absolute; top: max(8px, env(safe-area-inset-top)); left: 10px; right: 10px;
+  display: flex; align-items: flex-start; gap: 8px;
+}
+.pill { background: rgba(28, 22, 32, 0.62); color: #fffaf2; border-radius: 12px; padding: 6px 10px; }
+.pill.stack { display: flex; flex-direction: column; min-width: 108px; }
+.pill.stack b { font-size: 22px; line-height: 1; }
+.pill.stack small { color: #fffaf2; font-size: 12px; }
+#pauseBtn { margin-left: auto; width: 52px; height: 44px; border-radius: 14px; pointer-events: auto; }
+#banner, #hint {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  background: rgba(28, 22, 32, 0.72); color: #d8ffe8; font-weight: 800;
+  border-radius: 12px; padding: 8px 14px; margin: 0; white-space: nowrap;
+}
+#banner { top: 64px; font-size: 18px; }
+#hint { top: 108px; color: #fffaf2; font-size: 14px; }
+.strikes { display: flex; gap: 6px; padding-top: 12px; }
+.strikes i { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,250,242,0.35); display: block; }
+.strikes i.on { background: #e23b3b; }
+.modal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(28, 22, 32, 0.35); padding: 16px; }
+#pad {
+  position: absolute; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; gap: 8px;
+}
+#pad button { width: 64px; height: 56px; font-size: 20px; background: rgba(255, 250, 242, 0.88); }
+@media (min-width: 900px) and (orientation: landscape) {
+  .sheet { flex-direction: row; align-items: center; justify-content: flex-end; padding-right: 28px; }
+  .sheet .mark { position: absolute; top: 18px; left: 50%; transform: translateX(-70%); }
+  .card { margin: 0; }
+}

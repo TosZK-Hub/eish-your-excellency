@@ -1,9 +1,10 @@
-// EISH! Jozi Run — input, audio, screens. Swipes count when the finger has moved, not on a short timer.
-// A finger keeps working until pointerup or pointercancel. lostpointercapture does not cancel the stroke.
+// EISH! Jozi Run — input, audio, HTML UI over the 3D street.
+// A press that starts on a button stays a button. Swipes count by distance, not a short timer.
 (function (root) {
   "use strict";
   var EISH = root.EISH;
   var WORLD = root.WORLD;
+  var MESH = root.MESH;
   var q = {};
   try {
     location.search.slice(1).split("&").forEach(function (p) {
@@ -21,6 +22,7 @@
   function save(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (err) {}
   }
+  function $(id) { return document.getElementById(id); }
 
   var reducedPref = false;
   try { reducedPref = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e2) {}
@@ -37,42 +39,35 @@
     menuT: 8,
     time: 0,
     hint: 0,
-    flash: 0,
-    floaters: [],
-    hits: [],
     lanes: [],
     jump: false,
     slide: false,
-    safeTop: 0,
-    safeBot: 0,
-    sheet: q.sheet === "1",
     bot: q.bot === "1",
-    newBest: false,
-    cam: null
+    newBest: false
   };
   if (q.mode === "rush" || q.mode === "robot" || q.mode === "run") app.mode = q.mode;
   if (q.mute === "1") app.mute = true;
   if (q.who) app.who = (+q.who) % 3;
 
-  var cv = document.getElementById("c");
-  var ctx = cv.getContext("2d", { alpha: false });
-  var dpr = 1, W = 360, H = 640, last = 0, acc = 0;
-  var ptr = null;
+  var view = $("view");
+  var started = WORLD.init(view);
+  if (!started.ok) {
+    var boot = $("boot");
+    if (boot) boot.hidden = true;
+    var fail = $("glfail");
+    if (fail) fail.hidden = false;
+    var why = $("glwhy");
+    if (why) why.textContent = started.error || "WebGL did not start.";
+    return;
+  }
+  root.__EISH_OK = true;
+  var canvas = started.canvas;
 
   function resize() {
-    var topEl = document.getElementById("sat");
-    var botEl = document.getElementById("sab");
-    app.safeTop = topEl ? topEl.offsetHeight : 0;
-    app.safeBot = botEl ? botEl.offsetHeight : 0;
-    W = window.innerWidth;
-    H = window.innerHeight;
-    var next = Math.min(1.75, window.devicePixelRatio || 1);
-    if (app.reduced) next = Math.min(next, 1.25);
-    dpr = next;
-    cv.width = Math.max(1, Math.round(W * dpr));
-    cv.height = Math.max(1, Math.round(H * dpr));
-    cv.style.width = W + "px";
-    cv.style.height = H + "px";
+    var w = window.innerWidth, h = window.innerHeight;
+    var dpr = window.devicePixelRatio || 1;
+    if (app.reduced) dpr = Math.min(dpr, 1.25);
+    WORLD.resize(w, h, dpr);
   }
 
   var AC = null, master = null, noiseBuf = null;
@@ -83,7 +78,7 @@
         master = AC.createGain();
         master.gain.value = app.mute ? 0 : 0.35;
         master.connect(AC.destination);
-      } catch (e) { return null; }
+      } catch (err) { return null; }
     }
     if (AC.state === "suspended") AC.resume();
     master.gain.value = app.mute ? 0 : 0.35;
@@ -107,12 +102,12 @@
       var data = noiseBuf.getChannelData(0);
       for (var i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
     }
-    var t = AC.currentTime, s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
-    s.buffer = noiseBuf; f.type = "bandpass"; f.frequency.value = 900;
+    var t = AC.currentTime, src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+    src.buffer = noiseBuf; f.type = "bandpass"; f.frequency.value = 900;
     g.gain.setValueAtTime(vol || 0.08, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    s.connect(f); f.connect(g); g.connect(master);
-    s.start(t); s.stop(t + d);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t); src.stop(t + d);
   }
   var musicOn = false, musicTimer = 0, stepN = 0, nextT = 0;
   function tickMusic() {
@@ -138,7 +133,6 @@
       clearInterval(musicTimer);
     }
   }
-
   function sfx(name) {
     if (name === "jump") tone(420, 0.08, "sine", 0.05, 220);
     else if (name === "slide") noise(0.1, 0.06);
@@ -150,38 +144,54 @@
     else if (name === "near") tone(760, 0.05, "sine", 0.03);
     else if (name === "die" || name === "crash" || name === "strike") tone(180, 0.2, "sawtooth", 0.05, 60);
     else if (name === "finish") tone(523, 0.12, "triangle", 0.06, 784);
-    else if (name === "shieldbreak") noise(0.12, 0.08);
   }
 
-  function floater(text) {
-    var cam = app.cam;
-    app.floaters.push({
-      x: cam ? cam.W * 0.5 : W * 0.5,
-      y: cam ? cam.feetY - 120 : H * 0.55,
-      text: text,
-      life: 0.8
-    });
-  }
+  function show(id, on) { var el = $(id); if (el) el.hidden = !on; }
 
-  function react(events) {
-    for (var i = 0; i < events.length; i++) {
-      var n = events[i];
-      sfx(n);
-      if (n === "coin") floater("+10");
-      if (n === "fare") floater("FARE");
-      if (n === "near") floater("SHARP");
-      if (n === "gate") floater("OPEN");
-      if (n === "die" || n === "crash" || n === "strike" || n === "shieldbreak") app.flash = 0.45;
+  function paintUI() {
+    var title = app.screen === "title";
+    show("title", title);
+    show("how", app.screen === "how");
+    show("pause", app.screen === "pause");
+    show("over", app.screen === "over");
+    show("hud", app.screen === "play" || app.screen === "pause");
+    show("pad", app.screen === "play");
+    var cast = MESH.CAST[app.who];
+    $("whoName").textContent = cast.name;
+    $("whoPlace").textContent = cast.place;
+    $("whoLine").textContent = cast.line;
+    $("muteBtn").textContent = app.mute ? "Sound off" : "Sound on";
+    $("rmBtn").textContent = app.reduced ? "Motion: reduced" : "Motion: full";
+    var sim = app.sim;
+    if (sim && (app.screen === "play" || app.screen === "pause" || app.screen === "over")) {
+      $("score").textContent = String(Math.floor(sim.score));
+      var sub = sim.mode === "rush" ? (sim.fares + " fares") : sim.mode === "robot" ? (sim.routes + " robots") : (Math.floor(sim.dist) + " m");
+      $("sub").textContent = sub + " · " + sim.coins + " coins";
+      $("modeName").textContent = EISH.MODES[sim.mode].name;
+      $("timer").hidden = sim.mode !== "rush";
+      if (sim.mode === "rush") $("timer").textContent = Math.ceil(sim.timeLeft) + "s";
+      $("strikes").hidden = sim.mode !== "robot";
+      if (sim.mode === "robot") {
+        var dots = $("strikes").querySelectorAll("i");
+        for (var i = 0; i < dots.length; i++) dots[i].className = i < sim.strikes ? "on" : "";
+      }
+      if (app.screen === "over") {
+        $("overTitle").textContent = sim.win ? "You made the rank" : sim.reason === "strikes" ? "Three red robots" : "Eish";
+        $("overScore").textContent = "Score " + Math.floor(sim.score);
+        $("overDetail").textContent = sim.mode === "rush" ? (sim.fares + " fares banked") : sim.mode === "robot" ? (sim.routes + " open robots, " + sim.strikes + " strikes") : (Math.floor(sim.dist) + " metres");
+        $("overBest").textContent = app.newBest ? "New best." : "Best " + Math.floor(app.best[sim.mode] || 0);
+      }
     }
+    $("hint").hidden = !(app.screen === "play" && app.hint > 0);
   }
 
   function rememberBest() {
-    var s = app.sim;
-    if (!s) return;
-    var prev = app.best[s.mode] || 0;
-    app.newBest = s.score > prev;
+    var sim = app.sim;
+    if (!sim) return;
+    var prev = app.best[sim.mode] || 0;
+    app.newBest = sim.score > prev;
     if (app.newBest) {
-      app.best[s.mode] = s.score;
+      app.best[sim.mode] = sim.score;
       save("eish_run_best", app.best);
     }
   }
@@ -191,14 +201,12 @@
     app.mode = mode;
     var seed = q.seed ? (q.seed >>> 0) : ((Date.now() ^ (Math.random() * 1e9)) >>> 0);
     app.sim = EISH.create(mode, seed);
-    app.sim.who = app.who;
     app.screen = "play";
-    app.hint = app.seenHint ? 2.2 : 5;
+    app.hint = app.seenHint ? 2.4 : 5;
     app.seenHint = true;
     save("eish_run_hint", true);
-    app.floaters = [];
-    app.flash = 0;
     music(true);
+    paintUI();
   }
 
   function tap(id) {
@@ -206,6 +214,7 @@
       app.mute = !app.mute;
       save("eish_run_mute", app.mute);
       if (master) master.gain.value = app.mute ? 0 : 0.35;
+      paintUI();
       return;
     }
     if (app.screen === "title") {
@@ -218,7 +227,7 @@
       if (id === "mode-robot") begin("robot");
     } else if (app.screen === "how") {
       if (id === "back") app.screen = "title";
-      if (id === "rm") { app.reduced = !app.reduced; save("eish_run_rm", app.reduced); }
+      if (id === "rm") { app.reduced = !app.reduced; save("eish_run_rm", app.reduced); resize(); }
     } else if (app.screen === "play") {
       if (id === "pause") { app.screen = "pause"; music(false); }
       if (id === "btn-left") app.lanes.push(-1);
@@ -233,6 +242,7 @@
       if (id === "restart") begin(app.sim ? app.sim.mode : app.mode);
       if (id === "menu") { app.screen = "title"; music(false); }
     }
+    paintUI();
   }
 
   function swipe(dirx, diry) {
@@ -245,21 +255,16 @@
     else app.slide = true;
   }
 
-  function pointIn(h, x, y) { return x >= h.x && y >= h.y && x <= h.x + h.w && y <= h.y + h.h; }
-  function hitTest(x, y) {
-    var list = app.hits || [];
-    for (var i = list.length - 1; i >= 0; i--) if (pointIn(list[i], x, y)) return list[i].id;
-    return null;
-  }
-
-  cv.addEventListener("pointerdown", function (e) {
+  var ptr = null;
+  canvas.addEventListener("pointerdown", function (e) {
     if (ptr) return;
-    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
-    ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, used: false, button: hitTest(e.clientX, e.clientY) };
+    if (e.target && e.target.closest && e.target.closest("button")) return;
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, used: false };
     ac();
   });
-  cv.addEventListener("pointermove", function (e) {
-    if (!ptr || e.pointerId !== ptr.id || ptr.used || ptr.button) return;
+  canvas.addEventListener("pointermove", function (e) {
+    if (!ptr || e.pointerId !== ptr.id || ptr.used) return;
     var dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
     if (Math.abs(dx) < 26 && Math.abs(dy) < 26) return;
     ptr.used = true;
@@ -268,17 +273,19 @@
   function endPointer(e) {
     if (!ptr || e.pointerId !== ptr.id) return;
     var dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
-    var adx = Math.abs(dx), ady = Math.abs(dy);
-    // A press that starts on a button stays a button. It must not become a lane change.
-    if (ptr.button && adx < 40 && ady < 40) tap(ptr.button);
-    else if (!ptr.button && !ptr.used && adx < 18 && ady < 18) {
-      var id = hitTest(e.clientX, e.clientY);
-      if (id) tap(id);
-    } else if (!ptr.button && !ptr.used && (adx >= 26 || ady >= 26)) swipe(dx, dy);
+    if (!ptr.used && (Math.abs(dx) >= 26 || Math.abs(dy) >= 26)) swipe(dx, dy);
     ptr = null;
   }
-  cv.addEventListener("pointerup", endPointer);
-  cv.addEventListener("pointercancel", endPointer);
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+
+  document.body.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-tap]") : null;
+    if (!btn) return;
+    e.preventDefault();
+    tap(btn.getAttribute("data-tap"));
+  });
+  $("pauseBtn").addEventListener("click", function () { tap("pause"); });
 
   window.addEventListener("keydown", function (e) {
     if (e.repeat) return;
@@ -319,40 +326,47 @@
     return input;
   }
 
+  var last = 0;
+  var bannerEl = $("banner");
   function loop(now) {
     var dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
     last = now;
     app.time += dt;
-    if (app.screen === "title") app.menuT += dt * (app.reduced ? 1.5 : 7);
+    if (app.screen === "title" || app.screen === "how") app.menuT += dt * (app.reduced ? 1.5 : 7);
     if (app.screen === "play" && app.sim) {
-      var input = takeInput();
-      EISH.step(app.sim, dt, input);
-      react(app.sim.events);
+      EISH.step(app.sim, dt, takeInput());
+      var ev = app.sim.events;
+      for (var i = 0; i < ev.length; i++) sfx(ev[i]);
       if (app.hint > 0) app.hint -= dt;
       if (!app.sim.alive || app.sim.finished) {
         rememberBest();
         app.screen = "over";
         music(false);
-      }
+        paintUI();
+      } else if (app.hint > 0 && app.hint < 0.05) paintUI();
     }
-    if (app.flash > 0) app.flash = Math.max(0, app.flash - dt);
-    for (var i = app.floaters.length - 1; i >= 0; i--) {
-      app.floaters[i].life -= dt;
-      app.floaters[i].y -= dt * 30;
-      if (app.floaters[i].life <= 0) app.floaters.splice(i, 1);
+    var viewState = WORLD.frame(app);
+    if (bannerEl) {
+      var showBanner = app.screen === "play" && viewState && viewState.banner;
+      bannerEl.hidden = !showBanner;
+      if (showBanner) bannerEl.textContent = "OPEN ROBOT  " + viewState.banner;
     }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    app.cam = WORLD.draw(ctx, app, W, H);
+    if (app.screen === "play" && app.sim) {
+      $("score").textContent = String(Math.floor(app.sim.score));
+      var sub = app.sim.mode === "rush" ? (app.sim.fares + " fares") : app.sim.mode === "robot" ? (app.sim.routes + " robots") : (Math.floor(app.sim.dist) + " m");
+      $("sub").textContent = sub + " · " + app.sim.coins + " coins";
+      if (app.sim.mode === "rush") $("timer").textContent = Math.ceil(app.sim.timeLeft) + "s";
+    }
     requestAnimationFrame(loop);
   }
 
   resize();
   window.addEventListener("resize", resize);
+  paintUI();
+  var boot = $("boot");
+  if (boot) boot.hidden = true;
   if (q.play === "1") begin(app.mode);
-  if (q.pause === "1") {
-    begin(app.mode);
-    app.screen = "pause";
-  }
+  if (q.pause === "1") { begin(app.mode); app.screen = "pause"; paintUI(); }
   if (q.over === "1") {
     begin(app.mode);
     app.sim.score = 480;
@@ -364,6 +378,7 @@
     app.sim.win = false;
     rememberBest();
     app.screen = "over";
+    paintUI();
   }
   if (q.freeze) {
     begin(app.mode);
@@ -376,11 +391,12 @@
     }
     app.screen = "play";
     app.bot = false;
+    paintUI();
   }
-  var live = document.getElementById("live");
+  var live = $("live");
   setInterval(function () {
     if (!live) return;
-    if (app.screen === "play" && app.sim) live.textContent = root.EISH.MODES[app.sim.mode].name + ", score " + Math.floor(app.sim.score);
+    if (app.screen === "play" && app.sim) live.textContent = EISH.MODES[app.sim.mode].name + ", score " + Math.floor(app.sim.score);
     else live.textContent = app.screen;
   }, 1000);
 
