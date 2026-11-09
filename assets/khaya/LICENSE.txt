@@ -1,0 +1,9 @@
+Khaya Lane art
+
+The PNG sprites in this folder are original models made for this game and
+rendered in Blender (tools/render-khaya.py). No third-party meshes.
+
+Fredoka, used for the interface, is in assets/fonts/Fredoka.ttf.
+Fredoka is licensed under the SIL Open Font License 1.1.
+Copyright 2021 The Fredoka Project Authors.
+Source: https://github.com/google/fonts/tree/main/ofl/fredoka

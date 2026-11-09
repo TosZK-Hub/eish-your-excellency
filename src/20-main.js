@@ -23,6 +23,11 @@
   var ghost = null;
   var stopGame = null;
   var toastTimer = 0;
+  var born = {};
+  var floats = [];
+  var muted = localStorage.getItem("eish-khaya-mute") === "1";
+  var actx = null;
+  var wind = null;
 
   function load() {
     try {
@@ -40,7 +45,79 @@
     toastEl.textContent = text;
     toastEl.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2200);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 1600);
+  }
+
+  function audio() {
+    if (muted) return null;
+    if (!actx) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      actx = new Ctx();
+    }
+    if (actx.state === "suspended") actx.resume();
+    return actx;
+  }
+
+  function tone(freq, dur, type, gain) {
+    var ctx = audio();
+    if (!ctx) return;
+    var o = ctx.createOscillator();
+    var g = ctx.createGain();
+    o.type = type || "sine";
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(gain || 0.06, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + dur + 0.02);
+  }
+
+  function chime(kind) {
+    if (kind === "place") { tone(392, 0.1, "triangle", 0.05); setTimeout(function () { tone(523, 0.14, "triangle", 0.05); }, 80); }
+    else if (kind === "harvest") { tone(523, 0.08, "square", 0.03); tone(784, 0.16, "triangle", 0.05); }
+    else if (kind === "no") tone(196, 0.12, "sawtooth", 0.02);
+    else tone(660, 0.08, "sine", 0.04);
+  }
+
+  function ensureWind() {
+    var ctx = audio();
+    if (!ctx || wind) return;
+    var len = ctx.sampleRate * 2;
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var data = buf.getChannelData(0);
+    var i;
+    for (i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.25;
+    var src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    var filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 420;
+    var g = ctx.createGain();
+    g.gain.value = 0.015;
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(ctx.destination);
+    src.start();
+    wind = src;
+  }
+
+  function icon(kind) {
+    var paths = {
+      seed: '<path d="M13 20c5-2 7-7 5-12-4 2-7 2-10-1 1 5 1 9 5 13z" fill="#d0893a"/><path d="M12 9c2-5 5-7 8-8-2 5-4 7-8 8z" fill="#2f8f4a"/>',
+      water: '<path d="M12 3c4 5 7 8 7 12a7 7 0 1 1-14 0c0-4 3-7 7-12z" fill="#3d8ec9"/>',
+      timber: '<rect x="3" y="9" width="18" height="6" rx="3" fill="#c4844a"/><circle cx="6" cy="12" r="2.4" fill="#f0d2a4"/><circle cx="18" cy="12" r="2.4" fill="#8a552c"/>',
+      bricks: '<rect x="3" y="5" width="8" height="6" rx="1" fill="#d4654a"/><rect x="13" y="5" width="8" height="6" rx="1" fill="#c45640"/><rect x="8" y="13" width="8" height="6" rx="1" fill="#b84734"/>',
+      maize: '<rect x="9" y="5" width="6" height="12" rx="3" fill="#e2b23a"/><path d="M12 4c2 2 2 3 0 5" stroke="#3f8f4a" fill="none"/>',
+      spinach: '<ellipse cx="12" cy="13" rx="6" ry="4" fill="#3e9a4a"/>',
+      tomato: '<circle cx="12" cy="13" r="5" fill="#d64545"/>',
+      aloe: '<path d="M12 16 L8 8 L12 11 L16 8 Z" fill="#7dcea0"/>',
+      coin: '<circle cx="12" cy="12" r="8" fill="#f2c14e" stroke="#a67c1a" stroke-width="2"/><text x="12" y="16" text-anchor="middle" font-size="10" font-family="Fredoka,sans-serif" fill="#7a5410">N</text>'
+    };
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[kind] || paths.coin) + "</svg>";
   }
 
   function selected() {
@@ -73,19 +150,18 @@
   }
 
   function paintHud() {
-    notesEl.textContent = state.notes + " notes";
+    notesEl.innerHTML = icon("coin") + "<b>" + state.notes + "</b>";
     var bits = [
-      ["Seeds", state.seeds],
-      ["Water", state.water],
-      ["Timber", state.timber],
-      ["Bricks", state.bricks]
+      ["seed", state.seeds],
+      ["water", state.water],
+      ["timber", state.timber],
+      ["bricks", state.bricks]
     ];
-    var crops = KHAYA.CROPS;
-    Object.keys(crops).forEach(function (k) {
-      if (state.crops[k] > 0) bits.push([crops[k].name, state.crops[k]]);
+    Object.keys(KHAYA.CROPS).forEach(function (k) {
+      if (state.crops[k] > 0) bits.push([k, state.crops[k]]);
     });
     resEl.innerHTML = bits.map(function (b) {
-      return "<span><small>" + b[0] + "</small>" + b[1] + "</span>";
+      return "<span title=\"" + b[0] + "\">" + icon(b[0]) + "<b>" + b[1] + "</b></span>";
     }).join("");
     var task = KHAYA.currentTask(state);
     taskEl.textContent = task.done ? task.text : "Next: " + task.text;
@@ -137,23 +213,48 @@
     card.innerHTML = html;
   }
 
+  function cellPoint(b) {
+    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
+    var n = KHAYA.cellNorth(b.x + b.w / 2, b.y + b.h / 2, o.ox, o.oy, o.tw, o.th);
+    return { x: n.x, y: n.y };
+  }
+
   function paint() {
     paintHud();
     paintCard();
     placingEl.hidden = !ghost;
-    if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the lane, or cancel";
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected() }, Date.now());
+    if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats }, Date.now());
   }
 
   function act(result) {
     if (!result || !result.ok) {
+      chime("no");
       toast(result && result.reason ? result.reason : "That did not work.");
       paint();
       return;
     }
-    if (result.xp) toast("+" + result.xp + " skill");
-    if (result.amount) toast("Picked " + result.amount + " " + KHAYA.CROPS[result.crop].name.toLowerCase());
-    if (result.notes) toast("+" + result.notes + " notes");
+    var focus = selected() || (result.id ? KHAYA.buildingById(state, result.id) : null);
+    if (result.id) {
+      born[result.id] = Date.now();
+      chime("place");
+    }
+    if (result.level && focus) {
+      born[focus.id] = Date.now();
+      chime("place");
+    }
+    if (result.amount) {
+      chime("harvest");
+      if (focus) {
+        var p = cellPoint(focus);
+        floats.push({ x: p.x, y: p.y, t: Date.now(), text: "+" + result.amount + " " + result.crop, color: "#2f6d4f" });
+      }
+    } else if (result.notes) {
+      chime("harvest");
+      toast("+" + result.notes + " notes");
+    } else if (result.xp) {
+      chime("tap");
+    }
     save();
     paint();
   }
@@ -330,14 +431,43 @@
     openModal("Welcome to Khaya Lane", "<p class=\"rules\">This is your lane. Sow a bed, water it, and harvest. Place a spaza to sell the crop, upgrade the home, and try Crate Day or the spaza counter when you want. Notes, seeds, and timber stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
   }
 
-  setInterval(function () {
-    KHAYA.tick(state, Date.now());
-    paint();
-  }, 400);
+  var muteBtn = document.getElementById("mute");
+  function paintMute() {
+    if (!muteBtn) return;
+    muteBtn.textContent = muted ? "Sound off" : "Sound";
+    muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
+  }
+  if (muteBtn) {
+    muteBtn.addEventListener("click", function () {
+      muted = !muted;
+      localStorage.setItem("eish-khaya-mute", muted ? "1" : "0");
+      if (muted && actx) actx.suspend();
+      else ensureWind();
+      paintMute();
+    });
+  }
+  paintMute();
+  canvas.addEventListener("pointerdown", function () { ensureWind(); }, { once: true });
+
+  var hudAt = 0;
+  function frame() {
+    var now = Date.now();
+    if (now - hudAt > 350) {
+      KHAYA.tick(state, now);
+      paintHud();
+      if (selected() && selected().type === "bed") paintCard();
+      hudAt = now;
+    }
+    floats = floats.filter(function (f) { return now - f.t < 1000; });
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats }, now);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
   navigator.serviceWorker.register("sw.js").catch(function () {});
 }
+DRAW.load(function () { paint(); });
 window.__EISH_OK = true;
   var boot = document.getElementById("boot");
   if (boot) boot.hidden = true;
