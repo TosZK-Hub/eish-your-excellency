@@ -19,11 +19,12 @@
       <b id="lv">1</b>
       <div class="meter xp" aria-hidden="true"><span id="xpfill"></span></div>
     </div>
-    <button type="button" id="mute" aria-pressed="false" aria-label="Sound">Sound</button>
+    <button type="button" id="orders" aria-label="Taxi orders">Orders</button>
+    <button type="button" id="mute" aria-pressed="false" aria-label="Sound on">On</button>
     <div class="notes" id="notes">0</div>
   </header>
   <div class="res" id="res"></div>
-  <div class="stage"><canvas id="view" aria-label="Your neighbourhood"></canvas></div>
+  <div class="stage"><canvas id="view" aria-label="Your neighbourhood"></canvas><button type="button" id="event" hidden></button></div>
   <button type="button" id="placing" data-act="cancel" hidden>Cancel</button>
   <section class="dock" id="dock">
     <ul class="goals" id="goals"></ul>

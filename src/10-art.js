@@ -181,8 +181,8 @@ var DRAW = (function () {
     for (n = 0; n < LOOK.neighbours.length; n++) {
       blitFoot(ctx, img[LOOK.neighbours[n]], w * spots[n], hy + 18, o.tw * 0.72, 0.9);
     }
-    blitFoot(ctx, img.tree_jacaranda, w * 0.88, hy + 36, o.tw * 0.7, 1);
-    blitFoot(ctx, img.tree_acacia, w * 0.26, hy + 42, o.tw * 0.7, 1);
+    blitFoot(ctx, img.tree_jacaranda, w * 0.9, hy + 28, o.tw * 0.7, LOOK.treeScale.tree_jacaranda || 1);
+    blitFoot(ctx, img.tree_acacia, w * 0.22, hy + 36, o.tw * 0.7, LOOK.treeScale.tree_acacia || 1);
   }
 
   function blitFoot(ctx, image, footX, footY, tw, scale) {
@@ -202,11 +202,10 @@ var DRAW = (function () {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
     var open = !state || KHAYA.plotOpen(state, x, y);
-    var tile = kind === "path" ? img.tile_dirt : img.tile_grass;
-    if (tile) {
-      var midCell = north(x + 0.5, y + 0.5, o);
-      ctx.drawImage(tile, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
-    } else {
+    var midCell = north(x + 0.5, y + 0.5, o);
+    if (img.tile_grass) ctx.drawImage(img.tile_grass, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    if (kind === "path" && img.tile_dirt) ctx.drawImage(img.tile_dirt, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    if (!img.tile_grass && !(kind === "path" && img.tile_dirt)) {
       var fill = kind === "path" ? "#c47a45" : "#c6a84a";
       poly(ctx, [c.n, c.e, c.s, c.w], fill);
     }
@@ -216,7 +215,7 @@ var DRAW = (function () {
       poly(ctx, [c.n, c.e, c.s, c.w], "#3a2416");
       ctx.restore();
     }
-    if (tile) return;
+    if (img.tile_grass) return;
     var p = mid(c.n, c.s, 0.55);
     ctx.save();
     if (kind === "path") {
@@ -288,6 +287,26 @@ var DRAW = (function () {
     ctx.restore();
   }
 
+  function peg(ctx, x, y, text) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = "#6b4524";
+    ctx.fillRect(-2, 0, 4, 16);
+    ctx.beginPath();
+    ctx.fillStyle = "#f3d7a2";
+    ctx.strokeStyle = "#6b4524";
+    ctx.lineWidth = 2;
+    ctx.rect(-20, -26, 40, 20);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#3a2416";
+    ctx.font = "700 13px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 0, -16);
+    ctx.restore();
+  }
+
   function shadowAt(ctx, x, y, rx, ry) {
     ctx.save();
     ctx.fillStyle = "rgba(72, 44, 18, 0.30)";
@@ -314,6 +333,14 @@ var DRAW = (function () {
       sy = 1 - Math.sin(q * Math.PI) * 0.12;
     }
     var sh = spot.spec.shadow || [0.6, 0.22];
+    if (spot.spec.yard) {
+      ctx.save();
+      ctx.fillStyle = "rgba(176, 112, 64, 0.28)";
+      ctx.beginPath();
+      ctx.ellipse(spot.x, spot.y + o.th * 0.06, o.tw * sh[0] * 0.42, o.th * sh[1] * 0.85, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     shadowAt(ctx, spot.x, spot.y + o.th * 0.08, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.3);
     ctx.save();
     ctx.translate(spot.x, spot.y);
@@ -447,7 +474,7 @@ var DRAW = (function () {
             for (bi = 0; bi < state.buildings.length; bi++) {
               if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
             }
-            if (bed) { x = bed.x + 0.15; y = bed.y + 1.05; pose = "water"; }
+            if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
           }
           if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
           if (entry.id === "doek") {
@@ -533,11 +560,12 @@ var DRAW = (function () {
       y = cells[i].y;
       if (KHAYA.terrainAt(x, y) !== "tree") continue;
       (function (tx, ty) {
-        var file = LOOK.trees[hash(tx, ty) % LOOK.trees.length];
+        var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
         var n = north(tx + 0.5, ty + 0.5, o);
+        var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
         queue.push({ y: n.y, draw: function () {
-          shadowAt(ctx, n.x, n.y, o.tw * 0.42, o.th * 0.28);
-          blitFoot(ctx, img[file], n.x, n.y, o.tw, 1);
+          shadowAt(ctx, n.x, n.y, o.tw * 0.34, o.th * 0.2);
+          blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
         } });
       })(x, y);
     }
@@ -572,14 +600,49 @@ var DRAW = (function () {
     for (di = 0; di < LOOK.dress.length; di++) {
       (function (piece) {
         var n = north(piece.x, piece.y, o);
+        if (piece.file === "taxi") return;
         queue.push({ y: n.y, draw: function () {
           shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.2);
           blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
-          if (piece.file === "taxi") puff(ctx, n.x + o.tw * 0.05, n.y - o.th * 0.35, now, "steam");
         } });
       })(LOOK.dress[di]);
     }
     queueActors(queue, state, o, now, ctx);
+    (function () {
+      var orders = state.orders || {};
+      var spot = { x: 1.35, y: 6.35 };
+      var since = now - (orders.at || now);
+      if (orders.phase === "here" && since < 2800) spot = { x: -1.4 + (1.35 + 1.4) * (since / 2800), y: 6.35 };
+      else if (orders.phase === "away" && since < 2600) spot = { x: 1.35 + (since / 2600) * 5, y: 6.35 };
+      var n = north(spot.x, spot.y, o);
+      queue.push({ y: n.y, draw: function () {
+        shadowAt(ctx, n.x, n.y, o.tw * 0.46, o.th * 0.22);
+        blitFoot(ctx, img.taxi, n.x, n.y, o.tw, 0.85);
+        if (orders.phase === "here" && since < 3200) puff(ctx, n.x + o.tw * 0.12, n.y - o.th * 0.2, now, "steam");
+      } });
+      var ev = state.laneEvent && state.laneEvent.current;
+      if (ev && ev.type === "goat") {
+        var gx = 5.2 + Math.sin(now / 180) * 0.8;
+        var gy = 4.2 + Math.cos(now / 220) * 0.35;
+        var gn = north(gx, gy, o);
+        queue.push({ y: gn.y, draw: function () {
+          blitFoot(ctx, img.animal_goat, gn.x, gn.y, o.tw, LOOK.actors.goat.scale);
+        } });
+      }
+      if (ev && ev.type === "ball") {
+        var bn = north(4.2, 5.6, o);
+        queue.push({ y: bn.y, draw: function () {
+          ctx.save();
+          ctx.fillStyle = "#f4f1ea";
+          ctx.beginPath();
+          ctx.arc(bn.x, bn.y - 8 - Math.abs(Math.sin(now / 160)) * 10, 7, 0, 7);
+          ctx.fill();
+          ctx.strokeStyle = "#243028";
+          ctx.stroke();
+          ctx.restore();
+        } });
+      }
+    })();
     queue.sort(function (a, b) { return a.y - b.y; });
     for (i = 0; i < queue.length; i++) queue[i].draw();
     var pid;
@@ -587,16 +650,33 @@ var DRAW = (function () {
       if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
       var plot = KHAYA.PLOTS[pid];
       var lock = north(plot.x + plot.w / 2, plot.y + plot.h / 2, o);
+      peg(ctx, lock.x, lock.y, String(plot.notes));
+    }
+    var live = state.laneEvent && state.laneEvent.current;
+    if (live && live.type === "storm") {
       ctx.save();
-      ctx.fillStyle = "#243028";
-      ctx.beginPath();
-      ctx.arc(lock.x, lock.y, 14, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = "#f6efe2";
-      ctx.font = "700 14px Fredoka, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(plot.notes, lock.x, lock.y);
+      ctx.fillStyle = "rgba(40, 70, 110, 0.18)";
+      ctx.fillRect(0, 0, w, h);
+      var drop;
+      for (drop = 0; drop < 40; drop++) {
+        var rx = (drop * 97 + now * 0.4) % w;
+        var ry = (drop * 53 + now * 0.8) % h;
+        ctx.strokeStyle = "rgba(220, 230, 240, 0.45)";
+        ctx.beginPath();
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - 3, ry + 10);
+        ctx.stroke();
+      }
+      if (Math.floor(now / 700) % 5 === 0) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.restore();
+    }
+    if (live && live.type === "shed" && !live.solar) {
+      ctx.save();
+      ctx.fillStyle = "rgba(20, 16, 12, 0.28)";
+      ctx.fillRect(0, 0, w, h);
       ctx.restore();
     }
     if (view.ghost) {
@@ -616,5 +696,47 @@ var DRAW = (function () {
     return o;
   }
 
-  return { load: load, render: render, layout: layout, clampCamera: clampCamera, ready: function () { return ready; } };
+  function lineup(canvas) {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#c6d98a";
+    ctx.fillRect(0, 0, w, h);
+    var row = LOOK.lineup || [];
+    var i;
+    var gap = w / (row.length + 1);
+    var groundY = h * 0.72;
+    ctx.fillStyle = "#3a2416";
+    ctx.font = "600 12px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    for (i = 0; i < row.length; i++) {
+      var file = row[i];
+      var scale = 1;
+      if (file === "home_l1") scale = LOOK.buildings.home.scale;
+      else if (file === "taxi") scale = 0.85;
+      else if (LOOK.treeScale[file]) scale = LOOK.treeScale[file];
+      else if (file === "aloe") scale = LOOK.buildings.aloe_clump.scale;
+      else if (file === "char_farmer") scale = LOOK.actors.farmer.scale;
+      else if (file === "char_kid") scale = LOOK.actors.kid.scale;
+      else if (file === "animal_hen") scale = LOOK.actors.hen.scale;
+      else if (file === "animal_dog") scale = LOOK.actors.dog.scale;
+      else if (file === "animal_cow") scale = LOOK.actors.cow.scale;
+      else if (file === "braai_drum") scale = LOOK.buildings.braai.scale;
+      else if (file === "potjie") scale = LOOK.buildings.potjie.scale;
+      else if (file === "wheelbarrow") scale = LOOK.buildings.barrow.scale;
+      var x = gap * (i + 1);
+      shadowAt(ctx, x, groundY, 28, 10);
+      blitFoot(ctx, img[file], x, groundY, 72, scale);
+      ctx.fillStyle = "#3a2416";
+      ctx.fillText(file.replace("char_", "").replace("animal_", "").replace("tree_", ""), x, h * 0.9);
+    }
+    ctx.font = "700 16px Fredoka, sans-serif";
+    ctx.fillText("House ~1.7 tiles · taxi 1.2 · people 60% of the door · hen shin · dog knee · cow shoulder", w / 2, 28);
+  }
+
+  return { load: load, render: render, lineup: lineup, layout: layout, clampCamera: clampCamera, ready: function () { return ready; } };
 })();
