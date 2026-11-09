@@ -19,7 +19,7 @@ var PLAY = (function () {
     var score = body.querySelector("#crateScore");
     function present() {
       if (round.i >= round.order.length) return finish();
-      deadline = clock + 3200;
+      deadline = clock + 8000;
       var crop = round.order[round.i];
       show.textContent = KHAYA.CROPS[crop].name;
       show.className = "show " + crop;
@@ -43,11 +43,11 @@ var PLAY = (function () {
     function frame(t) {
       if (round.over) return;
       clock = t;
-      if (!deadline) deadline = t + 3200;
-      var left = (deadline - t) / 3200;
+      if (!deadline) deadline = t + 8000;
+      var left = (deadline - t) / 8000;
       bar.style.transform = "scaleX(" + Math.max(0, Math.min(1, left)) + ")";
       if (left <= 0) {
-        if (-left > 0.25) deadline = t + 3200;
+        if (-left > 0.25) deadline = t + 8000;
         else answer("__timeout__");
       }
       if (!round.over) requestAnimationFrame(frame);
