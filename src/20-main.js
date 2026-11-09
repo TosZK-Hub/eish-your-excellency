@@ -464,7 +464,7 @@
   }
   requestAnimationFrame(frame);
 
-  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  if ("serviceWorker" in navigator && location.protocol !== "file:" && location.search.indexOf("nosw=1") < 0) {
   navigator.serviceWorker.register("sw.js").catch(function () {});
 }
 DRAW.load(function () { paint(); });
