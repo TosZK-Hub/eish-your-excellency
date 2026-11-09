@@ -1,654 +1,557 @@
-// EISH! Jozi Run — simulation only (no DOM). Fairness, modes, collision.
-// Next iteration: tune GAP feel in worstGap(), verbs in CHUNKS, speeds in speedOf().
-(function (root) {
-  "use strict";
-  var LANE_X = [-1.05, 0, 1.05];
-  var JUMP_DUR = 0.58;
-  var SLIDE_DUR = 0.56;
-  var MODES = {
-    run: { id: "run", name: "Jozi Run", blurb: "Endless street. One hit ends it.", timed: false },
-    rush: { id: "rush", name: "Taxi Rush", blurb: "75 seconds to bank fares.", timed: true, seconds: 75 },
-    robot: { id: "robot", name: "Green Robot", blurb: "Three strikes. Take the open robot.", timed: false }
+// Khaya Lane rules: farming, building, skills, and capped mini-game pay.
+// Original game logic. No account, no real-money currency.
+var KHAYA = (function () {
+  var COLS = 8;
+  var ROWS = 8;
+  var ELAPSE_CAP = 10 * 60 * 1000;
+  var TANK_MS = 20000;
+  var WATER_CAP = 24;
+  var NOTE_CAP = 9999;
+  var STACK_CAP = 99;
+
+  var MAP = [
+    "tggggggt",
+    "gggggggg",
+    "ggggpggg",
+    "ggggpggg",
+    "ggggpggg",
+    "ggggpggg",
+    "ppppgggg",
+    "gggggggg"
+  ];
+
+  var CROPS = {
+    maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
+    spinach: { name: "Spinach", grow: 12000, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3 },
+    tomato: { name: "Tomato", grow: 22000, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6 },
+    aloe: { name: "Aloe", grow: 20000, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 }
   };
 
-  function mulberry(seed) {
-    var a = seed >>> 0;
-    return function () {
-      a |= 0;
-      a = (a + 0x6d2b79f5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
+  var FARM_STEPS = [0, 24, 70, 140];
+  var BUILD_STEPS = [0, 16, 48, 100];
 
-  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-  function laneX(i) { return LANE_X[clamp(i, 0, 2)]; }
-
-  // verb per lane: null clear, low = jump, high = slide, block = change lane.
-  // Every chunk is survivable from every lane (see worstGap). No three-blocks,
-  // and never a low+high mix with no empty lane — that forces two verbs at once.
-  var CHUNKS = [
-    { id: "L", lanes: ["low", null, null], tier: 0 },
-    { id: "C", lanes: [null, "low", null], tier: 0 },
-    { id: "R", lanes: [null, null, "low"], tier: 0 },
-    { id: "Hl", lanes: ["high", null, null], tier: 0 },
-    { id: "Hc", lanes: [null, "high", null], tier: 0 },
-    { id: "Hr", lanes: [null, null, "high"], tier: 0 },
-    { id: "Bl", lanes: ["block", null, null], tier: 0 },
-    { id: "Bc", lanes: [null, "block", null], tier: 0 },
-    { id: "Br", lanes: [null, null, "block"], tier: 0 },
-    { id: "La", lanes: ["low", "low", "low"], tier: 1 },
-    { id: "Ha", lanes: ["high", "high", "high"], tier: 1 },
-    { id: "LL", lanes: ["low", "low", null], tier: 1 },
-    { id: "RR", lanes: [null, "low", "low"], tier: 1 },
-    { id: "HH", lanes: ["high", null, "high"], tier: 1 },
-    { id: "openC", lanes: ["block", null, "block"], tier: 1 },
-    // Side-by-side blocks only when the open lane is between them.
-    // A double block on one side would make the far runner cross a taxi.
-    { id: "mix1", lanes: ["low", null, "block"], tier: 2 },
-    { id: "mix2", lanes: ["block", null, "low"], tier: 2 },
-    { id: "mix3", lanes: [null, "high", "block"], tier: 2 },
-    { id: "mix4", lanes: ["block", "high", null], tier: 2 },
-    { id: "mix5", lanes: ["low", "low", "block"], tier: 2 },
-    { id: "mix6", lanes: ["block", "high", "high"], tier: 2 }
-  ];
-
-  var TUTORIAL = [
-    { id: "t0", lanes: [null, null, "low"], tier: 0 },
-    { id: "t1", lanes: ["high", null, null], tier: 0 },
-    { id: "t2", lanes: [null, "low", null], tier: 0 }
-  ];
-
-  function chunkStats(ch) {
-    var empty = 0, blocks = 0, verbs = {};
-    for (var i = 0; i < 3; i++) {
-      var v = ch.lanes[i];
-      if (!v) empty++;
-      else if (v === "block") blocks++;
-      else verbs[v] = 1;
+  var BUILDINGS = {
+    home: {
+      name: "Home", w: 2, h: 2, limit: 1, skill: 1,
+      blurb: "The heart of the lane. Upgrade it as the place grows.",
+      upgrades: [
+        null,
+        { notes: 24, timber: 3, bricks: 2, skill: 1, xp: 14 },
+        { notes: 40, timber: 4, bricks: 4, skill: 2, xp: 20 }
+      ]
+    },
+    bed: {
+      name: "Veggie bed", w: 1, h: 1, limit: 8, skill: 1,
+      cost: { notes: 10, timber: 1 },
+      blurb: "A square of soil for maize, greens, tomatoes, and aloe."
+    },
+    spaza: {
+      name: "Spaza", w: 1, h: 1, limit: 1, skill: 1,
+      cost: { notes: 18, timber: 2, bricks: 1 },
+      blurb: "The neighbourhood shop. Sell crops and fill orders here.",
+      upgrades: [null, { notes: 22, timber: 2, bricks: 1, skill: 1, xp: 12 }]
+    },
+    tank: {
+      name: "Rain tank", w: 1, h: 1, limit: 1, skill: 1,
+      cost: { notes: 16, timber: 2, bricks: 1 },
+      blurb: "Catches rain for the beds. A bottle of water, every few moments."
+    },
+    workshop: {
+      name: "Workshop", w: 1, h: 1, limit: 1, skill: 1,
+      cost: { notes: 20, timber: 3, bricks: 2 },
+      blurb: "A bright shed for mending, and the home of Crate Day."
+    },
+    solar: {
+      name: "Solar stand", w: 1, h: 1, limit: 1, skill: 2,
+      cost: { notes: 28, timber: 2, bricks: 3 },
+      blurb: "Shared power. The next building upgrade spends one less timber."
     }
-    var keys = [];
-    for (var k in verbs) if (verbs[k]) keys.push(k);
-    return { empty: empty, blocks: blocks, verbs: keys, allLow: empty === 0 && blocks === 0 && keys.length === 1 && keys[0] === "low", allHigh: empty === 0 && blocks === 0 && keys.length === 1 && keys[0] === "high" };
+  };
+
+  function clamp(n, lo, hi) {
+    n = Math.floor(Number(n));
+    if (!isFinite(n)) n = 0;
+    if (n < lo) n = lo;
+    if (n > hi) n = hi;
+    return n;
   }
 
-  // Seconds a prepared runner needs, worst starting lane, after the previous chunk.
-  function planTime(lane, ch, prev) {
-    var v = ch.lanes[lane];
-    var recover = 0;
-    if (prev && prev.allLow) recover = 0.46;
-    else if (prev && prev.allHigh) recover = 0.28;
-    if (!v) return 0.42 + recover * 0.35;
-    if (v === "low") return 0.5 + (prev && prev.allHigh ? 0.32 : 0);
-    if (v === "high") return 0.5 + (prev && prev.allLow ? 0.5 : 0);
-    var best = 99;
-    for (var i = 0; i < 3; i++) {
-      if (i === lane || ch.lanes[i] === "block") continue;
-      var t = 0.48 + Math.abs(i - lane) * 0.24 + recover;
-      if (ch.lanes[i] === "low" || ch.lanes[i] === "high") t += 0.26;
-      if (t < best) best = t;
-    }
-    return best;
-  }
-
-  function worstGap(prev, ch) {
-    var need = 0.48;
-    for (var lane = 0; lane < 3; lane++) need = Math.max(need, planTime(lane, ch, prev));
-    var st = chunkStats(ch);
-    if (st.blocks === 3) return 99;
-    if (st.empty === 0 && st.verbs.length > 1) return 99;
-    return need;
-  }
-
-  function speedOf(s) {
-    if (s.mode === "rush") return 15 + Math.min(6.5, s.t * 0.09);
-    if (s.mode === "robot") return 14.5 + Math.min(6, s.travel / 220);
-    return 14 + Math.min(13, s.travel / 95);
-  }
-
-  function gapMetres(s, ch) {
-    var need = worstGap(s.prevChunk, ch);
-    var ease = s.mode === "robot" ? 1.12 : s.mode === "rush" ? 1.02 : 1;
-    ease *= Math.max(0.86, 1 - Math.min(0.1, s.travel / 5000));
-    return Math.max(13, s.speed * need * ease);
-  }
-
-  function create(mode, seed) {
-    if (!MODES[mode]) mode = "run";
-    var rng = mulberry((seed == null ? 1 : seed) >>> 0);
-    var s = {
-      mode: mode,
-      seed: seed >>> 0,
-      rng: rng,
-      t: 0,
-      travel: 0,
-      dist: 0,
-      speed: 14,
-      score: 0,
-      coins: 0,
-      fares: 0,
-      routes: 0,
-      streak: 0,
-      strikes: 0,
-      shield: false,
-      magnet: 0,
-      alive: true,
-      finished: false,
-      win: false,
-      reason: "",
-      timeLeft: mode === "rush" ? MODES.rush.seconds : 0,
-      lane: 1,
-      x: 0,
-      y: 0,
-      air: 0,
-      slide: 0,
-      invuln: 0,
-      hitstun: 0,
-      phase: 0,
-      queued: 0,
-      ents: [],
-      cursor: 50,
-      nextGate: 72,
-      prevChunk: null,
-      tut: 0,
-      placed: 0,
-      events: [],
-      seq: 1
-    };
-    s.speed = speedOf(s);
-    return s;
-  }
-
-  function pushEnt(s, e) {
-    e.id = s.seq++;
-    e.dead = false;
-    e.resolved = false;
-    e.near = false;
-    s.ents.push(e);
-  }
-
-  function placeChunk(s, z, ch) {
-    var variantRoll = s.rng();
-    for (var i = 0; i < 3; i++) {
-      var v = ch.lanes[i];
-      if (!v) continue;
-      var variant = 0;
-      if (v === "low") variant = variantRoll < 0.55 ? 0 : variantRoll < 0.82 ? 1 : 2;
-      else if (v === "high") variant = variantRoll < 0.4 ? 0 : variantRoll < 0.75 ? 1 : 2;
-      else variant = variantRoll < 0.72 ? 0 : 1;
-      pushEnt(s, { kind: "obs", lane: i, x: laneX(i), z: z, y: 0, verb: v, variant: variant });
-    }
-    // Coins lead the obstacle so they read as a path, never inside a block.
-    for (var c = 0; c < 3; c++) {
-      var lane = c;
-      var verb = ch.lanes[lane];
-      if (verb === "block") continue;
-      if (s.rng() > (verb ? 0.72 : 0.55)) continue;
-      var air = verb === "low";
-      var n = air ? 1 : 3;
-      for (var k = 0; k < n; k++) {
-        pushEnt(s, {
-          kind: "coin",
-          lane: lane,
-          x: laneX(lane),
-          z: z - 7.2 - k * 1.45,
-          y: air ? 1.5 : 0.2,
-          verb: null,
-          variant: 0
-        });
-      }
-    }
-    if (s.mode === "rush") {
-      for (var f = 0; f < 3; f++) {
-        if (ch.lanes[f]) continue;
-        if (s.rng() > 0.62) continue;
-        pushEnt(s, { kind: "fare", lane: f, x: laneX(f), z: z - 5.4, y: 0, verb: null, variant: (s.rng() * 3) | 0 });
-        break;
-      }
-    }
-    if ((s.mode === "run" || s.mode === "robot") && !s.shield && s.travel > 40 && s.rng() < 0.16) {
-      for (var g = 0; g < 3; g++) {
-        if (ch.lanes[g]) continue;
-        pushEnt(s, { kind: "shield", lane: g, x: laneX(g), z: z - 6, y: 0.9, verb: null, variant: 0 });
-        break;
-      }
-    } else if (s.rng() < 0.07 && s.travel > 80) {
-      for (var m = 0; m < 3; m++) {
-        if (ch.lanes[m] === "block") continue;
-        pushEnt(s, { kind: "kota", lane: m, x: laneX(m), z: z - 6.5, y: 0.35, verb: null, variant: 0 });
-        break;
-      }
-    }
-    s.prevChunk = chunkStats(ch);
-    s.prevChunk.id = ch.id;
-    s.placed++;
-    if (s.tut < TUTORIAL.length && ch === TUTORIAL[s.tut]) s.tut++;
-  }
-
-  function placePocket(s, z) {
-    var a = (s.rng() * 3) | 0;
-    var b = (a + 1 + ((s.rng() * 2) | 0)) % 3;
-    pushEnt(s, { kind: "fare", lane: a, x: laneX(a), z: z, y: 0, verb: null, variant: (s.rng() * 3) | 0 });
-    if (s.rng() < 0.65) pushEnt(s, { kind: "fare", lane: b, x: laneX(b), z: z + 1.2, y: 0, verb: null, variant: (s.rng() * 3) | 0 });
-    for (var k = 0; k < 4; k++) {
-      pushEnt(s, { kind: "coin", lane: a, x: laneX(a), z: z - 3 - k * 1.3, y: 0.2, verb: null, variant: 0 });
-    }
-    s.prevChunk = { empty: 3, blocks: 0, verbs: [], allLow: false, allHigh: false, id: "pocket" };
-  }
-
-  function placeGate(s, z) {
-    var lane = (s.rng() * 3) | 0;
-    if (s.lastGate === lane && s.rng() < 0.7) lane = (lane + 1 + ((s.rng() * 2) | 0)) % 3;
-    s.lastGate = lane;
-    var colours = ["#e23d3d", "#f0c14d", "#1fa971"];
-    pushEnt(s, { kind: "gate", lane: lane, x: laneX(lane), z: z, y: 0, verb: "boom", variant: lane, colour: colours[lane] });
-    s.prevChunk = null;
-  }
-
-  function pickChunk(s) {
-    if (s.tut < TUTORIAL.length && s.mode !== "rush") {
-      return TUTORIAL[s.tut];
-    }
-    var pool = [];
+  function levelFor(xp, steps) {
+    var lv = 1;
     var i;
-    for (i = 0; i < CHUNKS.length; i++) {
-      var ch = CHUNKS[i];
-      if (s.mode === "robot" && (ch.tier > 1 || ch.lanes.indexOf("block") >= 0)) continue;
-      if (s.travel < 140 && ch.tier > 0) continue;
-      if (s.travel < 360 && ch.tier > 1) continue;
-      if (s.prevChunk && s.prevChunk.id === ch.id) continue;
-      if (worstGap(s.prevChunk, ch) >= 90) continue;
-      pool.push(ch);
-    }
-    if (!pool.length) pool = [CHUNKS[1], CHUNKS[4]];
-    return pool[(s.rng() * pool.length) | 0];
+    for (i = 1; i < steps.length; i++) if (xp >= steps[i]) lv = i + 1;
+    return lv;
   }
 
-  function spawn(s) {
-    var horizon = s.travel + 82;
-    var guard = 0;
-    while (s.cursor < horizon && guard++ < 24) {
-      if (s.mode === "robot" && s.cursor > s.nextGate - 28) {
-        var gateZ = Math.max(s.cursor + gapMetres(s, { lanes: [null, null, null] }), s.nextGate);
-        // Keep a clean run-up so the banner is not sharing space with a hurdle.
-        if (s.cursor < gateZ - 20) {
-          var early = pickChunk(s);
-          var g0 = gapMetres(s, early);
-          if (s.cursor + g0 < gateZ - 22) {
-            s.cursor += g0;
-            placeChunk(s, s.cursor, early);
-            s.cursor += 7;
-            continue;
-          }
+  function farmLevel(state) { return levelFor(state.farmXp, FARM_STEPS); }
+  function buildLevel(state) { return levelFor(state.buildXp, BUILD_STEPS); }
+
+  function nextStep(xp, steps) {
+    var i;
+    for (i = 1; i < steps.length; i++) if (xp < steps[i]) return { next: steps[i], prev: steps[i - 1], level: i };
+    return { next: steps[steps.length - 1], prev: steps[steps.length - 1], level: steps.length, max: true };
+  }
+
+  function hasType(state, type) {
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === type) return true;
+    return false;
+  }
+
+  function countType(state, type) {
+    var n = 0;
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === type) n++;
+    return n;
+  }
+
+  function terrainAt(x, y) {
+    if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return "out";
+    var ch = MAP[y].charAt(x);
+    if (ch === "p") return "path";
+    if (ch === "t") return "tree";
+    return "grass";
+  }
+
+  function footprint(b) {
+    var cells = [];
+    var dy, dx;
+    for (dy = 0; dy < b.h; dy++) {
+      for (dx = 0; dx < b.w; dx++) cells.push([b.x + dx, b.y + dy]);
+    }
+    return cells;
+  }
+
+  function occupied(state, x, y, ignoreId) {
+    var i, cells, c;
+    for (i = 0; i < state.buildings.length; i++) {
+      if (state.buildings[i].id === ignoreId) continue;
+      cells = footprint(state.buildings[i]);
+      for (c = 0; c < cells.length; c++) {
+        if (cells[c][0] === x && cells[c][1] === y) return state.buildings[i];
+      }
+    }
+    return null;
+  }
+
+  function buildingById(state, id) {
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].id === id) return state.buildings[i];
+    return null;
+  }
+
+  function cellNorth(x, y, ox, oy, tw, th) {
+    return { x: ox + (x - y) * tw / 2, y: oy + (x + y) * th / 2 };
+  }
+
+  function pickCell(sx, sy, ox, oy, tw, th) {
+    var a = (sx - ox) / (tw / 2);
+    var b = (sy - oy) / (th / 2);
+    return { x: Math.floor((a + b) / 2), y: Math.floor((b - a) / 2) };
+  }
+
+  function fresh(now) {
+    now = now || 0;
+    return {
+      v: 1,
+      notes: 60,
+      seeds: 12,
+      water: 10,
+      timber: 8,
+      bricks: 5,
+      crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
+      farmXp: 0,
+      buildXp: 0,
+      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0 },
+      paid: {},
+      tankAcc: 0,
+      seenAt: now,
+      nextId: 3,
+      welcomed: false,
+      buildings: [
+        { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
+        { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 }
+      ]
+    };
+  }
+
+  function afford(state, cost) {
+    cost = cost || {};
+    var missing = [];
+    if ((cost.notes || 0) > state.notes) missing.push((cost.notes - state.notes) + " more notes");
+    if ((cost.seeds || 0) > state.seeds) missing.push((cost.seeds - state.seeds) + " more seeds");
+    if ((cost.water || 0) > state.water) missing.push((cost.water - state.water) + " more water");
+    if ((cost.timber || 0) > state.timber) missing.push((cost.timber - state.timber) + " more timber");
+    if ((cost.bricks || 0) > state.bricks) missing.push((cost.bricks - state.bricks) + " more bricks");
+    if (missing.length) return { ok: false, reason: "Need " + missing.join(", ") + "." };
+    return { ok: true };
+  }
+
+  function pay(state, cost) {
+    var check = afford(state, cost);
+    if (!check.ok) return check;
+    state.notes -= cost.notes || 0;
+    state.seeds -= cost.seeds || 0;
+    state.water -= cost.water || 0;
+    state.timber -= cost.timber || 0;
+    state.bricks -= cost.bricks || 0;
+    return { ok: true };
+  }
+
+  function timberDiscount(state, cost) {
+    var copy = {
+      notes: cost.notes || 0,
+      timber: cost.timber || 0,
+      bricks: cost.bricks || 0,
+      seeds: cost.seeds || 0,
+      water: cost.water || 0
+    };
+    if (hasType(state, "solar") && copy.timber > 0) copy.timber -= 1;
+    return copy;
+  }
+
+  function placeCost(state, type) {
+    var def = BUILDINGS[type];
+    if (!def || !def.cost) return null;
+    return timberDiscount(state, def.cost);
+  }
+
+  function canPlace(state, type, x, y) {
+    var def = BUILDINGS[type];
+    if (!def || !def.cost) return { ok: false, reason: "That cannot be placed." };
+    if (buildLevel(state) < (def.skill || 1)) {
+      return { ok: false, reason: "Building level " + def.skill + " unlocks the " + def.name.toLowerCase() + "." };
+    }
+    if (countType(state, type) >= def.limit) return { ok: false, reason: "You already have a " + def.name.toLowerCase() + "." };
+    var dx, dy, land, block;
+    for (dy = 0; dy < def.h; dy++) {
+      for (dx = 0; dx < def.w; dx++) {
+        land = terrainAt(x + dx, y + dy);
+        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
+        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
+        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+        block = occupied(state, x + dx, y + dy);
+        if (block) return { ok: false, reason: "Something is already there." };
+      }
+    }
+    return afford(state, placeCost(state, type));
+  }
+
+  function place(state, type, x, y) {
+    var check = canPlace(state, type, x, y);
+    if (!check.ok) return check;
+    var def = BUILDINGS[type];
+    pay(state, placeCost(state, type));
+    var b = { id: state.nextId++, type: type, x: x, y: y, w: def.w, h: def.h, level: 1 };
+    if (type === "bed") { b.crop = null; b.phase = "empty"; b.plantedAt = 0; }
+    state.buildings.push(b);
+    state.buildXp += 8;
+    if (type !== "bed") state.stats.placed += 1;
+    return { ok: true, id: b.id, xp: 8 };
+  }
+
+  function upgradeCost(state, b) {
+    var def = BUILDINGS[b.type];
+    if (!def || !def.upgrades) return null;
+    if (b.level >= def.upgrades.length) return null;
+    var raw = def.upgrades[b.level];
+    if (!raw) return null;
+    return timberDiscount(state, raw);
+  }
+
+  function canUpgrade(state, id) {
+    var b = buildingById(state, id);
+    if (!b) return { ok: false, reason: "Nothing selected." };
+    var def = BUILDINGS[b.type];
+    var raw = def && def.upgrades ? def.upgrades[b.level] : null;
+    if (!raw) return { ok: false, reason: def.name + " is fully built." };
+    if (buildLevel(state) < (raw.skill || 1)) {
+      return { ok: false, reason: "Building level " + raw.skill + " unlocks the next step." };
+    }
+    return afford(state, upgradeCost(state, b));
+  }
+
+  function upgrade(state, id) {
+    var check = canUpgrade(state, id);
+    if (!check.ok) return check;
+    var b = buildingById(state, id);
+    var raw = BUILDINGS[b.type].upgrades[b.level];
+    pay(state, upgradeCost(state, b));
+    b.level += 1;
+    state.buildXp += raw.xp || 12;
+    state.stats.upgraded += 1;
+    return { ok: true, level: b.level, xp: raw.xp || 12 };
+  }
+
+  function cropReady(b, now) {
+    if (!b || b.type !== "bed" || b.phase !== "growing") return false;
+    var def = CROPS[b.crop];
+    if (!def) return false;
+    return now - b.plantedAt >= def.grow;
+  }
+
+  function sow(state, id, crop) {
+    var b = buildingById(state, id);
+    var def = CROPS[crop];
+    if (!b || b.type !== "bed") return { ok: false, reason: "Choose a veggie bed." };
+    if (b.phase !== "empty") return { ok: false, reason: "That bed is already planted." };
+    if (!def) return { ok: false, reason: "Unknown crop." };
+    if (farmLevel(state) < def.level) return { ok: false, reason: "Farming level " + def.level + " unlocks " + def.name.toLowerCase() + "." };
+    var spent = pay(state, { seeds: def.seed });
+    if (!spent.ok) return spent;
+    b.crop = crop;
+    b.phase = "sown";
+    b.plantedAt = 0;
+    state.farmXp += 2;
+    state.stats.sown += 1;
+    return { ok: true, xp: 2 };
+  }
+
+  function water(state, id, now) {
+    var b = buildingById(state, id);
+    if (!b || b.type !== "bed") return { ok: false, reason: "Choose a veggie bed." };
+    if (b.phase !== "sown") return { ok: false, reason: b.phase === "growing" ? "Already watered." : "Sow something first." };
+    var def = CROPS[b.crop];
+    var spent = pay(state, { water: def.water });
+    if (!spent.ok) return spent;
+    b.phase = "growing";
+    b.plantedAt = now;
+    state.farmXp += 2;
+    state.stats.watered += 1;
+    return { ok: true, xp: 2, grow: def.grow };
+  }
+
+  function harvest(state, id, now) {
+    var b = buildingById(state, id);
+    if (!b || b.type !== "bed") return { ok: false, reason: "Choose a veggie bed." };
+    if (b.phase !== "growing") return { ok: false, reason: "Nothing is ready to pick." };
+    if (!cropReady(b, now)) return { ok: false, reason: "Still growing." };
+    var def = CROPS[b.crop];
+    var name = b.crop;
+    var amount = def.yield;
+    state.crops[name] = clamp((state.crops[name] || 0) + amount, 0, STACK_CAP);
+    state.farmXp += def.xp;
+    state.stats.harvested += 1;
+    b.crop = null;
+    b.phase = "empty";
+    b.plantedAt = 0;
+    return { ok: true, crop: name, amount: amount, xp: def.xp };
+  }
+
+  function sell(state, crop, n) {
+    var def = CROPS[crop];
+    n = clamp(n, 0, STACK_CAP);
+    if (!def) return { ok: false, reason: "Unknown crop." };
+    if (!hasType(state, "spaza")) return { ok: false, reason: "Build a spaza first." };
+    if (n < 1) return { ok: false, reason: "Choose how many to sell." };
+    if ((state.crops[crop] || 0) < n) return { ok: false, reason: "Not enough " + def.name.toLowerCase() + "." };
+    state.crops[crop] -= n;
+    state.notes = clamp(state.notes + def.price * n, 0, NOTE_CAP);
+    return { ok: true, notes: def.price * n };
+  }
+
+  function tick(state, now) {
+    var last = state.seenAt == null ? now : state.seenAt;
+    var gap = now - last;
+    if (gap < 0) gap = 0;
+    var used = gap > ELAPSE_CAP ? ELAPSE_CAP : gap;
+    var discarded = gap - used;
+    var i, b;
+    if (discarded > 0) {
+      for (i = 0; i < state.buildings.length; i++) {
+        b = state.buildings[i];
+        if (b.phase === "growing" && b.plantedAt != null) b.plantedAt += discarded;
+      }
+    }
+    if (hasType(state, "tank")) {
+      state.tankAcc = (state.tankAcc || 0) + used;
+      while (state.tankAcc >= TANK_MS && state.water < WATER_CAP) {
+        state.water += 1;
+        state.tankAcc -= TANK_MS;
+      }
+      if (state.water >= WATER_CAP) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
+    }
+    state.seenAt = now;
+    return { elapsed: used, discarded: discarded };
+  }
+
+  function cratePayout(correct) {
+    correct = clamp(correct, 0, 12);
+    return { notes: Math.min(24, correct * 2), seeds: correct >= 8 ? 1 : 0, water: 0 };
+  }
+
+  function marketPayout(served) {
+    served = clamp(served, 0, 5);
+    return { notes: Math.min(25, served * 5), seeds: 0, water: served >= 5 ? 1 : 0 };
+  }
+
+  function collectReward(state, token, payout) {
+    if (!token || typeof token !== "string" || token.length > 80) return { ok: false, reason: "Bad reward." };
+    if (state.paid[token]) return { ok: false, reason: "Already collected." };
+    payout = payout || {};
+    var notes = clamp(payout.notes, 0, 25);
+    var seeds = clamp(payout.seeds, 0, 2);
+    var water = clamp(payout.water, 0, 2);
+    if (notes + seeds + water <= 0) return { ok: false, reason: "Nothing to collect." };
+    state.paid[token] = 1;
+    var keys = Object.keys(state.paid);
+    if (keys.length > 30) delete state.paid[keys[0]];
+    state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + seeds, 0, STACK_CAP);
+    state.water = clamp(state.water + water, 0, WATER_CAP);
+    state.stats.played += 1;
+    return { ok: true, notes: notes, seeds: seeds, water: water };
+  }
+
+  function tasks(state) {
+    return [
+      { id: "sow", done: state.stats.sown > 0, text: "Sow maize in a veggie bed" },
+      { id: "water", done: state.stats.watered > 0, text: "Water the bed" },
+      { id: "harvest", done: state.stats.harvested > 0, text: "Harvest when the crop is ready" },
+      { id: "place", done: state.stats.placed > 0, text: "Place a spaza, tank, or workshop" },
+      { id: "upgrade", done: state.stats.upgraded > 0, text: "Upgrade your home" },
+      { id: "play", done: state.stats.played > 0, text: "Finish a lane mini-game" }
+    ];
+  }
+
+  function currentTask(state) {
+    var list = tasks(state);
+    var i;
+    for (i = 0; i < list.length; i++) if (!list[i].done) return list[i];
+    return { id: "done", done: true, text: "The lane is underway. Keep growing it." };
+  }
+
+  function bedView(b, now) {
+    if (!b || b.type !== "bed") return null;
+    if (b.phase === "empty") return { phase: "empty", progress: 0 };
+    if (b.phase === "sown") return { phase: "sown", progress: 0, crop: b.crop };
+    var def = CROPS[b.crop];
+    var p = def ? (now - b.plantedAt) / def.grow : 0;
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    return { phase: p >= 1 ? "ready" : "growing", progress: p, crop: b.crop, left: Math.max(0, def.grow - (now - b.plantedAt)) };
+  }
+
+  function sanitize(data) {
+    if (!data || typeof data !== "object" || data.v !== 1) return null;
+    var now = clamp(data.seenAt, 0, 8.64e15);
+    var s = fresh(now);
+    s.notes = clamp(data.notes, 0, NOTE_CAP);
+    s.seeds = clamp(data.seeds, 0, STACK_CAP);
+    s.water = clamp(data.water, 0, WATER_CAP);
+    s.timber = clamp(data.timber, 0, STACK_CAP);
+    s.bricks = clamp(data.bricks, 0, STACK_CAP);
+    s.farmXp = clamp(data.farmXp, 0, 100000);
+    s.buildXp = clamp(data.buildXp, 0, 100000);
+    s.tankAcc = clamp(data.tankAcc, 0, TANK_MS);
+    s.welcomed = !!data.welcomed;
+    s.seenAt = now;
+    var crops = data.crops || {};
+    var k;
+    for (k in CROPS) s.crops[k] = clamp(crops[k], 0, STACK_CAP);
+    var stats = data.stats || {};
+    for (k in s.stats) s.stats[k] = clamp(stats[k], 0, 100000);
+    s.paid = {};
+    if (data.paid && typeof data.paid === "object") {
+      var tokens = Object.keys(data.paid).slice(-30);
+      var t;
+      for (t = 0; t < tokens.length; t++) {
+        if (typeof tokens[t] === "string" && tokens[t].length <= 80) s.paid[tokens[t]] = 1;
+      }
+    }
+    s.buildings = [];
+    s.nextId = 1;
+    var list = Array.isArray(data.buildings) ? data.buildings : [];
+    var i, raw, def, b, dx, dy, ok, land, block;
+    for (i = 0; i < list.length; i++) {
+      raw = list[i];
+      if (!raw || typeof raw !== "object") continue;
+      def = BUILDINGS[raw.type];
+      if (!def) continue;
+      b = {
+        id: s.nextId++,
+        type: raw.type,
+        x: clamp(raw.x, 0, COLS - 1),
+        y: clamp(raw.y, 0, ROWS - 1),
+        w: def.w,
+        h: def.h,
+        level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1)
+      };
+      ok = true;
+      for (dy = 0; dy < b.h && ok; dy++) {
+        for (dx = 0; dx < b.w; dx++) {
+          land = terrainAt(b.x + dx, b.y + dy);
+          block = occupied(s, b.x + dx, b.y + dy);
+          if (land !== "grass" || block) { ok = false; break; }
         }
-        s.cursor = gateZ;
-        placeGate(s, s.cursor);
-        s.cursor += 16;
-        s.nextGate = s.cursor + 48 + (s.rng() * 12);
-        continue;
       }
-      if (s.mode === "rush" && s.rng() < 0.42 && s.placed > 0) {
-        s.cursor += Math.max(12, s.speed * 0.55);
-        placePocket(s, s.cursor);
-        s.cursor += 8;
-        continue;
+      if (!ok) continue;
+      if (countType(s, b.type) >= def.limit) continue;
+      if (b.type === "bed") {
+        b.crop = CROPS[raw.crop] ? raw.crop : null;
+        b.phase = raw.phase === "sown" || raw.phase === "growing" ? raw.phase : "empty";
+        if (!b.crop) b.phase = "empty";
+        b.plantedAt = b.phase === "growing" ? clamp(raw.plantedAt, 0, 8.64e15) : 0;
+        if (b.phase === "sown") b.plantedAt = 0;
       }
-      var ch = pickChunk(s);
-      s.cursor += gapMetres(s, ch);
-      placeChunk(s, s.cursor, ch);
-      s.cursor += 6.5;
+      s.buildings.push(b);
     }
-  }
-
-  function tryJump(s) {
-    if (s.air > 0 || s.slide > 0) return;
-    s.air = 0.001;
-    s.events.push("jump");
-  }
-  function trySlide(s) {
-    if (s.air > 0 || s.slide > 0) return;
-    s.slide = 0.001;
-    s.events.push("slide");
-  }
-  function queueLane(s, dir) {
-    if (!dir) return;
-    var next = s.lane + (dir > 0 ? 1 : -1);
-    if (next < 0 || next > 2) return;
-    if (Math.abs(s.x - laneX(s.lane)) > 0.16) {
-      s.queued = dir > 0 ? 1 : -1;
-      return;
-    }
-    s.lane = next;
-    s.queued = 0;
-    s.events.push("lane");
-  }
-
-  function updateBody(s, dt) {
-    if (s.queued && Math.abs(s.x - laneX(s.lane)) < 0.1) {
-      var dir = s.queued;
-      s.queued = 0;
-      queueLane(s, dir);
-    }
-    var target = laneX(s.lane);
-    s.x += (target - s.x) * (1 - Math.exp(-18 * dt));
-    if (s.air > 0) {
-      s.air += dt;
-      if (s.air >= JUMP_DUR) { s.air = 0; s.y = 0; }
-      else s.y = Math.sin((s.air / JUMP_DUR) * Math.PI) * 1.82;
-    } else s.y = 0;
-    if (s.slide > 0) {
-      s.slide += dt;
-      if (s.slide >= SLIDE_DUR) s.slide = 0;
-    }
-    if (s.invuln > 0) s.invuln -= dt;
-    if (s.hitstun > 0) s.hitstun -= dt;
-    if (s.magnet > 0) s.magnet -= dt;
-    var cadence = 11 * (0.82 + s.speed / 48);
-    if (s.slide > 0) cadence = 0;
-    s.phase += dt * cadence;
-  }
-
-  function collect(s, e, kind) {
-    e.dead = true;
-    if (kind === "coin") {
-      s.coins++;
-      s.score += 10;
-      s.events.push("coin");
-    } else if (kind === "fare") {
-      s.fares++;
-      s.score += 40;
-      s.events.push("fare");
-    } else if (kind === "shield") {
-      s.shield = true;
-      s.score += 15;
-      s.events.push("shield");
-    } else if (kind === "kota") {
-      s.magnet = 5.2;
-      s.score += 25;
-      s.events.push("kota");
-    }
-  }
-
-  function wipe(s, reason) {
-    s.alive = false;
-    s.finished = true;
-    s.win = false;
-    s.reason = reason;
-    s.events.push("die");
-  }
-
-  function hurt(s, e) {
-    e.dead = true;
-    if (s.shield) {
-      s.shield = false;
-      s.invuln = 1.25;
-      s.hitstun = 0.28;
-      s.air = 0;
-      s.y = 0;
-      s.slide = 0;
-      s.events.push("shieldbreak");
-      return;
-    }
-    if (s.mode === "rush") {
-      s.timeLeft = Math.max(0, s.timeLeft - 7);
-      s.fares = Math.max(0, s.fares - 1);
-      s.score = Math.max(0, s.score - 20);
-      s.invuln = 1.15;
-      s.hitstun = 0.34;
-      s.air = 0;
-      s.y = 0;
-      s.slide = 0;
-      s.events.push("crash");
-      if (s.timeLeft <= 0) {
-        s.alive = false;
-        s.finished = true;
-        s.win = false;
-        s.reason = "time";
-        s.events.push("finish");
-      }
-      return;
-    }
-    wipe(s, "hit");
-  }
-
-  function collide(s) {
-    var i, e, ahead, half;
-    for (i = 0; i < s.ents.length; i++) {
-      e = s.ents[i];
-      if (e.dead || e.resolved) continue;
-      ahead = e.z - s.travel;
-      if (e.kind === "coin" || e.kind === "fare" || e.kind === "shield" || e.kind === "kota") {
-        if (ahead < 1.15 && ahead > -0.35 && Math.abs(s.x - e.x) < 0.56) {
-          if (e.y > 1) { if (s.y > 0.9) collect(s, e, e.kind); }
-          else collect(s, e, e.kind);
+    if (!hasType(s, "home")) {
+      var hx = 1;
+      var hy = 2;
+      var free = true;
+      var hx2, hy2;
+      for (hy2 = 0; hy2 < 2 && free; hy2++) {
+        for (hx2 = 0; hx2 < 2; hx2++) {
+          if (terrainAt(hx + hx2, hy + hy2) !== "grass" || occupied(s, hx + hx2, hy + hy2)) free = false;
         }
-        continue;
       }
-      if (e.kind === "gate") {
-        if (ahead > 0.45 || ahead < -0.25) continue;
-        e.resolved = true;
-        var pl = 0;
-        var best = 99;
-        for (var li = 0; li < 3; li++) {
-          var dx = Math.abs(s.x - laneX(li));
-          if (dx < best) { best = dx; pl = li; }
-        }
-        if (pl === e.lane) {
-          s.streak = Math.min(8, s.streak + 1);
-          s.routes++;
-          s.score += 30 * Math.min(5, s.streak);
-          s.events.push("gate");
-        } else {
-          s.streak = 0;
-          s.strikes++;
-          s.invuln = 1.15;
-          s.hitstun = 0.36;
-          s.air = 0;
-          s.y = 0;
-          s.events.push("strike");
-          if (s.strikes >= 3) wipe(s, "strikes");
-        }
-        continue;
-      }
-      var front = e.verb === "block" ? 1.25 : 0.8;
-      var back = e.verb === "block" ? -0.55 : -0.42;
-      if (ahead > front || ahead < back) continue;
-      half = e.verb === "block" ? 0.48 : 0.4;
-      var adx = Math.abs(s.x - e.x);
-      if (adx > half) {
-        if (!e.near && adx < half + 0.32 && ahead < 0.45 && ahead > -0.2) {
-          e.near = true;
-          s.score += 5;
-          s.events.push("near");
-        }
-        continue;
-      }
-      if (s.invuln > 0) { e.dead = true; continue; }
-      if (e.verb === "low") {
-        if (s.y > 0.8) { e.dead = true; continue; }
-        hurt(s, e);
-      } else if (e.verb === "high") {
-        if (s.slide > 0.04 && s.slide < SLIDE_DUR - 0.03 && s.y < 0.25) { e.dead = true; continue; }
-        hurt(s, e);
-      } else hurt(s, e);
-      if (!s.alive) return;
-    }
-  }
-
-  function magnetPull(s, dt) {
-    if (s.magnet <= 0) return;
-    for (var i = 0; i < s.ents.length; i++) {
-      var e = s.ents[i];
-      if (e.dead || e.kind !== "coin") continue;
-      var ahead = e.z - s.travel;
-      if (ahead < -0.5 || ahead > 9) continue;
-      e.x += (s.x - e.x) * (1 - Math.exp(-7 * dt));
-      e.z += (s.travel - e.z) * (1 - Math.exp(-3.2 * dt));
-    }
-  }
-
-  function step(s, dt, input) {
-    if (!s.alive || s.finished) return s;
-    dt = dt > 0.05 ? 0.05 : dt < 0 ? 0 : dt;
-    s.events.length = 0;
-    s.t += dt;
-    s.speed = speedOf(s);
-    var moving = s.hitstun > 0 ? s.speed * 0.42 : s.speed;
-    s.travel += moving * dt;
-    s.dist = s.travel;
-    s.score += moving * dt * (s.mode === "rush" ? 0.45 : 1);
-    if (s.mode === "rush") {
-      s.timeLeft -= dt;
-      if (s.timeLeft <= 0.0008) {
-        s.timeLeft = 0;
-        s.alive = false;
-        s.finished = true;
-        s.win = true;
-        s.reason = "time";
-        s.events.push("finish");
-        return s;
-      }
-    }
-    input = input || {};
-    if (input.jump) tryJump(s);
-    if (input.slide) trySlide(s);
-    if (input.lane) queueLane(s, input.lane);
-    updateBody(s, dt);
-    spawn(s);
-    magnetPull(s, dt);
-    collide(s);
-    if (s.ents.length > 80) {
-      var keep = [];
-      for (var i = 0; i < s.ents.length; i++) if (s.ents[i].z > s.travel - 6) keep.push(s.ents[i]);
-      s.ents = keep;
-    } else {
-      var w = 0;
-      for (var j = 0; j < s.ents.length; j++) if (s.ents[j].z > s.travel - 6) s.ents[w++] = s.ents[j];
-      s.ents.length = w;
+      if (free) s.buildings.unshift({ id: s.nextId++, type: "home", x: hx, y: hy, w: 2, h: 2, level: 1 });
     }
     return s;
   }
 
-  function physicalLane(s) {
-    var best = s.lane, bestD = 99;
-    for (var i = 0; i < 3; i++) {
-      var d = Math.abs(s.x - laneX(i));
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return best;
-  }
-
-  function nextObs(threats, lane, z0, z1) {
-    var best = null;
-    for (var i = 0; i < threats.length; i++) {
-      var o = threats[i];
-      if (o.kind !== "obs" || o.lane !== lane || o.z < z0 || o.z > z1) continue;
-      if (!best || o.z < best.z) best = o;
-    }
-    return best;
-  }
-
-  // Nearest threat only. Never swerves into a hurdle it cannot jump or slide in time.
-  // Used by the fairness sim and ?bot=1.
-  function oracle(s) {
-    var input = { lane: 0, jump: false, slide: false };
-    if (!s.alive || s.finished) return input;
-    var speed = Math.max(8, s.speed);
-    var look = speed * 1.4;
-    var threats = [];
-    var gate = null;
-    for (var i = 0; i < s.ents.length; i++) {
-      var e = s.ents[i];
-      var ahead = e.z - s.travel;
-      if (ahead < -0.35 || ahead > look + 8) continue;
-      if (e.kind === "gate" && !e.resolved) {
-        if (!gate || e.z < gate.z) gate = e;
-      } else if (e.kind === "obs" && !e.dead) threats.push(e);
-    }
-    var body = physicalLane(s);
-    var bodyNext = nextObs(threats, body, s.travel - 0.2, s.travel + look);
-    if (body !== s.lane && bodyNext && (bodyNext.verb === "low" || bodyNext.verb === "high")) {
-      var tBody = (bodyNext.z - s.travel) / speed;
-      if (tBody < 0.52 && tBody > 0.1) {
-        if (bodyNext.verb === "low") input.jump = true;
-        else input.slide = true;
-        return input;
-      }
-    }
-    var logicalNext = nextObs(threats, s.lane, s.travel - 0.2, s.travel + look);
-    var target = s.lane;
-    var reasonZ = s.travel + look;
-    if (logicalNext && logicalNext.verb === "block") {
-      target = -1;
-      reasonZ = logicalNext.z;
-    }
-    if (gate && gate.z <= reasonZ && gate.z - s.travel < speed * 1.12) {
-      target = gate.lane;
-      reasonZ = gate.z;
-    }
-    if (target === -1) {
-      var best = -1, bestCost = 99;
-      for (var li = 0; li < 3; li++) {
-        if (li === s.lane) continue;
-        var step = li > s.lane ? 1 : -1;
-        var cross = false;
-        for (var p = s.lane + step; step > 0 ? p < li : p > li; p += step) {
-          var mid = nextObs(threats, p, reasonZ - 1.4, reasonZ + 1.5);
-          if (mid && mid.verb === "block") cross = true;
-        }
-        if (cross) continue;
-        var dest = nextObs(threats, li, s.travel, reasonZ + speed * 0.7);
-        if (dest && dest.verb === "block") continue;
-        var cost = Math.abs(li - s.lane) * 2;
-        if (dest && (dest.verb === "low" || dest.verb === "high")) {
-          var arrive = Math.abs(li - body) * 0.22 + 0.12;
-          var t = (dest.z - s.travel) / speed;
-          if (t < arrive + 0.34) cost += 40;
-          else cost += 1;
-        }
-        if (cost < bestCost) { bestCost = cost; best = li; }
-      }
-      target = best < 0 ? s.lane : best;
-    }
-    if (target !== s.lane) {
-      var destNext = nextObs(threats, target, s.travel, reasonZ + 1.5);
-      if (destNext && destNext.verb !== "block") {
-        var td = (destNext.z - s.travel) / speed;
-        var need = Math.abs(target - body) * 0.22 + 0.4;
-        var currentBad = logicalNext && logicalNext.verb === "block" && logicalNext.z <= destNext.z + 0.8;
-        if (td < need && !currentBad) target = s.lane;
-      }
-      if (target !== s.lane && Math.abs(target - s.lane) === 2) {
-        var midObs = nextObs(threats, 1, s.travel, s.travel + speed * 0.75);
-        var blockedHere = logicalNext && logicalNext.verb === "block" && (!midObs || logicalNext.z <= midObs.z + 0.5);
-        if (midObs && !blockedHere) target = s.lane;
-      }
-      if (target !== s.lane) input.lane = target > s.lane ? 1 : -1;
-      return input;
-    }
-    if (logicalNext && logicalNext.verb === "low") {
-      var tHit = (logicalNext.z - s.travel) / speed;
-      if (tHit < 0.45 && tHit > 0.14) input.jump = true;
-    } else if (logicalNext && logicalNext.verb === "high") {
-      var tSlide = (logicalNext.z - s.travel) / speed;
-      if (tSlide < 0.48 && tSlide > 0.13) input.slide = true;
-    }
-    return input;
-  }
-
-  root.EISH = {
-    MODES: MODES,
-    LANE_X: LANE_X,
-    JUMP_DUR: JUMP_DUR,
-    SLIDE_DUR: SLIDE_DUR,
-    CHUNKS: CHUNKS,
-    create: create,
-    step: step,
-    oracle: oracle,
-    worstGap: worstGap,
-    chunkStats: chunkStats,
-    laneX: laneX,
-    speedOf: speedOf
+  return {
+    COLS: COLS,
+    ROWS: ROWS,
+    MAP: MAP,
+    CROPS: CROPS,
+    BUILDINGS: BUILDINGS,
+    FARM_STEPS: FARM_STEPS,
+    BUILD_STEPS: BUILD_STEPS,
+    ELAPSE_CAP: ELAPSE_CAP,
+    fresh: fresh,
+    sanitize: sanitize,
+    farmLevel: farmLevel,
+    buildLevel: buildLevel,
+    nextStep: nextStep,
+    terrainAt: terrainAt,
+    occupied: occupied,
+    buildingById: buildingById,
+    footprint: footprint,
+    cellNorth: cellNorth,
+    pickCell: pickCell,
+    afford: afford,
+    canPlace: canPlace,
+    place: place,
+    canUpgrade: canUpgrade,
+    upgrade: upgrade,
+    upgradeCost: upgradeCost,
+    placeCost: placeCost,
+    sow: sow,
+    water: water,
+    harvest: harvest,
+    sell: sell,
+    tick: tick,
+    cropReady: cropReady,
+    bedView: bedView,
+    cratePayout: cratePayout,
+    marketPayout: marketPayout,
+    collectReward: collectReward,
+    tasks: tasks,
+    currentTask: currentTask,
+    hasType: hasType
   };
-})(typeof globalThis !== "undefined" ? globalThis : this);
+})();
+
+if (typeof module !== "undefined" && module.exports) module.exports = KHAYA;

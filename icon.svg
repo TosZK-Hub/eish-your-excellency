@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#ffb300"/><ellipse cx="256" cy="290" rx="150" ry="190" fill="#43a047" stroke="#111" stroke-width="16"/><circle cx="200" cy="240" r="34" fill="#fff" stroke="#111" stroke-width="12"/><circle cx="312" cy="240" r="34" fill="#fff" stroke="#111" stroke-width="12"/><circle cx="206" cy="244" r="14" fill="#111"/><circle cx="318" cy="244" r="14" fill="#111"/><ellipse cx="256" cy="350" rx="40" ry="30" fill="#5d1010" stroke="#111" stroke-width="12"/><text x="256" y="110" font-family="Impact,sans-serif" font-size="110" text-anchor="middle" fill="#fff" stroke="#111" stroke-width="10" paint-order="stroke">EISH!</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#f3c49a"/>
+  <path d="M96 300 L256 170 L416 300 V400 H96 Z" fill="#f6e6cf" stroke="#243028" stroke-width="14"/>
+  <path d="M70 300 L256 140 L442 300" fill="none" stroke="#d4654a" stroke-width="36" stroke-linejoin="round"/>
+  <rect x="226" y="310" width="60" height="90" rx="8" fill="#2f8f78"/>
+  <circle cx="150" cy="400" r="28" fill="#7eae62"/>
+  <circle cx="370" cy="390" r="34" fill="#e2b23a"/>
+</svg>

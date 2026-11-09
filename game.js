@@ -1,2353 +1,1405 @@
-// EISH! Jozi Run — simulation only (no DOM). Fairness, modes, collision.
-// Next iteration: tune GAP feel in worstGap(), verbs in CHUNKS, speeds in speedOf().
-(function (root) {
-  "use strict";
-  var LANE_X = [-1.05, 0, 1.05];
-  var JUMP_DUR = 0.58;
-  var SLIDE_DUR = 0.56;
-  var MODES = {
-    run: { id: "run", name: "Jozi Run", blurb: "Endless street. One hit ends it.", timed: false },
-    rush: { id: "rush", name: "Taxi Rush", blurb: "75 seconds to bank fares.", timed: true, seconds: 75 },
-    robot: { id: "robot", name: "Green Robot", blurb: "Three strikes. Take the open robot.", timed: false }
-  };
+// Khaya Lane rules: farming, building, skills, and capped mini-game pay.
+// Original game logic. No account, no real-money currency.
+var KHAYA = (function () {
+  var COLS = 8;
+  var ROWS = 8;
+  var ELAPSE_CAP = 10 * 60 * 1000;
+  var TANK_MS = 20000;
+  var WATER_CAP = 24;
+  var NOTE_CAP = 9999;
+  var STACK_CAP = 99;
 
-  function mulberry(seed) {
-    var a = seed >>> 0;
-    return function () {
-      a |= 0;
-      a = (a + 0x6d2b79f5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-  function laneX(i) { return LANE_X[clamp(i, 0, 2)]; }
-
-  // verb per lane: null clear, low = jump, high = slide, block = change lane.
-  // Every chunk is survivable from every lane (see worstGap). No three-blocks,
-  // and never a low+high mix with no empty lane — that forces two verbs at once.
-  var CHUNKS = [
-    { id: "L", lanes: ["low", null, null], tier: 0 },
-    { id: "C", lanes: [null, "low", null], tier: 0 },
-    { id: "R", lanes: [null, null, "low"], tier: 0 },
-    { id: "Hl", lanes: ["high", null, null], tier: 0 },
-    { id: "Hc", lanes: [null, "high", null], tier: 0 },
-    { id: "Hr", lanes: [null, null, "high"], tier: 0 },
-    { id: "Bl", lanes: ["block", null, null], tier: 0 },
-    { id: "Bc", lanes: [null, "block", null], tier: 0 },
-    { id: "Br", lanes: [null, null, "block"], tier: 0 },
-    { id: "La", lanes: ["low", "low", "low"], tier: 1 },
-    { id: "Ha", lanes: ["high", "high", "high"], tier: 1 },
-    { id: "LL", lanes: ["low", "low", null], tier: 1 },
-    { id: "RR", lanes: [null, "low", "low"], tier: 1 },
-    { id: "HH", lanes: ["high", null, "high"], tier: 1 },
-    { id: "openC", lanes: ["block", null, "block"], tier: 1 },
-    // Side-by-side blocks only when the open lane is between them.
-    // A double block on one side would make the far runner cross a taxi.
-    { id: "mix1", lanes: ["low", null, "block"], tier: 2 },
-    { id: "mix2", lanes: ["block", null, "low"], tier: 2 },
-    { id: "mix3", lanes: [null, "high", "block"], tier: 2 },
-    { id: "mix4", lanes: ["block", "high", null], tier: 2 },
-    { id: "mix5", lanes: ["low", "low", "block"], tier: 2 },
-    { id: "mix6", lanes: ["block", "high", "high"], tier: 2 }
+  var MAP = [
+    "tggggggt",
+    "gggggggg",
+    "ggggpggg",
+    "ggggpggg",
+    "ggggpggg",
+    "ggggpggg",
+    "ppppgggg",
+    "gggggggg"
   ];
 
-  var TUTORIAL = [
-    { id: "t0", lanes: [null, null, "low"], tier: 0 },
-    { id: "t1", lanes: ["high", null, null], tier: 0 },
-    { id: "t2", lanes: [null, "low", null], tier: 0 }
-  ];
-
-  function chunkStats(ch) {
-    var empty = 0, blocks = 0, verbs = {};
-    for (var i = 0; i < 3; i++) {
-      var v = ch.lanes[i];
-      if (!v) empty++;
-      else if (v === "block") blocks++;
-      else verbs[v] = 1;
-    }
-    var keys = [];
-    for (var k in verbs) if (verbs[k]) keys.push(k);
-    return { empty: empty, blocks: blocks, verbs: keys, allLow: empty === 0 && blocks === 0 && keys.length === 1 && keys[0] === "low", allHigh: empty === 0 && blocks === 0 && keys.length === 1 && keys[0] === "high" };
-  }
-
-  // Seconds a prepared runner needs, worst starting lane, after the previous chunk.
-  function planTime(lane, ch, prev) {
-    var v = ch.lanes[lane];
-    var recover = 0;
-    if (prev && prev.allLow) recover = 0.46;
-    else if (prev && prev.allHigh) recover = 0.28;
-    if (!v) return 0.42 + recover * 0.35;
-    if (v === "low") return 0.5 + (prev && prev.allHigh ? 0.32 : 0);
-    if (v === "high") return 0.5 + (prev && prev.allLow ? 0.5 : 0);
-    var best = 99;
-    for (var i = 0; i < 3; i++) {
-      if (i === lane || ch.lanes[i] === "block") continue;
-      var t = 0.48 + Math.abs(i - lane) * 0.24 + recover;
-      if (ch.lanes[i] === "low" || ch.lanes[i] === "high") t += 0.26;
-      if (t < best) best = t;
-    }
-    return best;
-  }
-
-  function worstGap(prev, ch) {
-    var need = 0.48;
-    for (var lane = 0; lane < 3; lane++) need = Math.max(need, planTime(lane, ch, prev));
-    var st = chunkStats(ch);
-    if (st.blocks === 3) return 99;
-    if (st.empty === 0 && st.verbs.length > 1) return 99;
-    return need;
-  }
-
-  function speedOf(s) {
-    if (s.mode === "rush") return 15 + Math.min(6.5, s.t * 0.09);
-    if (s.mode === "robot") return 14.5 + Math.min(6, s.travel / 220);
-    return 14 + Math.min(13, s.travel / 95);
-  }
-
-  function gapMetres(s, ch) {
-    var need = worstGap(s.prevChunk, ch);
-    var ease = s.mode === "robot" ? 1.12 : s.mode === "rush" ? 1.02 : 1;
-    ease *= Math.max(0.86, 1 - Math.min(0.1, s.travel / 5000));
-    return Math.max(13, s.speed * need * ease);
-  }
-
-  function create(mode, seed) {
-    if (!MODES[mode]) mode = "run";
-    var rng = mulberry((seed == null ? 1 : seed) >>> 0);
-    var s = {
-      mode: mode,
-      seed: seed >>> 0,
-      rng: rng,
-      t: 0,
-      travel: 0,
-      dist: 0,
-      speed: 14,
-      score: 0,
-      coins: 0,
-      fares: 0,
-      routes: 0,
-      streak: 0,
-      strikes: 0,
-      shield: false,
-      magnet: 0,
-      alive: true,
-      finished: false,
-      win: false,
-      reason: "",
-      timeLeft: mode === "rush" ? MODES.rush.seconds : 0,
-      lane: 1,
-      x: 0,
-      y: 0,
-      air: 0,
-      slide: 0,
-      invuln: 0,
-      hitstun: 0,
-      phase: 0,
-      queued: 0,
-      ents: [],
-      cursor: 50,
-      nextGate: 72,
-      prevChunk: null,
-      tut: 0,
-      placed: 0,
-      events: [],
-      seq: 1
-    };
-    s.speed = speedOf(s);
-    return s;
-  }
-
-  function pushEnt(s, e) {
-    e.id = s.seq++;
-    e.dead = false;
-    e.resolved = false;
-    e.near = false;
-    s.ents.push(e);
-  }
-
-  function placeChunk(s, z, ch) {
-    var variantRoll = s.rng();
-    for (var i = 0; i < 3; i++) {
-      var v = ch.lanes[i];
-      if (!v) continue;
-      var variant = 0;
-      if (v === "low") variant = variantRoll < 0.55 ? 0 : variantRoll < 0.82 ? 1 : 2;
-      else if (v === "high") variant = variantRoll < 0.4 ? 0 : variantRoll < 0.75 ? 1 : 2;
-      else variant = variantRoll < 0.72 ? 0 : 1;
-      pushEnt(s, { kind: "obs", lane: i, x: laneX(i), z: z, y: 0, verb: v, variant: variant });
-    }
-    // Coins lead the obstacle so they read as a path, never inside a block.
-    for (var c = 0; c < 3; c++) {
-      var lane = c;
-      var verb = ch.lanes[lane];
-      if (verb === "block") continue;
-      if (s.rng() > (verb ? 0.72 : 0.55)) continue;
-      var air = verb === "low";
-      var n = air ? 1 : 3;
-      for (var k = 0; k < n; k++) {
-        pushEnt(s, {
-          kind: "coin",
-          lane: lane,
-          x: laneX(lane),
-          z: z - 7.2 - k * 1.45,
-          y: air ? 1.5 : 0.2,
-          verb: null,
-          variant: 0
-        });
-      }
-    }
-    if (s.mode === "rush") {
-      for (var f = 0; f < 3; f++) {
-        if (ch.lanes[f]) continue;
-        if (s.rng() > 0.62) continue;
-        pushEnt(s, { kind: "fare", lane: f, x: laneX(f), z: z - 5.4, y: 0, verb: null, variant: (s.rng() * 3) | 0 });
-        break;
-      }
-    }
-    if ((s.mode === "run" || s.mode === "robot") && !s.shield && s.travel > 40 && s.rng() < 0.16) {
-      for (var g = 0; g < 3; g++) {
-        if (ch.lanes[g]) continue;
-        pushEnt(s, { kind: "shield", lane: g, x: laneX(g), z: z - 6, y: 0.9, verb: null, variant: 0 });
-        break;
-      }
-    } else if (s.rng() < 0.07 && s.travel > 80) {
-      for (var m = 0; m < 3; m++) {
-        if (ch.lanes[m] === "block") continue;
-        pushEnt(s, { kind: "kota", lane: m, x: laneX(m), z: z - 6.5, y: 0.35, verb: null, variant: 0 });
-        break;
-      }
-    }
-    s.prevChunk = chunkStats(ch);
-    s.prevChunk.id = ch.id;
-    s.placed++;
-    if (s.tut < TUTORIAL.length && ch === TUTORIAL[s.tut]) s.tut++;
-  }
-
-  function placePocket(s, z) {
-    var a = (s.rng() * 3) | 0;
-    var b = (a + 1 + ((s.rng() * 2) | 0)) % 3;
-    pushEnt(s, { kind: "fare", lane: a, x: laneX(a), z: z, y: 0, verb: null, variant: (s.rng() * 3) | 0 });
-    if (s.rng() < 0.65) pushEnt(s, { kind: "fare", lane: b, x: laneX(b), z: z + 1.2, y: 0, verb: null, variant: (s.rng() * 3) | 0 });
-    for (var k = 0; k < 4; k++) {
-      pushEnt(s, { kind: "coin", lane: a, x: laneX(a), z: z - 3 - k * 1.3, y: 0.2, verb: null, variant: 0 });
-    }
-    s.prevChunk = { empty: 3, blocks: 0, verbs: [], allLow: false, allHigh: false, id: "pocket" };
-  }
-
-  function placeGate(s, z) {
-    var lane = (s.rng() * 3) | 0;
-    if (s.lastGate === lane && s.rng() < 0.7) lane = (lane + 1 + ((s.rng() * 2) | 0)) % 3;
-    s.lastGate = lane;
-    var colours = ["#e23d3d", "#f0c14d", "#1fa971"];
-    pushEnt(s, { kind: "gate", lane: lane, x: laneX(lane), z: z, y: 0, verb: "boom", variant: lane, colour: colours[lane] });
-    s.prevChunk = null;
-  }
-
-  function pickChunk(s) {
-    if (s.tut < TUTORIAL.length && s.mode !== "rush") {
-      return TUTORIAL[s.tut];
-    }
-    var pool = [];
-    var i;
-    for (i = 0; i < CHUNKS.length; i++) {
-      var ch = CHUNKS[i];
-      if (s.mode === "robot" && (ch.tier > 1 || ch.lanes.indexOf("block") >= 0)) continue;
-      if (s.travel < 140 && ch.tier > 0) continue;
-      if (s.travel < 360 && ch.tier > 1) continue;
-      if (s.prevChunk && s.prevChunk.id === ch.id) continue;
-      if (worstGap(s.prevChunk, ch) >= 90) continue;
-      pool.push(ch);
-    }
-    if (!pool.length) pool = [CHUNKS[1], CHUNKS[4]];
-    return pool[(s.rng() * pool.length) | 0];
-  }
-
-  function spawn(s) {
-    var horizon = s.travel + 82;
-    var guard = 0;
-    while (s.cursor < horizon && guard++ < 24) {
-      if (s.mode === "robot" && s.cursor > s.nextGate - 28) {
-        var gateZ = Math.max(s.cursor + gapMetres(s, { lanes: [null, null, null] }), s.nextGate);
-        // Keep a clean run-up so the banner is not sharing space with a hurdle.
-        if (s.cursor < gateZ - 20) {
-          var early = pickChunk(s);
-          var g0 = gapMetres(s, early);
-          if (s.cursor + g0 < gateZ - 22) {
-            s.cursor += g0;
-            placeChunk(s, s.cursor, early);
-            s.cursor += 7;
-            continue;
-          }
-        }
-        s.cursor = gateZ;
-        placeGate(s, s.cursor);
-        s.cursor += 16;
-        s.nextGate = s.cursor + 48 + (s.rng() * 12);
-        continue;
-      }
-      if (s.mode === "rush" && s.rng() < 0.42 && s.placed > 0) {
-        s.cursor += Math.max(12, s.speed * 0.55);
-        placePocket(s, s.cursor);
-        s.cursor += 8;
-        continue;
-      }
-      var ch = pickChunk(s);
-      s.cursor += gapMetres(s, ch);
-      placeChunk(s, s.cursor, ch);
-      s.cursor += 6.5;
-    }
-  }
-
-  function tryJump(s) {
-    if (s.air > 0 || s.slide > 0) return;
-    s.air = 0.001;
-    s.events.push("jump");
-  }
-  function trySlide(s) {
-    if (s.air > 0 || s.slide > 0) return;
-    s.slide = 0.001;
-    s.events.push("slide");
-  }
-  function queueLane(s, dir) {
-    if (!dir) return;
-    var next = s.lane + (dir > 0 ? 1 : -1);
-    if (next < 0 || next > 2) return;
-    if (Math.abs(s.x - laneX(s.lane)) > 0.16) {
-      s.queued = dir > 0 ? 1 : -1;
-      return;
-    }
-    s.lane = next;
-    s.queued = 0;
-    s.events.push("lane");
-  }
-
-  function updateBody(s, dt) {
-    if (s.queued && Math.abs(s.x - laneX(s.lane)) < 0.1) {
-      var dir = s.queued;
-      s.queued = 0;
-      queueLane(s, dir);
-    }
-    var target = laneX(s.lane);
-    s.x += (target - s.x) * (1 - Math.exp(-18 * dt));
-    if (s.air > 0) {
-      s.air += dt;
-      if (s.air >= JUMP_DUR) { s.air = 0; s.y = 0; }
-      else s.y = Math.sin((s.air / JUMP_DUR) * Math.PI) * 1.82;
-    } else s.y = 0;
-    if (s.slide > 0) {
-      s.slide += dt;
-      if (s.slide >= SLIDE_DUR) s.slide = 0;
-    }
-    if (s.invuln > 0) s.invuln -= dt;
-    if (s.hitstun > 0) s.hitstun -= dt;
-    if (s.magnet > 0) s.magnet -= dt;
-    var cadence = 11 * (0.82 + s.speed / 48);
-    if (s.slide > 0) cadence = 0;
-    s.phase += dt * cadence;
-  }
-
-  function collect(s, e, kind) {
-    e.dead = true;
-    if (kind === "coin") {
-      s.coins++;
-      s.score += 10;
-      s.events.push("coin");
-    } else if (kind === "fare") {
-      s.fares++;
-      s.score += 40;
-      s.events.push("fare");
-    } else if (kind === "shield") {
-      s.shield = true;
-      s.score += 15;
-      s.events.push("shield");
-    } else if (kind === "kota") {
-      s.magnet = 5.2;
-      s.score += 25;
-      s.events.push("kota");
-    }
-  }
-
-  function wipe(s, reason) {
-    s.alive = false;
-    s.finished = true;
-    s.win = false;
-    s.reason = reason;
-    s.events.push("die");
-  }
-
-  function hurt(s, e) {
-    e.dead = true;
-    if (s.shield) {
-      s.shield = false;
-      s.invuln = 1.25;
-      s.hitstun = 0.28;
-      s.air = 0;
-      s.y = 0;
-      s.slide = 0;
-      s.events.push("shieldbreak");
-      return;
-    }
-    if (s.mode === "rush") {
-      s.timeLeft = Math.max(0, s.timeLeft - 7);
-      s.fares = Math.max(0, s.fares - 1);
-      s.score = Math.max(0, s.score - 20);
-      s.invuln = 1.15;
-      s.hitstun = 0.34;
-      s.air = 0;
-      s.y = 0;
-      s.slide = 0;
-      s.events.push("crash");
-      if (s.timeLeft <= 0) {
-        s.alive = false;
-        s.finished = true;
-        s.win = false;
-        s.reason = "time";
-        s.events.push("finish");
-      }
-      return;
-    }
-    wipe(s, "hit");
-  }
-
-  function collide(s) {
-    var i, e, ahead, half;
-    for (i = 0; i < s.ents.length; i++) {
-      e = s.ents[i];
-      if (e.dead || e.resolved) continue;
-      ahead = e.z - s.travel;
-      if (e.kind === "coin" || e.kind === "fare" || e.kind === "shield" || e.kind === "kota") {
-        if (ahead < 1.15 && ahead > -0.35 && Math.abs(s.x - e.x) < 0.56) {
-          if (e.y > 1) { if (s.y > 0.9) collect(s, e, e.kind); }
-          else collect(s, e, e.kind);
-        }
-        continue;
-      }
-      if (e.kind === "gate") {
-        if (ahead > 0.45 || ahead < -0.25) continue;
-        e.resolved = true;
-        var pl = 0;
-        var best = 99;
-        for (var li = 0; li < 3; li++) {
-          var dx = Math.abs(s.x - laneX(li));
-          if (dx < best) { best = dx; pl = li; }
-        }
-        if (pl === e.lane) {
-          s.streak = Math.min(8, s.streak + 1);
-          s.routes++;
-          s.score += 30 * Math.min(5, s.streak);
-          s.events.push("gate");
-        } else {
-          s.streak = 0;
-          s.strikes++;
-          s.invuln = 1.15;
-          s.hitstun = 0.36;
-          s.air = 0;
-          s.y = 0;
-          s.events.push("strike");
-          if (s.strikes >= 3) wipe(s, "strikes");
-        }
-        continue;
-      }
-      var front = e.verb === "block" ? 1.25 : 0.8;
-      var back = e.verb === "block" ? -0.55 : -0.42;
-      if (ahead > front || ahead < back) continue;
-      half = e.verb === "block" ? 0.48 : 0.4;
-      var adx = Math.abs(s.x - e.x);
-      if (adx > half) {
-        if (!e.near && adx < half + 0.32 && ahead < 0.45 && ahead > -0.2) {
-          e.near = true;
-          s.score += 5;
-          s.events.push("near");
-        }
-        continue;
-      }
-      if (s.invuln > 0) { e.dead = true; continue; }
-      if (e.verb === "low") {
-        if (s.y > 0.8) { e.dead = true; continue; }
-        hurt(s, e);
-      } else if (e.verb === "high") {
-        if (s.slide > 0.04 && s.slide < SLIDE_DUR - 0.03 && s.y < 0.25) { e.dead = true; continue; }
-        hurt(s, e);
-      } else hurt(s, e);
-      if (!s.alive) return;
-    }
-  }
-
-  function magnetPull(s, dt) {
-    if (s.magnet <= 0) return;
-    for (var i = 0; i < s.ents.length; i++) {
-      var e = s.ents[i];
-      if (e.dead || e.kind !== "coin") continue;
-      var ahead = e.z - s.travel;
-      if (ahead < -0.5 || ahead > 9) continue;
-      e.x += (s.x - e.x) * (1 - Math.exp(-7 * dt));
-      e.z += (s.travel - e.z) * (1 - Math.exp(-3.2 * dt));
-    }
-  }
-
-  function step(s, dt, input) {
-    if (!s.alive || s.finished) return s;
-    dt = dt > 0.05 ? 0.05 : dt < 0 ? 0 : dt;
-    s.events.length = 0;
-    s.t += dt;
-    s.speed = speedOf(s);
-    var moving = s.hitstun > 0 ? s.speed * 0.42 : s.speed;
-    s.travel += moving * dt;
-    s.dist = s.travel;
-    s.score += moving * dt * (s.mode === "rush" ? 0.45 : 1);
-    if (s.mode === "rush") {
-      s.timeLeft -= dt;
-      if (s.timeLeft <= 0.0008) {
-        s.timeLeft = 0;
-        s.alive = false;
-        s.finished = true;
-        s.win = true;
-        s.reason = "time";
-        s.events.push("finish");
-        return s;
-      }
-    }
-    input = input || {};
-    if (input.jump) tryJump(s);
-    if (input.slide) trySlide(s);
-    if (input.lane) queueLane(s, input.lane);
-    updateBody(s, dt);
-    spawn(s);
-    magnetPull(s, dt);
-    collide(s);
-    if (s.ents.length > 80) {
-      var keep = [];
-      for (var i = 0; i < s.ents.length; i++) if (s.ents[i].z > s.travel - 6) keep.push(s.ents[i]);
-      s.ents = keep;
-    } else {
-      var w = 0;
-      for (var j = 0; j < s.ents.length; j++) if (s.ents[j].z > s.travel - 6) s.ents[w++] = s.ents[j];
-      s.ents.length = w;
-    }
-    return s;
-  }
-
-  function physicalLane(s) {
-    var best = s.lane, bestD = 99;
-    for (var i = 0; i < 3; i++) {
-      var d = Math.abs(s.x - laneX(i));
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return best;
-  }
-
-  function nextObs(threats, lane, z0, z1) {
-    var best = null;
-    for (var i = 0; i < threats.length; i++) {
-      var o = threats[i];
-      if (o.kind !== "obs" || o.lane !== lane || o.z < z0 || o.z > z1) continue;
-      if (!best || o.z < best.z) best = o;
-    }
-    return best;
-  }
-
-  // Nearest threat only. Never swerves into a hurdle it cannot jump or slide in time.
-  // Used by the fairness sim and ?bot=1.
-  function oracle(s) {
-    var input = { lane: 0, jump: false, slide: false };
-    if (!s.alive || s.finished) return input;
-    var speed = Math.max(8, s.speed);
-    var look = speed * 1.4;
-    var threats = [];
-    var gate = null;
-    for (var i = 0; i < s.ents.length; i++) {
-      var e = s.ents[i];
-      var ahead = e.z - s.travel;
-      if (ahead < -0.35 || ahead > look + 8) continue;
-      if (e.kind === "gate" && !e.resolved) {
-        if (!gate || e.z < gate.z) gate = e;
-      } else if (e.kind === "obs" && !e.dead) threats.push(e);
-    }
-    var body = physicalLane(s);
-    var bodyNext = nextObs(threats, body, s.travel - 0.2, s.travel + look);
-    if (body !== s.lane && bodyNext && (bodyNext.verb === "low" || bodyNext.verb === "high")) {
-      var tBody = (bodyNext.z - s.travel) / speed;
-      if (tBody < 0.52 && tBody > 0.1) {
-        if (bodyNext.verb === "low") input.jump = true;
-        else input.slide = true;
-        return input;
-      }
-    }
-    var logicalNext = nextObs(threats, s.lane, s.travel - 0.2, s.travel + look);
-    var target = s.lane;
-    var reasonZ = s.travel + look;
-    if (logicalNext && logicalNext.verb === "block") {
-      target = -1;
-      reasonZ = logicalNext.z;
-    }
-    if (gate && gate.z <= reasonZ && gate.z - s.travel < speed * 1.12) {
-      target = gate.lane;
-      reasonZ = gate.z;
-    }
-    if (target === -1) {
-      var best = -1, bestCost = 99;
-      for (var li = 0; li < 3; li++) {
-        if (li === s.lane) continue;
-        var step = li > s.lane ? 1 : -1;
-        var cross = false;
-        for (var p = s.lane + step; step > 0 ? p < li : p > li; p += step) {
-          var mid = nextObs(threats, p, reasonZ - 1.4, reasonZ + 1.5);
-          if (mid && mid.verb === "block") cross = true;
-        }
-        if (cross) continue;
-        var dest = nextObs(threats, li, s.travel, reasonZ + speed * 0.7);
-        if (dest && dest.verb === "block") continue;
-        var cost = Math.abs(li - s.lane) * 2;
-        if (dest && (dest.verb === "low" || dest.verb === "high")) {
-          var arrive = Math.abs(li - body) * 0.22 + 0.12;
-          var t = (dest.z - s.travel) / speed;
-          if (t < arrive + 0.34) cost += 40;
-          else cost += 1;
-        }
-        if (cost < bestCost) { bestCost = cost; best = li; }
-      }
-      target = best < 0 ? s.lane : best;
-    }
-    if (target !== s.lane) {
-      var destNext = nextObs(threats, target, s.travel, reasonZ + 1.5);
-      if (destNext && destNext.verb !== "block") {
-        var td = (destNext.z - s.travel) / speed;
-        var need = Math.abs(target - body) * 0.22 + 0.4;
-        var currentBad = logicalNext && logicalNext.verb === "block" && logicalNext.z <= destNext.z + 0.8;
-        if (td < need && !currentBad) target = s.lane;
-      }
-      if (target !== s.lane && Math.abs(target - s.lane) === 2) {
-        var midObs = nextObs(threats, 1, s.travel, s.travel + speed * 0.75);
-        var blockedHere = logicalNext && logicalNext.verb === "block" && (!midObs || logicalNext.z <= midObs.z + 0.5);
-        if (midObs && !blockedHere) target = s.lane;
-      }
-      if (target !== s.lane) input.lane = target > s.lane ? 1 : -1;
-      return input;
-    }
-    if (logicalNext && logicalNext.verb === "low") {
-      var tHit = (logicalNext.z - s.travel) / speed;
-      if (tHit < 0.45 && tHit > 0.14) input.jump = true;
-    } else if (logicalNext && logicalNext.verb === "high") {
-      var tSlide = (logicalNext.z - s.travel) / speed;
-      if (tSlide < 0.48 && tSlide > 0.13) input.slide = true;
-    }
-    return input;
-  }
-
-  root.EISH = {
-    MODES: MODES,
-    LANE_X: LANE_X,
-    JUMP_DUR: JUMP_DUR,
-    SLIDE_DUR: SLIDE_DUR,
-    CHUNKS: CHUNKS,
-    create: create,
-    step: step,
-    oracle: oracle,
-    worstGap: worstGap,
-    chunkStats: chunkStats,
-    laneX: laneX,
-    speedOf: speedOf
+  var CROPS = {
+    maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
+    spinach: { name: "Spinach", grow: 12000, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3 },
+    tomato: { name: "Tomato", grow: 22000, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6 },
+    aloe: { name: "Aloe", grow: 20000, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 }
   };
-})(typeof globalThis !== "undefined" ? globalThis : this);
-// EISH! Jozi Run — original cast and props.
-// Characters are sculpted meshes (displaced head, clothing shells, sneaker blocks),
-// not a stack of balls and tubes. All geometry in this file is original.
-// +rotation.x on a limb swings it toward -Z, forward down the street.
-(function (root) {
-  "use strict";
-  function three() { return root.THREE; }
 
-  var CAST = [
-    {
-      id: "lerato", name: "Lerato", place: "Braamfontein",
-      line: "This review build is Lerato only. Jacket, trousers, and a run on the new rig.",
-      skin: "#c4845c", skinDeep: "#8d5340",
-      hair: "#1b140f", band: "#ff6b4a",
-      cloth: "#14988e", clothDeep: "#0c645e",
-      accent: "#ff6b4a", pants: "#173632", shoe: "#f4f1ea", kick: "#ff6b4a",
-      style: "bun", bob: 1.12, arm: 1.05, lean: 0.16
+  var FARM_STEPS = [0, 24, 70, 140];
+  var BUILD_STEPS = [0, 16, 48, 100];
+
+  var BUILDINGS = {
+    home: {
+      name: "Home", w: 2, h: 2, limit: 1, skill: 1,
+      blurb: "The heart of the lane. Upgrade it as the place grows.",
+      upgrades: [
+        null,
+        { notes: 24, timber: 3, bricks: 2, skill: 1, xp: 14 },
+        { notes: 40, timber: 4, bricks: 4, skill: 2, xp: 20 }
+      ]
     },
-    {
-      id: "jabu", name: "Jabu", place: "Yeoville",
-      line: "Open red shirt, cuffed trousers. He slips the gap between the minibuses.",
-      skin: "#e0aa78", skinDeep: "#b67c4c",
-      hair: "#16120e", band: "#f7f4ee",
-      cloth: "#d4534a", clothDeep: "#9a302c",
-      accent: "#f7f4ee", pants: "#c6a15a", shoe: "#f7f4ee", kick: "#d4534a",
-      style: "fade", bob: 0.82, arm: 0.88, lean: 0.1
+    bed: {
+      name: "Veggie bed", w: 1, h: 1, limit: 8, skill: 1,
+      cost: { notes: 10, timber: 1 },
+      blurb: "A square of soil for maize, greens, tomatoes, and aloe."
     },
-    {
-      id: "naledi", name: "Naledi", place: "Maboneng",
-      line: "Braids, a colour-block jacket, paint on one cuff. She runs the streets she paints.",
-      skin: "#6e3e2e", skinDeep: "#4a271e",
-      hair: "#140e0c", band: "#f0c14d",
-      cloth: "#2d439e", clothDeep: "#1c2d74",
-      accent: "#ffb703", pants: "#e2a12b", shoe: "#ff5d8f", kick: "#fffaf2",
-      style: "twists", bob: 1.0, arm: 1.18, lean: 0.12,
-      beads: ["#c46bdc", "#ffb703", "#ff6b4a", "#49c2b0"]
+    spaza: {
+      name: "Spaza", w: 1, h: 1, limit: 1, skill: 1,
+      cost: { notes: 18, timber: 2, bricks: 1 },
+      blurb: "The neighbourhood shop. Sell crops and fill orders here.",
+      upgrades: [null, { notes: 22, timber: 2, bricks: 1, skill: 1, xp: 12 }]
+    },
+    tank: {
+      name: "Rain tank", w: 1, h: 1, limit: 1, skill: 1,
+      cost: { notes: 16, timber: 2, bricks: 1 },
+      blurb: "Catches rain for the beds. A bottle of water, every few moments."
+    },
+    workshop: {
+      name: "Workshop", w: 1, h: 1, limit: 1, skill: 1,
+      cost: { notes: 20, timber: 3, bricks: 2 },
+      blurb: "A bright shed for mending, and the home of Crate Day."
+    },
+    solar: {
+      name: "Solar stand", w: 1, h: 1, limit: 1, skill: 2,
+      cost: { notes: 28, timber: 2, bricks: 3 },
+      blurb: "Shared power. The next building upgrade spends one less timber."
     }
-  ];
-
-  var GEO = {};
-  function T() { return three(); }
-  function geoCapsule(r, len) {
-    var key = "c" + r + ":" + len;
-    if (!GEO[key]) GEO[key] = new (T()).CapsuleGeometry(r, Math.max(0.02, len), 4, 8);
-    return GEO[key];
-  }
-  function geoSphere(r, w, h) {
-    var key = "s" + r + ":" + (w || 16) + ":" + (h || 12);
-    if (!GEO[key]) GEO[key] = new (T()).SphereGeometry(r, w || 16, h || 12);
-    return GEO[key];
-  }
-  function geoBox(x, y, z) {
-    var key = "b" + x + ":" + y + ":" + z;
-    if (!GEO[key]) GEO[key] = new (T()).BoxGeometry(x, y, z);
-    return GEO[key];
-  }
-  var MAT = {};
-  function mat(color, rough, metal, extra) {
-    var key = color + ":" + rough + ":" + metal + ":" + (extra || "");
-    if (!MAT[key]) {
-      var opt = { color: color, roughness: rough, metalness: metal };
-      if (extra === "skin") opt.emissive = color, opt.emissiveIntensity = 0.035;
-      MAT[key] = new (T()).MeshStandardMaterial(opt);
-    }
-    return MAT[key];
-  }
-  function glassMat() {
-    if (!MAT.glass) {
-      MAT.glass = new (T()).MeshStandardMaterial({
-        color: "#1c2838", roughness: 0.15, metalness: 0.6,
-        transparent: true, opacity: 0.72
-      });
-    }
-    return MAT.glass;
-  }
-  function add(parent, geometry, material, x, y, z) {
-    var mesh = new (T()).Mesh(geometry, material);
-    mesh.position.set(x || 0, y || 0, z || 0);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
-  }
-  function pivot(parent, x, y, z) {
-    var g = new (T()).Group();
-    g.position.set(x || 0, y || 0, z || 0);
-    parent.add(g);
-    return g;
-  }
-  function limb(parent, len, radius, material) {
-    var mesh = add(parent, geoCapsule(radius, Math.max(0.02, len - radius * 2)), material, 0, -len * 0.5, 0);
-    return mesh;
-  }
-
-  function jacketGeo(wide) {
-    var THREE = T();
-    var key = "jack" + wide;
-    if (GEO[key]) return GEO[key];
-    var s = new THREE.Shape();
-    var w = wide;
-    s.moveTo(-w * 0.78, 0.02);
-    s.quadraticCurveTo(-w * 0.95, 0.18, -w * 0.92, 0.3);
-    s.quadraticCurveTo(-w * 0.7, 0.4, -w * 0.32, 0.42);
-    s.lineTo(w * 0.32, 0.42);
-    s.quadraticCurveTo(w * 0.7, 0.4, w * 0.92, 0.3);
-    s.quadraticCurveTo(w * 0.95, 0.18, w * 0.78, 0.02);
-    s.closePath();
-    var g = new THREE.ExtrudeGeometry(s, { depth: 0.2, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.01, bevelSegments: 1 });
-    g.translate(0, 0, -0.1);
-    GEO[key] = g;
-    return g;
-  }
-
-  function clothLathe(hip, waist, chest, height) {
-    var THREE = T();
-    var pts = [];
-    var i;
-    for (i = 0; i <= 14; i++) {
-      var t = i / 14;
-      var y = t * height;
-      var r = t < 0.38 ? hip + (waist - hip) * (t / 0.38) : waist + (chest - waist) * ((t - 0.38) / 0.62);
-      pts.push(new THREE.Vector2(Math.max(0.05, r), y));
-    }
-    return new THREE.LatheGeometry(pts, 18);
-  }
-
-  function sculptHead(opt) {
-    var THREE = T();
-    var key = "head" + opt.id;
-    if (GEO[key]) return GEO[key];
-    var geo = new THREE.SphereGeometry(1, 48, 36);
-    var pos = geo.attributes.position;
-    var dir = new THREE.Vector3();
-    var nose = opt.nose || 1;
-    var lip = opt.lip || 1;
-    var jaw = opt.jaw || 1;
-    var i;
-    for (i = 0; i < pos.count; i++) {
-      dir.fromBufferAttribute(pos, i).normalize();
-      var x = dir.x, y = dir.y, z = dir.z;
-      var px = x * 0.112;
-      var py = y * 0.128;
-      var pz = z * 0.108;
-      if (y < 0.08) {
-        var t = Math.min(1, (0.08 - y) / 0.95);
-        var pinch = 1 - 0.38 * jaw * t * t;
-        px *= pinch;
-        pz *= 1 - 0.05 * t;
-      }
-      function blob(cx, cy, cz, ax, ay, az) {
-        var dx = (x - cx) / ax, dy = (y - cy) / ay, dz = (z - cz) / az;
-        var d = dx * dx + dy * dy + dz * dz;
-        return d < 1 ? (1 - d) * (1 - d) : 0;
-      }
-      var socket = blob(0.34, 0.08, -0.62, 0.2, 0.14, 0.42) + blob(-0.34, 0.08, -0.62, 0.2, 0.14, 0.42);
-      if (z < -0.05) pz += socket * 0.022;
-      var brow = blob(0.32, 0.28, -0.7, 0.26, 0.1, 0.45) + blob(-0.32, 0.28, -0.7, 0.26, 0.1, 0.45);
-      if (z < 0) pz -= brow * 0.014;
-      var bridge = Math.exp(-(x * x) / 0.012) * Math.exp(-((y + 0.02) * (y + 0.02)) / 0.09) * Math.max(0, -z - 0.15);
-      pz -= bridge * 0.038 * nose;
-      var ala = blob(0.1, -0.16, -0.82, 0.09, 0.07, 0.16) + blob(-0.1, -0.16, -0.82, 0.09, 0.07, 0.16);
-      pz -= ala * 0.012 * nose;
-      var lips = Math.exp(-(x * x) / 0.018) * Math.exp(-((y + 0.42) * (y + 0.42)) / 0.015) * Math.max(0, -z);
-      pz -= lips * 0.02 * lip;
-      var crease = Math.exp(-(x * x) / 0.02) * Math.exp(-((y + 0.46) * (y + 0.46)) / 0.0035) * Math.max(0, -z);
-      pz += crease * 0.008;
-      var chin = Math.exp(-(x * x) / 0.03) * Math.exp(-((y + 0.72) * (y + 0.72)) / 0.05) * Math.max(0, -z);
-      py -= chin * 0.01;
-      pz -= chin * 0.012;
-      var cheek = blob(0.55, -0.02, -0.35, 0.38, 0.32, 0.45) + blob(-0.55, -0.02, -0.35, 0.38, 0.32, 0.45);
-      px += (x > 0 ? 1 : -1) * cheek * 0.006;
-      pos.setXYZ(i, px, py, pz);
-    }
-    geo.computeVertexNormals();
-    GEO[key] = geo;
-    return geo;
-  }
-
-  function hairCap(id, lift) {
-    var THREE = T();
-    var key = "haircap" + id;
-    if (GEO[key]) return GEO[key];
-    var src = GEO["head" + id];
-    var geo = src.clone();
-    var pos = geo.attributes.position;
-    var v = new THREE.Vector3();
-    var keep = [];
-    var i;
-    for (i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      var face = v.z < -0.02 && v.y < 0.07;
-      if (face) pos.setXYZ(i, v.x * 0.25, Math.min(v.y, 0.02), Math.min(0, v.z) * 0.25);
-      else {
-        var n = v.clone().normalize();
-        var extra = v.y > 0.04 ? lift : lift * 0.65;
-        pos.setXYZ(i, v.x + n.x * extra, v.y + n.y * extra + 0.006, v.z + n.z * extra);
-      }
-    }
-    geo.computeVertexNormals();
-    GEO[key] = geo;
-    return geo;
-  }
-
-  function buildRunner(index) {
-    var THREE = T();
-    var c = CAST[index];
-    var skin = mat(c.skin, 0.62, 0.02, "skin");
-    var cloth = mat(c.cloth, 0.78, 0.04);
-    var clothD = mat(c.clothDeep, 0.82, 0.03);
-    var pants = mat(c.pants, 0.8, 0.02);
-    var hair = mat(c.hair, 0.88, 0.03);
-    var shoe = mat(c.shoe, 0.42, 0.06);
-    var kick = mat(c.kick, 0.4, 0.1);
-    var accent = mat(c.accent, 0.55, 0.06);
-    var soleMat = mat("#241820", 0.75, 0.04);
-    var lipMat = mat(c.style === "twists" ? "#6a302c" : "#a85a58", 0.5, 0.02);
-    var root = new THREE.Group();
-    root.name = c.id;
-
-    var hips = pivot(root, 0, 0.96, 0);
-    var torso = add(hips, jacketGeo(c.style === "fade" ? 0.17 : 0.15), cloth, 0, 0.02, 0);
-    add(hips, geoBox(0.24, 0.1, 0.16), pants, 0, 0.02, 0);
-    if (c.style === "bun") {
-      var colL = add(hips, geoBox(0.05, 0.07, 0.03), clothD, -0.05, 0.38, -0.09);
-      colL.rotation.z = 0.5;
-      var colR = add(hips, geoBox(0.05, 0.07, 0.03), clothD, 0.05, 0.38, -0.09);
-      colR.rotation.z = -0.5;
-    } else if (c.style === "fade") {
-      add(hips, geoBox(0.07, 0.05, 0.02), skin, 0, 0.38, -0.1);
-      add(hips, geoBox(0.05, 0.045, 0.015), clothD, 0.07, 0.2, -0.105);
-    } else {
-      add(hips, geoBox(0.16, 0.1, 0.04), accent, -0.08, 0.34, -0.1);
-      add(hips, geoBox(0.05, 0.04, 0.02), mat("#49c2b0", 0.5, 0.05), 0.12, 0.12, -0.1);
-    }
-
-    var neck = pivot(hips, 0, 0.46, 0);
-    add(neck, geoCapsule(0.045, 0.05), skin, 0, 0.03, 0);
-    var headP = pivot(neck, 0, 0.1, 0);
-    var headOpt = {
-      id: c.id,
-      nose: c.style === "fade" ? 1.05 : c.style === "twists" ? 0.92 : 0.88,
-      lip: c.style === "twists" ? 1.15 : 1,
-      jaw: c.style === "fade" ? 0.92 : 1
-    };
-    sculptHead(headOpt);
-    add(headP, sculptHead(headOpt), skin, 0, 0.02, 0);
-    hairCap(c.id, c.style === "bun" ? 0.012 : 0.016);
-    var cap = add(headP, hairCap(c.id, 0.014), hair, 0, 0.02, 0);
-    cap.castShadow = true;
-
-    function eye(x) {
-      var g = pivot(headP, x, 0.028, -0.112);
-      var white = add(g, geoSphere(0.02, 14, 12), mat("#f7f3ee", 0.3, 0.02), 0, 0, 0);
-      white.scale.set(1.35, 0.62, 0.5);
-      var iris = add(g, geoSphere(0.01, 12, 10), mat("#3b2318", 0.35, 0.04), 0, -0.001, -0.012);
-      add(g, geoSphere(0.004, 8, 6), mat("#ffffff", 0.15, 0), -0.004, 0.004, -0.02).castShadow = false;
-      var lid = add(g, geoSphere(0.024, 12, 10), skin, 0, 0.01, -0.004);
-      lid.scale.set(1.2, 0.42, 0.55);
-      return { white: white, iris: iris };
-    }
-    var eyeL = eye(-0.034);
-    var eyeR = eye(0.034);
-    function brow(x, tilt) {
-      var b = add(headP, geoBox(0.038, 0.007, 0.01), hair, x, 0.055, -0.112);
-      b.rotation.z = tilt;
-    }
-    brow(-0.038, c.style === "fade" ? -0.05 : 0.15);
-    brow(0.04, c.style === "fade" ? 0.05 : -0.12);
-    var nose = add(headP, geoSphere(0.018, 10, 8), skin, 0, -0.012, -0.125);
-    nose.scale.set(0.7, 0.9, 1.3);
-    var mouth = add(headP, geoBox(0.032, 0.008, 0.01), lipMat, 0, -0.048, -0.118);
-    mouth.castShadow = false;
-    add(headP, geoBox(0.026, 0.005, 0.008), skin, 0, -0.042, -0.12);
-    add(headP, geoSphere(0.028, 10, 8), skin, -0.108, 0.0, 0.01).scale.set(0.38, 0.7, 0.45);
-    add(headP, geoSphere(0.028, 10, 8), skin, 0.11, 0.0, 0.01).scale.set(0.38, 0.7, 0.45);
-    if (c.style === "bun") {
-      var hoop = add(headP, new THREE.TorusGeometry(0.016, 0.003, 6, 12), mat("#e6c36a", 0.3, 0.7), -0.118, -0.02, 0);
-      hoop.rotation.y = Math.PI / 2;
-    }
-
-    if (c.style === "bun") {
-      var puff = add(headP, geoSphere(0.095, 20, 16), hair, 0, 0.155, 0.01);
-      puff.scale.set(1.2, 0.85, 1.08);
-      var wrap = add(headP, new THREE.TorusGeometry(0.055, 0.012, 8, 18), accent, 0, 0.07, 0.01);
-      wrap.rotation.x = Math.PI / 2.4;
-      add(headP, geoSphere(0.04, 12, 10), hair, -0.07, 0.06, -0.02);
-      add(headP, geoSphere(0.035, 12, 10), hair, 0.065, 0.055, -0.01);
-    } else if (c.style === "fade") {
-      cap.scale.set(1.02, 0.72, 0.98);
-      cap.position.y = 0.055;
-    } else {
-      var bi;
-      for (bi = 0; bi < 11; bi++) {
-        var ang = -2.5 + bi * 0.48;
-        var len = 0.28 + (bi % 3) * 0.05;
-        var ax = Math.sin(ang) * 0.07;
-        var az = Math.cos(ang) * 0.05;
-        var curve = new THREE.QuadraticBezierCurve3(
-          new THREE.Vector3(ax, 0.06, az),
-          new THREE.Vector3(ax * 1.3, -len * 0.35, az * 0.4 + 0.02),
-          new THREE.Vector3(ax * 0.8, -len, 0.03)
-        );
-        var tube = new THREE.TubeGeometry(curve, 5, 0.014, 5, false);
-        add(headP, tube, hair, 0, 0.02, 0).castShadow = false;
-        if (bi % 3 === 0) {
-          add(headP, geoSphere(0.014, 8, 6), mat(c.beads[bi % c.beads.length], 0.4, 0.15), ax * 0.8, 0.02 - len, 0.03).castShadow = false;
-        }
-      }
-    }
-
-    function arm(side) {
-      var s = side < 0 ? -1 : 1;
-      var shoulder = pivot(hips, s * (c.style === "fade" ? 0.18 : 0.16), 0.34, 0);
-      add(shoulder, geoSphere(0.05, 12, 10), cloth, 0, 0, 0);
-      var upper = pivot(shoulder, s * 0.015, -0.02, 0);
-      var sleeve = limb(upper, 0.28, c.style === "fade" ? 0.052 : 0.048, cloth);
-      sleeve.scale.x = 1.05;
-      if (c.style === "fade") add(upper, geoBox(0.09, 0.03, 0.09), clothD, 0, -0.24, 0);
-      var elbow = pivot(upper, 0, -0.22, 0);
-      var foreMat = c.style === "fade" ? skin : cloth;
-      var fore = pivot(elbow, 0, -0.01, 0);
-      limb(fore, 0.24, c.style === "fade" ? 0.04 : 0.042, foreMat);
-      if (c.style !== "fade") add(fore, geoBox(0.07, 0.03, 0.07), clothD, 0, -0.2, 0);
-      if (c.style === "twists" && s < 0) add(fore, geoBox(0.04, 0.02, 0.02), mat("#49c2b0", 0.45, 0.05), 0, -0.12, -0.03);
-      var hand = add(fore, geoSphere(0.034, 12, 10), skin, s * 0.01, -0.24, 0);
-      hand.scale.set(0.7, 0.95, 0.48);
-      add(fore, geoSphere(0.014, 8, 6), skin, s * 0.03, -0.22, -0.02);
-      return { upper: upper, fore: fore };
-    }
-    var aL = arm(-1);
-    var aR = arm(1);
-
-    function leg(side) {
-      var s = side < 0 ? -1 : 1;
-      var wide = c.style === "twists" ? 0.1 : 0.09;
-      var hipJ = pivot(hips, s * wide, 0.02, 0);
-      limb(hipJ, 0.46, c.style === "fade" ? 0.078 : 0.07, pants);
-      var knee = pivot(hipJ, 0, -0.36, 0);
-      var shin = pivot(knee, 0, -0.01, 0);
-      limb(shin, 0.4, c.style === "twists" ? 0.055 : 0.048, pants);
-      add(shin, geoBox(c.style === "twists" ? 0.12 : 0.1, 0.03, 0.1), clothD, 0, -0.36, 0);
-      var ankle = pivot(shin, 0, -0.4, 0);
-      add(ankle, geoBox(0.078, 0.02, 0.22), soleMat, 0, -0.055, -0.02);
-      add(ankle, geoBox(0.07, 0.016, 0.2), shoe, 0, -0.038, -0.02);
-      add(ankle, geoBox(0.062, 0.038, 0.13), shoe, 0, -0.012, -0.015);
-      add(ankle, geoBox(0.064, 0.03, 0.05), shoe, 0, -0.01, -0.09);
-      add(ankle, geoBox(0.05, 0.028, 0.025), kick, 0, 0.0, 0.055);
-      add(ankle, geoBox(0.04, 0.008, 0.03), mat("#fffaf2", 0.5, 0.02), 0, 0.006, -0.02);
-      add(ankle, geoBox(0.04, 0.008, 0.03), mat("#fffaf2", 0.5, 0.02), 0, 0.006, -0.05);
-      return { thigh: hipJ, shin: shin, ankle: ankle };
-    }
-    var lL = leg(-1);
-    var lR = leg(1);
-
-    function ease(t) { return t * t * (3 - 2 * t); }
-    function sample(keys, t) {
-      t = ((t % 1) + 1) % 1;
-      var i, n = keys.length;
-      for (i = 0; i < n; i++) {
-        var a = keys[i], b = keys[(i + 1) % n];
-        var end = b.p <= a.p ? b.p + 1 : b.p;
-        var cur = t < a.p ? t + 1 : t;
-        if (cur >= a.p && cur <= end + 0.0001) {
-          var span = end - a.p || 1;
-          return a.v + (b.v - a.v) * ease(Math.max(0, Math.min(1, (cur - a.p) / span)));
-        }
-      }
-      return keys[0].v;
-    }
-    var THIGH = [
-      { p: 0.00, v: 0.72 }, { p: 0.14, v: 0.1 }, { p: 0.36, v: -0.82 },
-      { p: 0.52, v: -0.1 }, { p: 0.7, v: 1.2 }, { p: 1.00, v: 0.72 }
-    ];
-    var KNEE = [
-      { p: 0.00, v: -0.2 }, { p: 0.14, v: -0.55 }, { p: 0.34, v: -0.18 },
-      { p: 0.5, v: -1.6 }, { p: 0.68, v: -1.2 }, { p: 0.88, v: -0.32 }, { p: 1.00, v: -0.2 }
-    ];
-    var smoothed = null;
-
-    function apply(info) {
-      var phase = info.phase || 0;
-      var dt = info.dt || 0.016;
-      var mode = info.mode || "run";
-      var cycle = phase;
-      var thighL, thighR, kneeL, kneeR, armL, armR, foreL, foreR, lean, hipY, hipTwist, spineTwist, roll, headX, headY, footFlat;
-      if (mode === "jump") {
-        var k = Math.sin(Math.min(1, info.air || 0) * Math.PI);
-        thighL = 1.2 * k; thighR = 1.25 * k;
-        kneeL = -1.45 * k; kneeR = -1.5 * k;
-        armL = -1.35 * k; armR = -1.2 * k;
-        foreL = -0.9; foreR = -0.85;
-        lean = 0.04; hipY = 0.96; hipTwist = 0; spineTwist = 0; roll = 0;
-        headX = -0.12 * k; headY = 0; footFlat = 0.3;
-      } else if (mode === "slide") {
-        thighL = 1.35; kneeL = -0.4; thighR = 0.1; kneeR = -1.35;
-        armL = 0.4; armR = 0.2; foreL = -0.3; foreR = -1.2;
-        lean = -0.7; hipY = 0.62; hipTwist = 0; spineTwist = 0; roll = 0;
-        headX = 0.22; headY = 0.1; footFlat = 0.65;
-      } else if (mode === "hit") {
-        thighL = 0.2; thighR = -0.45; kneeL = -0.3; kneeR = -0.4;
-        armL = -1.4; armR = -0.9; foreL = -0.5; foreR = -0.6;
-        lean = -0.3; hipY = 0.92; hipTwist = 0; spineTwist = 0; roll = 0;
-        headX = -0.2; headY = 0; footFlat = 0.8;
-      } else if (mode === "idle") {
-        var w = Math.sin((info.t || 0) * 1.6);
-        thighL = 0.08; thighR = -0.02; kneeL = -0.12; kneeR = -0.08;
-        armL = 0.08; armR = 0.06; foreL = -0.2; foreR = -0.18;
-        lean = 0.04; hipY = 0.96 + w * 0.008; hipTwist = w * 0.02; spineTwist = -w * 0.02; roll = 0;
-        headX = -0.04; headY = 0.08; footFlat = 1;
-      } else {
-        thighL = sample(THIGH, cycle);
-        thighR = sample(THIGH, cycle + 0.5);
-        kneeL = sample(KNEE, cycle);
-        kneeR = sample(KNEE, cycle + 0.5);
-        armL = -thighL * 0.95 * c.arm;
-        armR = -thighR * 0.95 * c.arm;
-        foreL = -0.2 - 1.05 * Math.max(0, -armL);
-        foreR = -0.2 - 1.05 * Math.max(0, -armR);
-        var weight = Math.cos(cycle * Math.PI * 2);
-        lean = c.lean + 0.06 * weight;
-        hipY = 0.96 - 0.05 * Math.cos(cycle * Math.PI * 4) * c.bob;
-        hipTwist = -0.12 * weight;
-        spineTwist = 0.18 * weight;
-        roll = 0.08 * weight;
-        headX = 0.04; headY = -0.05 * weight;
-        footFlat = 1;
-      }
-      if (!smoothed) smoothed = { thighL: thighL, thighR: thighR, kneeL: kneeL, kneeR: kneeR, armL: armL, armR: armR, foreL: foreL, foreR: foreR, lean: lean, hipY: hipY, hipTwist: hipTwist, spineTwist: spineTwist, roll: roll, headX: headX, headY: headY };
-      var blend = 1 - Math.exp(-26 * dt);
-      var key;
-      var next = { thighL: thighL, thighR: thighR, kneeL: kneeL, kneeR: kneeR, armL: armL, armR: armR, foreL: foreL, foreR: foreR, lean: lean, hipY: hipY, hipTwist: hipTwist, spineTwist: spineTwist, roll: roll, headX: headX, headY: headY };
-      for (key in next) smoothed[key] = smoothed[key] + (next[key] - smoothed[key]) * blend;
-      hips.position.y = smoothed.hipY;
-      hips.position.x = smoothed.roll * 0.035;
-      hips.rotation.y = smoothed.hipTwist;
-      hips.rotation.x = smoothed.lean;
-      hips.rotation.z = smoothed.roll;
-      torso.rotation.y = smoothed.spineTwist;
-      lL.thigh.rotation.x = smoothed.thighL;
-      lR.thigh.rotation.x = smoothed.thighR;
-      var liftL = Math.max(0, -smoothed.kneeL - 0.35);
-      var liftR = Math.max(0, -smoothed.kneeR - 0.35);
-      lL.thigh.rotation.z = 0.28 * liftL;
-      lR.thigh.rotation.z = -0.28 * liftR;
-      lL.shin.rotation.x = smoothed.kneeL;
-      lR.shin.rotation.x = smoothed.kneeR;
-      aL.upper.rotation.x = smoothed.armL;
-      aR.upper.rotation.x = smoothed.armR;
-      aL.upper.rotation.z = -0.22;
-      aR.upper.rotation.z = 0.2;
-      aL.fore.rotation.x = smoothed.foreL;
-      aR.fore.rotation.x = smoothed.foreR;
-      lL.ankle.rotation.x = -(smoothed.thighL + smoothed.kneeL) * 0.82 * footFlat + Math.max(0, -smoothed.thighL) * 0.3;
-      lR.ankle.rotation.x = -(smoothed.thighR + smoothed.kneeR) * 0.82 * footFlat + Math.max(0, -smoothed.thighR) * 0.3;
-      headP.rotation.x = smoothed.headX;
-      headP.rotation.y = smoothed.headY;
-      var blink = info.blink ? 0.15 : 1;
-      eyeL.white.scale.y = blink;
-      eyeR.white.scale.y = blink;
-      eyeL.iris.scale.y = blink;
-      eyeR.iris.scale.y = blink;
-    }
-
-    apply({ mode: "idle", phase: 0, t: 0, dt: 0.05 });
-    return { object: root, animate: apply, cast: c };
-  }
-
-  function stripeMat(color) { return mat(color, 0.4, 0.2); }
-  var STRIPES = ["#1f8f5a", "#2a6fbf", "#d4534a", "#e2a12b", "#7a4ad4"];
-
-  function buildTaxi(variant) {
-    var THREE = T();
-    var g = new THREE.Group();
-    var paint = mat("#f3efe6", 0.55, 0.08);
-    var body = add(g, geoBox(1.05, 1.28, 2.55), paint, 0, 0.95, 0);
-    var band = add(g, geoBox(1.08, 0.16, 2.57), stripeMat(STRIPES[(variant || 0) % STRIPES.length]), 0, 0.72, 0);
-    band.castShadow = false;
-    var glass = add(g, geoBox(0.98, 0.42, 1.7), glassMat(), 0, 1.28, -0.05);
-    glass.castShadow = false;
-    add(g, geoBox(0.9, 0.36, 0.06), glassMat(), 0, 1.22, 1.28);
-    add(g, geoBox(0.04, 0.9, 2.2), mat("#d7d2c6", 0.6, 0.05), 0.52, 1.05, 0);
-    add(g, geoBox(0.22, 0.08, 0.04), mat("#e23b3b", 0.45, 0.1), -0.28, 0.55, 1.28);
-    add(g, geoBox(0.22, 0.08, 0.04), mat("#e23b3b", 0.45, 0.1), 0.28, 0.55, 1.28);
-    add(g, geoBox(1.08, 0.08, 0.16), mat("#2a2428", 0.65, 0.2), 0, 0.38, 1.15);
-    function wheel(x, z) {
-      var w = add(g, new THREE.CylinderGeometry(0.22, 0.22, 0.14, 12), mat("#1a1618", 0.7, 0.2), x, 0.22, z);
-      w.rotation.z = Math.PI / 2;
-    }
-    wheel(-0.52, 0.85);
-    wheel(0.52, 0.85);
-    wheel(-0.52, -0.85);
-    wheel(0.52, -0.85);
-    g.userData.kind = "taxi";
-    return g;
-  }
-
-  function buildDrums() {
-    var THREE = T();
-    var g = new THREE.Group();
-    function drum(x, color) {
-      add(g, new THREE.CylinderGeometry(0.22, 0.24, 0.7, 12), mat(color, 0.55, 0.08), x, 0.35, 0);
-      var band = add(g, new THREE.CylinderGeometry(0.245, 0.245, 0.08, 12), mat("#f7f4ee", 0.5, 0.05), x, 0.48, 0);
-      band.castShadow = false;
-    }
-    drum(-0.28, "#f08a24");
-    drum(0.28, "#2a6fbf");
-    return g;
-  }
-
-  function buildBarrier() {
-    var THREE = T();
-    if (!GEO.barrier) {
-      var shape = new THREE.Shape();
-      shape.moveTo(-0.42, 0);
-      shape.lineTo(-0.26, 0.62);
-      shape.lineTo(0.26, 0.62);
-      shape.lineTo(0.42, 0);
-      shape.closePath();
-      GEO.barrier = new THREE.ExtrudeGeometry(shape, { depth: 0.7, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 2 });
-      GEO.barrier.translate(0, 0, -0.35);
-    }
-    var g = new THREE.Group();
-    add(g, GEO.barrier, mat("#d7d1c6", 0.72, 0.04), 0, 0, 0);
-    add(g, geoBox(0.36, 0.08, 0.74), mat("#f0c14d", 0.5, 0.08), 0, 0.36, 0);
-    return g;
-  }
-
-  function buildPothole() {
-    var THREE = T();
-    var g = new THREE.Group();
-    var rim = add(g, new THREE.TorusGeometry(0.38, 0.06, 8, 16), mat("#5c564e", 0.8, 0.05), 0, 0.04, 0);
-    rim.rotation.x = Math.PI / 2;
-    var hole = add(g, new THREE.CircleGeometry(0.34, 16), mat("#1a1614", 0.9, 0.02), 0, 0.045, 0);
-    hole.rotation.x = -Math.PI / 2;
-    hole.castShadow = false;
-    return g;
-  }
-
-  function buildScaffold() {
-    var THREE = T();
-    var g = new THREE.Group();
-    add(g, new THREE.CylinderGeometry(0.04, 0.04, 2.1, 8), mat("#c5c8ce", 0.45, 0.4), -0.55, 1.05, 0);
-    add(g, new THREE.CylinderGeometry(0.04, 0.04, 2.1, 8), mat("#c5c8ce", 0.45, 0.4), 0.55, 1.05, 0);
-    add(g, new THREE.CylinderGeometry(0.045, 0.045, 1.2, 8), mat("#f0c14d", 0.4, 0.35), 0, 1.22, 0).rotation.z = Math.PI / 2;
-    var i;
-    for (i = 0; i < 4; i++) {
-      add(g, geoBox(0.12, 0.05, 0.08), mat(i % 2 ? "#241820" : "#e23b3b", 0.5, 0.1), -0.36 + i * 0.24, 1.22, 0);
-    }
-    return g;
-  }
-
-  function buildSign() {
-    var THREE = T();
-    var g = new THREE.Group();
-    add(g, new THREE.CylinderGeometry(0.02, 0.02, 0.7, 6), mat("#c5c8ce", 0.4, 0.4), -0.28, 1.7, 0);
-    add(g, new THREE.CylinderGeometry(0.02, 0.02, 0.7, 6), mat("#c5c8ce", 0.4, 0.4), 0.28, 1.7, 0);
-    add(g, geoBox(1.15, 0.42, 0.08), mat("#fffaf2", 0.55, 0.05), 0, 1.28, 0);
-    add(g, geoBox(0.7, 0.12, 0.02), mat("#d4534a", 0.5, 0.08), 0, 1.28, -0.05);
-    return g;
-  }
-
-  function buildBranch() {
-    var THREE = T();
-    var g = new THREE.Group();
-    var limb1 = add(g, geoCapsule(0.035, 0.5), mat("#6b4a32", 0.8, 0.02), 0.15, 1.55, 0);
-    limb1.rotation.z = 0.9;
-    var blossom = add(g, geoSphere(0.28, 14, 12), mat("#9b59b6", 0.7, 0.02), -0.15, 1.25, 0);
-    blossom.scale.set(1.3, 0.7, 1);
-    add(g, geoSphere(0.16, 12, 10), mat("#d7a4e2", 0.65, 0.02), 0.05, 1.4, -0.05);
-    add(g, geoSphere(0.12, 10, 8), mat("#7d3c98", 0.7, 0.02), -0.28, 1.18, 0.05);
-    return g;
-  }
-
-  function buildBoom(open) {
-    var THREE = T();
-    var g = new THREE.Group();
-    add(g, geoBox(0.08, 1.7, 0.08), mat("#2c3138", 0.5, 0.3), 0.42, 0.85, 0);
-    var cols = open ? ["#3a2424", "#3a3420", "#1fa971"] : ["#e23b3b", "#3a3420", "#1d3a2c"];
-    var i;
-    for (i = 0; i < 3; i++) {
-      var lamp = add(g, geoSphere(0.055, 10, 8), mat(cols[i], 0.4, 0.1), 0.42, 1.45 - i * 0.16, -0.02);
-      if ((open && i === 2) || (!open && i === 0)) {
-        lamp.material = lamp.material.clone();
-        lamp.material.emissive = new (T()).Color(cols[i]);
-        lamp.material.emissiveIntensity = 0.85;
-      }
-    }
-    var arm = pivot(g, -0.15, 1.15, 0);
-    add(arm, geoBox(0.85, 0.07, 0.06), mat("#f0c14d", 0.45, 0.15), 0.4, 0, 0);
-    var k;
-    for (k = 0; k < 4; k++) add(arm, geoBox(0.08, 0.075, 0.065), mat("#241820", 0.6, 0.1), 0.18 + k * 0.18, 0, 0);
-    arm.rotation.z = open ? -1.15 : 0;
-    g.userData.arm = arm;
-    return g;
-  }
-
-  function buildFare(variant) {
-    var THREE = T();
-    var shirts = ["#ffb703", "#49c2b0", "#d4534a"];
-    var skins = ["#e0aa78", "#6e3e2e", "#c4845c"];
-    var g = new THREE.Group();
-    var shirt = mat(shirts[variant % 3], 0.6, 0.05);
-    var skin = mat(skins[variant % 3], 0.58, 0.02, "skin");
-    var hips = pivot(g, 0, 0.72, 0);
-    add(hips, geoCapsule(0.11, 0.28), shirt, 0, 0.12, 0);
-    add(hips, geoSphere(0.11, 14, 12), skin, 0, 0.42, 0);
-    add(hips, geoSphere(0.09, 10, 8), mat("#1b140f", 0.8, 0.04), 0, 0.5, 0.01);
-    var arm = pivot(hips, 0.12, 0.28, 0);
-    limb(arm, 0.28, 0.035, shirt);
-    g.userData.arm = arm;
-    limb(pivot(hips, -0.08, 0, 0), 0.34, 0.045, mat("#24507a", 0.7, 0.02));
-    limb(pivot(hips, 0.08, 0, 0), 0.34, 0.045, mat("#24507a", 0.7, 0.02));
-    var ring = add(g, new THREE.TorusGeometry(0.28, 0.025, 8, 16), mat("#f0c14d", 0.4, 0.3), 0, 0.04, 0);
-    ring.rotation.x = Math.PI / 2;
-    ring.castShadow = false;
-    return g;
-  }
-
-  function buildCoin() {
-    var THREE = T();
-    var g = new THREE.Group();
-    var disc = add(g, new THREE.CylinderGeometry(0.16, 0.16, 0.04, 16), mat("#f0c14d", 0.32, 0.75).clone(), 0, 0.9, 0);
-    disc.material.emissive = new THREE.Color("#a97820");
-    disc.material.emissiveIntensity = 0.15;
-    return g;
-  }
-
-  function buildShield() {
-    var THREE = T();
-    var g = new THREE.Group();
-    var cols = ["#fffaf2", "#d4534a", "#2d439e", "#128f86", "#ffb703"];
-    var i;
-    for (i = 0; i < 8; i++) {
-      var a = (i / 8) * Math.PI * 2;
-      add(g, geoSphere(0.045, 8, 6), mat(cols[i % cols.length], 0.4, 0.1), Math.cos(a) * 0.16, 1.15 + Math.sin(a) * 0.16, 0);
-    }
-    return g;
-  }
-
-  function buildKota() {
-    var g = new (T()).Group();
-    add(g, geoSphere(0.16, 14, 12), mat("#e6c48a", 0.7, 0.02), 0, 0.85, 0).scale.set(1.3, 0.7, 0.9);
-    add(g, geoBox(0.16, 0.04, 0.12), mat("#f2d15a", 0.6, 0.02), 0, 0.9, -0.02);
-    add(g, geoBox(0.16, 0.035, 0.12), mat("#d4534a", 0.6, 0.02), 0, 0.94, -0.02);
-    return g;
-  }
-
-  function buildChevron() {
-    var THREE = T();
-    var g = new THREE.Group();
-    var cone = add(g, new THREE.ConeGeometry(0.12, 0.28, 4), mat("#f0c14d", 0.4, 0.1).clone(), 0, 0.08, 0);
-    cone.rotation.x = Math.PI / 2;
-    g.userData.cone = cone;
-    return g;
-  }
-
-  root.MESH = {
-    CAST: CAST,
-    STRIPES: STRIPES,
-    buildRunner: buildRunner,
-    buildTaxi: buildTaxi,
-    buildDrums: buildDrums,
-    buildBarrier: buildBarrier,
-    buildPothole: buildPothole,
-    buildScaffold: buildScaffold,
-    buildSign: buildSign,
-    buildBranch: buildBranch,
-    buildBoom: buildBoom,
-    buildFare: buildFare,
-    buildCoin: buildCoin,
-    buildShield: buildShield,
-    buildKota: buildKota,
-    buildChevron: buildChevron,
-    mat: mat
   };
-})(typeof globalThis !== "undefined" ? globalThis : this);
-// EISH! Jozi Run — real-time 3D street.
-// The runner stays near the origin and faces -Z. The camera sits behind them.
-// Buildings start ahead of the camera, inset from the lens, so a near wall cannot fill the screen.
-// World Z = travel - mile. Ahead is negative Z.
-(function (root) {
-  "use strict";
-  var BUILD_INSET = 3.55;
-  var VIEW = { mobile: false };
 
-  function three() { return root.THREE; }
+  function clamp(n, lo, hi) {
+    n = Math.floor(Number(n));
+    if (!isFinite(n)) n = 0;
+    if (n < lo) n = lo;
+    if (n > hi) n = hi;
+    return n;
+  }
 
-  var renderer, scene, camera, sun, roadMat, world, runners, active, clockReady;
-  var props = [];
-  var trees = [];
-  var buildings = [];
-  var lamps = [];
-  var skyline = [];
-  var failReason = "";
+  function levelFor(xp, steps) {
+    var lv = 1;
+    var i;
+    for (i = 1; i < steps.length; i++) if (xp >= steps[i]) lv = i + 1;
+    return lv;
+  }
 
-  function facadeTexture(style) {
-    var THREE = three();
-    var canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 512;
-    var g = canvas.getContext("2d");
-    var walls = ["#e4d2b8", "#d7c4a8", "#efe6d4", "#c9b79a", "#b7c0c4"];
-    var accents = ["#d4534a", "#128f86", "#ffb703", "#7a4ad4", "#2a6fbf"];
-    g.fillStyle = walls[style % walls.length];
-    g.fillRect(0, 0, 256, 512);
-    if (style === 4) {
-      g.fillStyle = "#ffb703";
-      g.beginPath();
-      g.arc(128, 230, 70, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = "#128f86";
-      g.beginPath();
-      g.moveTo(40, 340);
-      g.lineTo(128, 160);
-      g.lineTo(216, 340);
-      g.fill();
-      g.fillStyle = accents[0];
-      g.fillRect(96, 300, 64, 90);
+  function farmLevel(state) { return levelFor(state.farmXp, FARM_STEPS); }
+  function buildLevel(state) { return levelFor(state.buildXp, BUILD_STEPS); }
+
+  function nextStep(xp, steps) {
+    var i;
+    for (i = 1; i < steps.length; i++) if (xp < steps[i]) return { next: steps[i], prev: steps[i - 1], level: i };
+    return { next: steps[steps.length - 1], prev: steps[steps.length - 1], level: steps.length, max: true };
+  }
+
+  function hasType(state, type) {
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === type) return true;
+    return false;
+  }
+
+  function countType(state, type) {
+    var n = 0;
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === type) n++;
+    return n;
+  }
+
+  function terrainAt(x, y) {
+    if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return "out";
+    var ch = MAP[y].charAt(x);
+    if (ch === "p") return "path";
+    if (ch === "t") return "tree";
+    return "grass";
+  }
+
+  function footprint(b) {
+    var cells = [];
+    var dy, dx;
+    for (dy = 0; dy < b.h; dy++) {
+      for (dx = 0; dx < b.w; dx++) cells.push([b.x + dx, b.y + dy]);
     }
-    var row, col;
-    for (row = 0; row < 7; row++) {
-      for (col = 0; col < 4; col++) {
-        var lit = ((style * 3 + row * 5 + col * 2) % 7) === 0;
-        g.fillStyle = lit ? "#ffe1a8" : "#243044";
-        g.fillRect(28 + col * 56, 36 + row * 62, 34, 42);
-        g.strokeStyle = "rgba(36,24,32,0.35)";
-        g.strokeRect(28 + col * 56, 36 + row * 62, 34, 42);
+    return cells;
+  }
+
+  function occupied(state, x, y, ignoreId) {
+    var i, cells, c;
+    for (i = 0; i < state.buildings.length; i++) {
+      if (state.buildings[i].id === ignoreId) continue;
+      cells = footprint(state.buildings[i]);
+      for (c = 0; c < cells.length; c++) {
+        if (cells[c][0] === x && cells[c][1] === y) return state.buildings[i];
       }
     }
-    g.fillStyle = accents[style % accents.length];
-    g.fillRect(18, 430, 220, 28);
-    g.fillStyle = "#fffaf2";
-    g.font = "700 22px Trebuchet MS, sans-serif";
-    g.textAlign = "center";
-    g.fillText(["KOTA", "RANK", "SHARP", "BEADS", "AIR"][style % 5], 128, 452);
-    var tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;
-    return tex;
+    return null;
   }
 
-  function roadTexture() {
-    var THREE = three();
-    var canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 512;
-    var g = canvas.getContext("2d");
-    g.fillStyle = "#3e3a36";
-    g.fillRect(0, 0, 256, 512);
+  function buildingById(state, id) {
     var i;
-    for (i = 0; i < 180; i++) {
-      g.fillStyle = "rgba(255,255,255,0.015)";
-      g.fillRect(Math.random() * 256, Math.random() * 512, 2, 2);
-    }
-    g.strokeStyle = "rgba(244,239,228,0.9)";
-    g.lineWidth = 6;
-    g.setLineDash([36, 28]);
-    g.beginPath();
-    g.moveTo(86, 0);
-    g.lineTo(86, 512);
-    g.moveTo(170, 0);
-    g.lineTo(170, 512);
-    g.stroke();
-    g.setLineDash([]);
-    g.strokeStyle = "#e2b84a";
-    g.lineWidth = 8;
-    g.beginPath();
-    g.moveTo(8, 0);
-    g.lineTo(8, 512);
-    g.moveTo(248, 0);
-    g.lineTo(248, 512);
-    g.stroke();
-    var tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 12);
-    tex.anisotropy = 4;
-    return tex;
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].id === id) return state.buildings[i];
+    return null;
   }
 
-  function skyTexture() {
-    var THREE = three();
-    var canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 256;
-    var g = canvas.getContext("2d");
-    var grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0, "#6eb6d6");
-    grd.addColorStop(0.45, "#f3a36a");
-    grd.addColorStop(0.75, "#f6c98a");
-    grd.addColorStop(1, "#f3d7b0");
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 16, 256);
-    var tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
+  function cellNorth(x, y, ox, oy, tw, th) {
+    return { x: ox + (x - y) * tw / 2, y: oy + (x + y) * th / 2 };
   }
 
-  function makeBuilding(style) {
-    var THREE = three();
-    var tex = facadeTexture(style);
-    var mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.86, metalness: 0.02 });
-    var mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    var roof = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.08, 1.05), new THREE.MeshStandardMaterial({ color: "#cbb89a", roughness: 0.8 }));
-    roof.position.y = 0.54;
-    mesh.add(roof);
-    var awning = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.05, 0.22), new THREE.MeshStandardMaterial({ color: style % 2 ? "#c4473a" : "#1f8f7a", roughness: 0.7 }));
-    awning.position.set(0, -0.28, -0.58);
-    mesh.add(awning);
-    if (style % 3 !== 2) {
-      var bal = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.04, 0.16), new THREE.MeshStandardMaterial({ color: "#d9d3c7", roughness: 0.8 }));
-      bal.position.set(0, 0.08, -0.55);
-      mesh.add(bal);
-    }
-    if (style % 2 === 0) {
-      var tank = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.18, 8), new THREE.MeshStandardMaterial({ color: "#8d9398", roughness: 0.5, metalness: 0.4 }));
-      tank.position.set(0.2, 0.66, 0.1);
-      mesh.add(tank);
-    }
-    return mesh;
+  function pickCell(sx, sy, ox, oy, tw, th) {
+    var a = (sx - ox) / (tw / 2);
+    var b = (sy - oy) / (th / 2);
+    return { x: Math.floor((a + b) / 2), y: Math.floor((b - a) / 2) };
   }
 
-  function makeTree() {
-    var THREE = three();
-    var g = new THREE.Group();
-    var trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 1.6, 8), new THREE.MeshStandardMaterial({ color: "#6b4a32", roughness: 0.85 }));
-    trunk.position.y = 0.8;
-    trunk.castShadow = true;
-    g.add(trunk);
-    var leaf = new THREE.MeshStandardMaterial({ color: "#6d8f4e", roughness: 0.86 });
-      var bloom = new THREE.MeshStandardMaterial({ color: "#8d6aa8", roughness: 0.84 });
-    var i;
-    for (i = 0; i < 7; i++) {
-      var canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34 + (i % 3) * 0.06, 1), i % 2 ? bloom : leaf);
-      canopy.position.set(Math.cos(i * 1.3) * 0.28, 1.45 + (i % 4) * 0.16, Math.sin(i * 1.3) * 0.22);
-      canopy.castShadow = true;
-      g.add(canopy);
-    }
-    return g;
-  }
-
-  function init(container) {
-    var THREE = three();
-    failReason = "";
-    try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
-    } catch (err) {
-      failReason = err && err.message ? err.message : "WebGL renderer failed.";
-      return { ok: false, error: failReason };
-    }
-    if (!renderer || !renderer.getContext()) {
-      failReason = "WebGL context was not created.";
-      return { ok: false, error: failReason };
-    }
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.setClearColor(0xf3d7b0, 1);
-    container.appendChild(renderer.domElement);
-
-    scene = new THREE.Scene();
-    scene.background = skyTexture();
-    scene.fog = new THREE.Fog(0xf0c49a, 22, 68);
-
-    camera = new THREE.PerspectiveCamera(62, 1, 0.1, 120);
-
-    scene.add(new THREE.AmbientLight(0xfff2e0, 0.28));
-    var hemi = new THREE.HemisphereLight(0x9fd0ea, 0xc4895c, 0.55);
-    scene.add(hemi);
-    sun = new THREE.DirectionalLight(0xffe0b8, 2.5);
-    sun.position.set(5, 14, 10);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 36;
-    sun.shadow.camera.left = -10;
-    sun.shadow.camera.right = 10;
-    sun.shadow.camera.top = 10;
-    sun.shadow.camera.bottom = -14;
-    sun.shadow.bias = -0.0008;
-    scene.add(sun);
-    scene.add(sun.target);
-    var rim = new THREE.DirectionalLight(0xffd2a8, 0.85);
-    rim.position.set(-4, 3, 6);
-    scene.add(rim);
-
-    var map = roadTexture();
-    roadMat = new THREE.MeshStandardMaterial({ map: map, roughness: 0.92, metalness: 0.02 });
-    var road = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 140), roadMat);
-    road.rotation.x = -Math.PI / 2;
-    road.position.set(0, 0, -15);
-    road.receiveShadow = true;
-    scene.add(road);
-
-    var walkMat = new THREE.MeshStandardMaterial({ color: "#d9c4a4", roughness: 0.95 });
-    var leftWalk = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 140), walkMat);
-    leftWalk.rotation.x = -Math.PI / 2;
-    leftWalk.position.set(-3.15, 0.02, -15);
-    leftWalk.receiveShadow = true;
-    scene.add(leftWalk);
-    var rightWalk = leftWalk.clone();
-    rightWalk.position.x = 3.15;
-    scene.add(rightWalk);
-
-    var i;
-    for (i = 0; i < 5; i++) buildings.push(makeBuilding(i));
-    for (i = 0; i < 16; i++) {
-      var b = buildings[i % 5].clone();
-      b.material = buildings[i % 5].material;
-      scene.add(b);
-      buildings[i] = b;
-    }
-    // The first 5 were templates also added? I pushed templates then overwrote. Templates not in scene except if I added them. I didn't add templates. Then I clone into buildings[i], but buildings[0..4] were templates and get replaced. The clones of early ones are fine. Wait: loop i=0 replaces buildings[0] which was a template, after clone. clone happens before replace. Good. But buildings.length was 5, then we set [0]..[15], so length becomes 16. Good.
-    // Remove the unused extra references... OK.
-
-    for (i = 0; i < 14; i++) {
-      var tree = makeTree();
-      scene.add(tree);
-      trees.push(tree);
-    }
-
-    // Distant Jozi cues: a round tower and a pair of bridge pylons. Real meshes, far enough to stay small.
-    var towerMat = new THREE.MeshStandardMaterial({ color: "#c98462", roughness: 0.7 });
-    var tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 22, 12), towerMat);
-    tower.position.set(-16, 11, -78);
-    scene.add(tower);
-    skyline.push(tower);
-    var pylonMat = new THREE.MeshStandardMaterial({ color: "#5d6a72", roughness: 0.55, metalness: 0.3 });
-    var p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.45, 16, 6), pylonMat);
-    p1.position.set(8, 8, -70);
-    p1.rotation.z = 0.18;
-    scene.add(p1);
-    var p2 = p1.clone();
-    p2.position.x = 14;
-    p2.rotation.z = -0.18;
-    scene.add(p2);
-    skyline.push(p1, p2);
-
-    runners = [root.MESH.buildRunner(0), root.MESH.buildRunner(1), root.MESH.buildRunner(2)];
-    for (i = 0; i < runners.length; i++) scene.add(runners[i].object);
-    active = 0;
-
-    var sunMesh = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 12), new THREE.MeshBasicMaterial({ color: "#ffe7b0" }));
-    sunMesh.position.set(18, 16, -40);
-    scene.add(sunMesh);
-
-    world = { travel: 0 };
-    clockReady = true;
-    return { ok: true, canvas: renderer.domElement };
-  }
-
-  function resize(w, h, dpr) {
-    if (!renderer) return;
-    VIEW.mobile = Math.min(w, h) < 760;
-    var ratio = Math.min(dpr || 1, VIEW.mobile ? 1.35 : 1.75);
-    renderer.setPixelRatio(ratio);
-    renderer.setSize(Math.max(1, w), Math.max(1, h), false);
-    camera.aspect = Math.max(1, w) / Math.max(1, h);
-    camera.updateProjectionMatrix();
-    var shadow = VIEW.mobile ? 1024 : 2048;
-    if (sun && sun.shadow.mapSize.x !== shadow) {
-      sun.shadow.mapSize.set(shadow, shadow);
-      if (sun.shadow.map) sun.shadow.map.dispose();
-      sun.shadow.map = null;
-    }
-  }
-
-  function placeBuildings(travel) {
-    var i;
-    var base = Math.floor(travel / 11);
-    for (i = 0; i < buildings.length; i++) {
-      var index = base + i;
-      var side = index % 2 === 0 ? -1 : 1;
-      var mile = index * 11;
-      var width = 4.2 + (index % 3) * 0.7;
-      var depth = 5 + (index % 4);
-      var height = 6 + (index % 5) * 3.2 + (index % 7 === 0 ? 8 : 0);
-      var b = buildings[i];
-      b.scale.set(width, height, depth);
-      b.position.set(side * (BUILD_INSET + width * 0.5), height * 0.5, travel - mile - 8);
-      b.visible = b.position.z < 3 && b.position.z > -72;
-      b.rotation.y = side > 0 ? Math.PI : 0;
-    }
-  }
-
-  function placeTrees(travel) {
-    var i;
-    var base = Math.floor(travel / 9);
-    for (i = 0; i < trees.length; i++) {
-      var index = base + i;
-      var side = index % 2 === 0 ? 1 : -1;
-      var mile = index * 9 + 3;
-      trees[i].position.set(side * 2.65, 0, travel - mile);
-      trees[i].visible = trees[i].position.z < 1.2 && trees[i].position.z > -60;
-    }
-  }
-
-  function hideProps() {
-    var i;
-    for (i = 0; i < props.length; i++) props[i].used = false;
-  }
-  function takeProp(kind, variant) {
-    var i;
-    for (i = 0; i < props.length; i++) {
-      if (!props[i].used && props[i].kind === kind && props[i].variant === variant) {
-        props[i].used = true;
-        props[i].object.visible = true;
-        return props[i];
-      }
-    }
-    var object = null;
-    if (kind === "taxi") object = root.MESH.buildTaxi(variant);
-    else if (kind === "drums") object = root.MESH.buildDrums();
-    else if (kind === "barrier") object = root.MESH.buildBarrier();
-    else if (kind === "pothole") object = root.MESH.buildPothole();
-    else if (kind === "scaffold") object = root.MESH.buildScaffold();
-    else if (kind === "sign") object = root.MESH.buildSign();
-    else if (kind === "branch") object = root.MESH.buildBranch();
-    else if (kind === "boom") object = root.MESH.buildBoom(variant === 1);
-    else if (kind === "fare") object = root.MESH.buildFare(variant);
-    else if (kind === "coin") object = root.MESH.buildCoin();
-    else if (kind === "shield") object = root.MESH.buildShield();
-    else if (kind === "kota") object = root.MESH.buildKota();
-    else if (kind === "chev") object = root.MESH.buildChevron();
-    if (!object) return null;
-    scene.add(object);
-    var slot = { kind: kind, variant: variant, object: object, used: true };
-    props.push(slot);
-    return slot;
-  }
-
-  function parkTaxis(travel) {
-    var i;
-    for (i = 0; i < 4; i++) {
-      var slot = takeProp("taxi", i);
-      if (!slot) continue;
-      var side = i % 2 === 0 ? -1 : 1;
-      var mile = Math.floor(travel / 22) * 22 + i * 22 + 6;
-      slot.object.position.set(side * 2.15, 0, travel - mile);
-      slot.object.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
-      slot.object.visible = slot.object.position.z < -2 && slot.object.position.z > -55;
-    }
-  }
-
-  function syncEnt(e, travel, time) {
-    var z = travel - e.z;
-    if (z > 1.2 || z < -70) return;
-    var kind = "drums";
-    var variant = e.variant || 0;
-    if (e.kind === "coin") kind = "coin";
-    else if (e.kind === "fare") kind = "fare";
-    else if (e.kind === "shield") kind = "shield";
-    else if (e.kind === "kota") kind = "kota";
-    else if (e.kind === "gate") {
-      var lane;
-      for (lane = 0; lane < 3; lane++) {
-        var open = lane === e.lane ? 1 : 0;
-        var boom = takeProp("boom", open);
-        if (!boom) continue;
-        boom.object.position.set(root.EISH.LANE_X[lane], 0, z);
-        if (boom.object.userData.arm) boom.object.userData.arm.rotation.z = open ? -1.15 : 0.05;
-      }
-      var names = ["LEFT", "MID", "RIGHT"];
-      return { banner: z > -28 ? names[e.lane] : "" };
-    } else if (e.kind === "obs") {
-      if (e.verb === "block") kind = "taxi";
-      else if (e.verb === "low" && e.variant === 1) kind = "barrier";
-      else if (e.verb === "low" && e.variant === 2) kind = "pothole";
-      else if (e.verb === "low") kind = "drums";
-      else if (e.verb === "high" && e.variant === 1) kind = "sign";
-      else if (e.verb === "high" && e.variant === 2) kind = "branch";
-      else kind = "scaffold";
-      var chev = takeProp("chev", 0);
-      if (chev) {
-        chev.object.position.set(e.x, 0.02, z + 2.8);
-        chev.object.scale.set(1.7, 1.7, 1.7);
-        var color = e.verb === "low" ? "#f0c14d" : e.verb === "high" ? "#5aaadc" : "#e23b3b";
-        if (chev.object.userData.cone) chev.object.userData.cone.material.color.set(color);
-        chev.object.visible = true;
-      }
-    }
-    var slot = takeProp(kind, kind === "taxi" ? (e.id || variant) % 5 : variant);
-    if (!slot) return;
-    slot.object.position.set(e.x, e.kind === "coin" || e.kind === "shield" || e.kind === "kota" ? 0 : 0, z);
-    if (kind === "taxi") slot.object.rotation.y = 0;
-    if (kind === "coin") {
-          slot.object.rotation.y = time * 3;
-          slot.object.position.y = (e.y > 1 ? 0.85 : 0.15) + Math.sin(time * 5 + e.z) * 0.06;
-        }
-    if (kind === "fare" && slot.object.userData.arm) slot.object.userData.arm.rotation.x = -0.8 + Math.sin(time * 6 + e.z) * 0.5;
-    if (e.kind === "coin") slot.object.position.y = (e.y > 1 ? 0.85 : 0.15) + Math.sin(time * 5 + e.z) * 0.06;
-    else slot.object.position.y = 0;
-  }
-
-  function verticalFov(hfovDeg, aspect) {
-    var h = hfovDeg * Math.PI / 180;
-    var v = 2 * Math.atan(Math.tan(h / 2) / Math.max(0.25, aspect));
-    return Math.max(30, Math.min(108, v * 180 / Math.PI));
-  }
-
-  function frameCamera(app, px) {
-    var wide = camera.aspect > 1.15;
-    var title = app.screen === "title" || app.screen === "how";
-    var hfov = title ? (wide ? 46 : 42) : (camera.aspect < 0.85 ? 52 : 66);
-    if (title) {
-      camera.position.set(0.62, 1.02, 3.25);
-      camera.lookAt(-0.02, 0.86, 0);
-    } else {
-      var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.02;
-      if (camera.aspect < 0.85) {
-        camera.position.set(px * 0.2 + 0.1, 1.38, 2.75);
-        camera.lookAt(px * 0.32, 0.82 + sway, -2.6);
-      } else {
-        camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.7, wide ? 4.6 : 4.2);
-        camera.lookAt(px * 0.45, 0.98 + sway, -6.2);
-      }
-    }
-    camera.fov = verticalFov(hfov, camera.aspect);
-    camera.updateProjectionMatrix();
-  }
-
-  function frameSheet(app) {
-    var i;
-    for (i = 0; i < buildings.length; i++) buildings[i].visible = false;
-    for (i = 0; i < trees.length; i++) trees[i].visible = false;
-    hideProps();
-    for (i = 0; i < props.length; i++) props[i].object.visible = false;
-    var mode = app.sheet === "run" ? "run" : "idle";
-    var yaw = app.sheet === "back" ? 0 : app.sheet === "side" || app.sheet === "run" ? Math.PI / 2 : app.sheet === "three" ? Math.PI + 0.7 : Math.PI;
-    for (i = 0; i < runners.length; i++) {
-      runners[i].object.visible = i === 0;
-    }
-    var hero = runners[0];
-    hero.animate({ mode: mode, phase: (app.time || 0) * 1.7, t: app.time, dt: app.dt || 0.016, blink: false });
-    hero.object.position.set(0, 0, 0);
-    hero.object.rotation.y = yaw;
-    hero.object.scale.set(1, 1, 1);
-    var side = app.sheet === "run" || app.sheet === "side";
-    camera.position.set(side ? 2.15 : (app.sheet === "three" ? 1.15 : 0.05), 1.15, side ? 0.35 : 3.15);
-    camera.lookAt(0, 0.88, 0);
-    camera.fov = verticalFov(side ? 32 : 28, camera.aspect);
-    camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
-    return { banner: "" };
-  }
-
-  function frame(app) {
-    if (!clockReady) return;
-    if (app.sheet) return frameSheet(app);
-    var travel = 0;
-    var who = app.who || 0;
-    var i;
-    for (i = 0; i < runners.length; i++) runners[i].object.visible = i === who;
-    var runner = runners[who];
-    if (app.screen === "play" || app.screen === "pause" || app.screen === "over") {
-      var sim = app.sim;
-      if (sim) {
-        travel = sim.travel;
-        var mode = "run";
-        if (!sim.alive) mode = "hit";
-        else if (sim.air > 0) mode = "jump";
-        else if (sim.slide > 0) mode = "slide";
-        runner.animate({
-          mode: mode,
-          phase: sim.phase / 6,
-          air: sim.air / (root.EISH.JUMP_DUR || 0.58),
-          t: app.time,
-          dt: app.dt || 0.016,
-          blink: false
-        });
-        runner.object.position.set(sim.x, sim.y, 0);
-        runner.object.rotation.y = 0;
-        var squash = 1;
-        if (sim.air > 0) squash = sim.air < 0.12 ? 0.9 : 1.06;
-        else if (sim.slide > 0) squash = 0.86;
-        runner.object.scale.set(1, squash, 1);
-        frameCamera(app, sim.x);
-        sun.target.position.set(sim.x, 0, -6);
-      }
-    } else {
-      travel = app.menuT || 0;
-      var blink = !app.reduced && Math.sin(app.time * 0.7) > 0.96;
-      runner.animate({ mode: "idle", phase: 0, t: app.time, dt: app.dt || 0.016, blink: blink });
-      runner.object.position.set(-0.12, 0, 0);
-      runner.object.rotation.y = Math.PI + 0.32;
-      frameCamera(app, 0);
-      sun.target.position.set(0, 0, -4);
-    }
-    if (roadMat && roadMat.map) roadMat.map.offset.y = travel * 0.09;
-    placeBuildings(travel);
-    placeTrees(travel);
-    hideProps();
-    var banner = "";
-    if (app.sim && (app.screen === "play" || app.screen === "pause" || app.screen === "over")) {
-      var ents = app.sim.ents;
-      for (i = 0; i < ents.length; i++) {
-        if (ents[i].dead) continue;
-        var found = syncEnt(ents[i], travel, app.time || 0);
-        if (found && found.banner) banner = found.banner;
-      }
-    }
-    parkTaxis(travel);
-    for (i = 0; i < props.length; i++) if (!props[i].used) props[i].object.visible = false;
-    renderer.render(scene, camera);
-    return { banner: banner };
-  }
-
-  function metrics() {
-    if (!renderer) return null;
-    var canvas = renderer.domElement;
-    var bw = canvas.width, bh = canvas.height;
+  function fresh(now) {
+    now = now || 0;
     return {
-      css: [canvas.clientWidth, canvas.clientHeight],
-      buf: [bw, bh],
-      cssAspect: canvas.clientHeight ? canvas.clientWidth / canvas.clientHeight : 0,
-      bufAspect: bh ? (bw / bh) : 0,
-      cameraAspect: camera ? camera.aspect : 0,
-      fov: camera ? camera.fov : 0,
-      hfov: camera ? (2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect) * 180 / Math.PI) : 0
+      v: 1,
+      notes: 60,
+      seeds: 12,
+      water: 10,
+      timber: 8,
+      bricks: 5,
+      crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
+      farmXp: 0,
+      buildXp: 0,
+      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0 },
+      paid: {},
+      tankAcc: 0,
+      seenAt: now,
+      nextId: 3,
+      welcomed: false,
+      buildings: [
+        { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
+        { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 }
+      ]
     };
   }
 
-  function loadHero(url, done) {
-    var THREE = three();
-    if (!root.GLTFLoader || !runners) { done(); return; }
-    var loader = new root.GLTFLoader();
-    loader.load(url, function (gltf) {
-      var inner = gltf.scene;
-      inner.rotation.y = Math.PI;
-      inner.traverse(function (o) {
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
-      });
-      var group = new THREE.Group();
-      group.name = "lerato";
-      group.add(inner);
-      var mixer = new THREE.AnimationMixer(inner);
-      var actions = {};
-      var i;
-      for (i = 0; i < gltf.animations.length; i++) {
-        actions[gltf.animations[i].name] = mixer.clipAction(gltf.animations[i]);
+  function afford(state, cost) {
+    cost = cost || {};
+    var missing = [];
+    if ((cost.notes || 0) > state.notes) missing.push((cost.notes - state.notes) + " more notes");
+    if ((cost.seeds || 0) > state.seeds) missing.push((cost.seeds - state.seeds) + " more seeds");
+    if ((cost.water || 0) > state.water) missing.push((cost.water - state.water) + " more water");
+    if ((cost.timber || 0) > state.timber) missing.push((cost.timber - state.timber) + " more timber");
+    if ((cost.bricks || 0) > state.bricks) missing.push((cost.bricks - state.bricks) + " more bricks");
+    if (missing.length) return { ok: false, reason: "Need " + missing.join(", ") + "." };
+    return { ok: true };
+  }
+
+  function pay(state, cost) {
+    var check = afford(state, cost);
+    if (!check.ok) return check;
+    state.notes -= cost.notes || 0;
+    state.seeds -= cost.seeds || 0;
+    state.water -= cost.water || 0;
+    state.timber -= cost.timber || 0;
+    state.bricks -= cost.bricks || 0;
+    return { ok: true };
+  }
+
+  function timberDiscount(state, cost) {
+    var copy = {
+      notes: cost.notes || 0,
+      timber: cost.timber || 0,
+      bricks: cost.bricks || 0,
+      seeds: cost.seeds || 0,
+      water: cost.water || 0
+    };
+    if (hasType(state, "solar") && copy.timber > 0) copy.timber -= 1;
+    return copy;
+  }
+
+  function placeCost(state, type) {
+    var def = BUILDINGS[type];
+    if (!def || !def.cost) return null;
+    return timberDiscount(state, def.cost);
+  }
+
+  function canPlace(state, type, x, y) {
+    var def = BUILDINGS[type];
+    if (!def || !def.cost) return { ok: false, reason: "That cannot be placed." };
+    if (buildLevel(state) < (def.skill || 1)) {
+      return { ok: false, reason: "Building level " + def.skill + " unlocks the " + def.name.toLowerCase() + "." };
+    }
+    if (countType(state, type) >= def.limit) return { ok: false, reason: "You already have a " + def.name.toLowerCase() + "." };
+    var dx, dy, land, block;
+    for (dy = 0; dy < def.h; dy++) {
+      for (dx = 0; dx < def.w; dx++) {
+        land = terrainAt(x + dx, y + dy);
+        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
+        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
+        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+        block = occupied(state, x + dx, y + dy);
+        if (block) return { ok: false, reason: "Something is already there." };
       }
-      var current = "";
-      function animate(info) {
-        var mode = info.mode || "run";
-        var name = mode === "idle" || mode === "jump" || mode === "slide" || mode === "hit" ? mode : "run";
-        if (name === "hit") name = "idle";
-        var action = actions[name] || actions.run;
-        if (!action) return;
-        if (current !== name) {
-          var key;
-          for (key in actions) actions[key].stop();
-          action.play();
-          current = name;
+    }
+    return afford(state, placeCost(state, type));
+  }
+
+  function place(state, type, x, y) {
+    var check = canPlace(state, type, x, y);
+    if (!check.ok) return check;
+    var def = BUILDINGS[type];
+    pay(state, placeCost(state, type));
+    var b = { id: state.nextId++, type: type, x: x, y: y, w: def.w, h: def.h, level: 1 };
+    if (type === "bed") { b.crop = null; b.phase = "empty"; b.plantedAt = 0; }
+    state.buildings.push(b);
+    state.buildXp += 8;
+    if (type !== "bed") state.stats.placed += 1;
+    return { ok: true, id: b.id, xp: 8 };
+  }
+
+  function upgradeCost(state, b) {
+    var def = BUILDINGS[b.type];
+    if (!def || !def.upgrades) return null;
+    if (b.level >= def.upgrades.length) return null;
+    var raw = def.upgrades[b.level];
+    if (!raw) return null;
+    return timberDiscount(state, raw);
+  }
+
+  function canUpgrade(state, id) {
+    var b = buildingById(state, id);
+    if (!b) return { ok: false, reason: "Nothing selected." };
+    var def = BUILDINGS[b.type];
+    var raw = def && def.upgrades ? def.upgrades[b.level] : null;
+    if (!raw) return { ok: false, reason: def.name + " is fully built." };
+    if (buildLevel(state) < (raw.skill || 1)) {
+      return { ok: false, reason: "Building level " + raw.skill + " unlocks the next step." };
+    }
+    return afford(state, upgradeCost(state, b));
+  }
+
+  function upgrade(state, id) {
+    var check = canUpgrade(state, id);
+    if (!check.ok) return check;
+    var b = buildingById(state, id);
+    var raw = BUILDINGS[b.type].upgrades[b.level];
+    pay(state, upgradeCost(state, b));
+    b.level += 1;
+    state.buildXp += raw.xp || 12;
+    state.stats.upgraded += 1;
+    return { ok: true, level: b.level, xp: raw.xp || 12 };
+  }
+
+  function cropReady(b, now) {
+    if (!b || b.type !== "bed" || b.phase !== "growing") return false;
+    var def = CROPS[b.crop];
+    if (!def) return false;
+    return now - b.plantedAt >= def.grow;
+  }
+
+  function sow(state, id, crop) {
+    var b = buildingById(state, id);
+    var def = CROPS[crop];
+    if (!b || b.type !== "bed") return { ok: false, reason: "Choose a veggie bed." };
+    if (b.phase !== "empty") return { ok: false, reason: "That bed is already planted." };
+    if (!def) return { ok: false, reason: "Unknown crop." };
+    if (farmLevel(state) < def.level) return { ok: false, reason: "Farming level " + def.level + " unlocks " + def.name.toLowerCase() + "." };
+    var spent = pay(state, { seeds: def.seed });
+    if (!spent.ok) return spent;
+    b.crop = crop;
+    b.phase = "sown";
+    b.plantedAt = 0;
+    state.farmXp += 2;
+    state.stats.sown += 1;
+    return { ok: true, xp: 2 };
+  }
+
+  function water(state, id, now) {
+    var b = buildingById(state, id);
+    if (!b || b.type !== "bed") return { ok: false, reason: "Choose a veggie bed." };
+    if (b.phase !== "sown") return { ok: false, reason: b.phase === "growing" ? "Already watered." : "Sow something first." };
+    var def = CROPS[b.crop];
+    var spent = pay(state, { water: def.water });
+    if (!spent.ok) return spent;
+    b.phase = "growing";
+    b.plantedAt = now;
+    state.farmXp += 2;
+    state.stats.watered += 1;
+    return { ok: true, xp: 2, grow: def.grow };
+  }
+
+  function harvest(state, id, now) {
+    var b = buildingById(state, id);
+    if (!b || b.type !== "bed") return { ok: false, reason: "Choose a veggie bed." };
+    if (b.phase !== "growing") return { ok: false, reason: "Nothing is ready to pick." };
+    if (!cropReady(b, now)) return { ok: false, reason: "Still growing." };
+    var def = CROPS[b.crop];
+    var name = b.crop;
+    var amount = def.yield;
+    state.crops[name] = clamp((state.crops[name] || 0) + amount, 0, STACK_CAP);
+    state.farmXp += def.xp;
+    state.stats.harvested += 1;
+    b.crop = null;
+    b.phase = "empty";
+    b.plantedAt = 0;
+    return { ok: true, crop: name, amount: amount, xp: def.xp };
+  }
+
+  function sell(state, crop, n) {
+    var def = CROPS[crop];
+    n = clamp(n, 0, STACK_CAP);
+    if (!def) return { ok: false, reason: "Unknown crop." };
+    if (!hasType(state, "spaza")) return { ok: false, reason: "Build a spaza first." };
+    if (n < 1) return { ok: false, reason: "Choose how many to sell." };
+    if ((state.crops[crop] || 0) < n) return { ok: false, reason: "Not enough " + def.name.toLowerCase() + "." };
+    state.crops[crop] -= n;
+    state.notes = clamp(state.notes + def.price * n, 0, NOTE_CAP);
+    return { ok: true, notes: def.price * n };
+  }
+
+  function tick(state, now) {
+    var last = state.seenAt == null ? now : state.seenAt;
+    var gap = now - last;
+    if (gap < 0) gap = 0;
+    var used = gap > ELAPSE_CAP ? ELAPSE_CAP : gap;
+    var discarded = gap - used;
+    var i, b;
+    if (discarded > 0) {
+      for (i = 0; i < state.buildings.length; i++) {
+        b = state.buildings[i];
+        if (b.phase === "growing" && b.plantedAt != null) b.plantedAt += discarded;
+      }
+    }
+    if (hasType(state, "tank")) {
+      state.tankAcc = (state.tankAcc || 0) + used;
+      while (state.tankAcc >= TANK_MS && state.water < WATER_CAP) {
+        state.water += 1;
+        state.tankAcc -= TANK_MS;
+      }
+      if (state.water >= WATER_CAP) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
+    }
+    state.seenAt = now;
+    return { elapsed: used, discarded: discarded };
+  }
+
+  function cratePayout(correct) {
+    correct = clamp(correct, 0, 12);
+    return { notes: Math.min(24, correct * 2), seeds: correct >= 8 ? 1 : 0, water: 0 };
+  }
+
+  function marketPayout(served) {
+    served = clamp(served, 0, 5);
+    return { notes: Math.min(25, served * 5), seeds: 0, water: served >= 5 ? 1 : 0 };
+  }
+
+  function collectReward(state, token, payout) {
+    if (!token || typeof token !== "string" || token.length > 80) return { ok: false, reason: "Bad reward." };
+    if (state.paid[token]) return { ok: false, reason: "Already collected." };
+    payout = payout || {};
+    var notes = clamp(payout.notes, 0, 25);
+    var seeds = clamp(payout.seeds, 0, 2);
+    var water = clamp(payout.water, 0, 2);
+    if (notes + seeds + water <= 0) return { ok: false, reason: "Nothing to collect." };
+    state.paid[token] = 1;
+    var keys = Object.keys(state.paid);
+    if (keys.length > 30) delete state.paid[keys[0]];
+    state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + seeds, 0, STACK_CAP);
+    state.water = clamp(state.water + water, 0, WATER_CAP);
+    state.stats.played += 1;
+    return { ok: true, notes: notes, seeds: seeds, water: water };
+  }
+
+  function tasks(state) {
+    return [
+      { id: "sow", done: state.stats.sown > 0, text: "Sow maize in a veggie bed" },
+      { id: "water", done: state.stats.watered > 0, text: "Water the bed" },
+      { id: "harvest", done: state.stats.harvested > 0, text: "Harvest when the crop is ready" },
+      { id: "place", done: state.stats.placed > 0, text: "Place a spaza, tank, or workshop" },
+      { id: "upgrade", done: state.stats.upgraded > 0, text: "Upgrade your home" },
+      { id: "play", done: state.stats.played > 0, text: "Finish a lane mini-game" }
+    ];
+  }
+
+  function currentTask(state) {
+    var list = tasks(state);
+    var i;
+    for (i = 0; i < list.length; i++) if (!list[i].done) return list[i];
+    return { id: "done", done: true, text: "The lane is underway. Keep growing it." };
+  }
+
+  function bedView(b, now) {
+    if (!b || b.type !== "bed") return null;
+    if (b.phase === "empty") return { phase: "empty", progress: 0 };
+    if (b.phase === "sown") return { phase: "sown", progress: 0, crop: b.crop };
+    var def = CROPS[b.crop];
+    var p = def ? (now - b.plantedAt) / def.grow : 0;
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    return { phase: p >= 1 ? "ready" : "growing", progress: p, crop: b.crop, left: Math.max(0, def.grow - (now - b.plantedAt)) };
+  }
+
+  function sanitize(data) {
+    if (!data || typeof data !== "object" || data.v !== 1) return null;
+    var now = clamp(data.seenAt, 0, 8.64e15);
+    var s = fresh(now);
+    s.notes = clamp(data.notes, 0, NOTE_CAP);
+    s.seeds = clamp(data.seeds, 0, STACK_CAP);
+    s.water = clamp(data.water, 0, WATER_CAP);
+    s.timber = clamp(data.timber, 0, STACK_CAP);
+    s.bricks = clamp(data.bricks, 0, STACK_CAP);
+    s.farmXp = clamp(data.farmXp, 0, 100000);
+    s.buildXp = clamp(data.buildXp, 0, 100000);
+    s.tankAcc = clamp(data.tankAcc, 0, TANK_MS);
+    s.welcomed = !!data.welcomed;
+    s.seenAt = now;
+    var crops = data.crops || {};
+    var k;
+    for (k in CROPS) s.crops[k] = clamp(crops[k], 0, STACK_CAP);
+    var stats = data.stats || {};
+    for (k in s.stats) s.stats[k] = clamp(stats[k], 0, 100000);
+    s.paid = {};
+    if (data.paid && typeof data.paid === "object") {
+      var tokens = Object.keys(data.paid).slice(-30);
+      var t;
+      for (t = 0; t < tokens.length; t++) {
+        if (typeof tokens[t] === "string" && tokens[t].length <= 80) s.paid[tokens[t]] = 1;
+      }
+    }
+    s.buildings = [];
+    s.nextId = 1;
+    var list = Array.isArray(data.buildings) ? data.buildings : [];
+    var i, raw, def, b, dx, dy, ok, land, block;
+    for (i = 0; i < list.length; i++) {
+      raw = list[i];
+      if (!raw || typeof raw !== "object") continue;
+      def = BUILDINGS[raw.type];
+      if (!def) continue;
+      b = {
+        id: s.nextId++,
+        type: raw.type,
+        x: clamp(raw.x, 0, COLS - 1),
+        y: clamp(raw.y, 0, ROWS - 1),
+        w: def.w,
+        h: def.h,
+        level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1)
+      };
+      ok = true;
+      for (dy = 0; dy < b.h && ok; dy++) {
+        for (dx = 0; dx < b.w; dx++) {
+          land = terrainAt(b.x + dx, b.y + dy);
+          block = occupied(s, b.x + dx, b.y + dy);
+          if (land !== "grass" || block) { ok = false; break; }
         }
-        var dur = action.getClip().duration || 0.5;
-        var t = name === "jump" ? Math.min(1, info.air || 0) * dur : ((info.phase || 0) % 1) * dur;
-        action.time = t;
-        action.paused = true;
-        mixer.update(0);
       }
-      scene.remove(runners[0].object);
-      var cast = runners[0].cast;
-      runners[0] = { object: group, animate: animate, cast: cast };
-      scene.add(group);
-      animate({ mode: "idle", phase: 0, t: 0, dt: 0.05 });
-      done();
-    }, undefined, function () { done(); });
+      if (!ok) continue;
+      if (countType(s, b.type) >= def.limit) continue;
+      if (b.type === "bed") {
+        b.crop = CROPS[raw.crop] ? raw.crop : null;
+        b.phase = raw.phase === "sown" || raw.phase === "growing" ? raw.phase : "empty";
+        if (!b.crop) b.phase = "empty";
+        b.plantedAt = b.phase === "growing" ? clamp(raw.plantedAt, 0, 8.64e15) : 0;
+        if (b.phase === "sown") b.plantedAt = 0;
+      }
+      s.buildings.push(b);
+    }
+    if (!hasType(s, "home")) {
+      var hx = 1;
+      var hy = 2;
+      var free = true;
+      var hx2, hy2;
+      for (hy2 = 0; hy2 < 2 && free; hy2++) {
+        for (hx2 = 0; hx2 < 2; hx2++) {
+          if (terrainAt(hx + hx2, hy + hy2) !== "grass" || occupied(s, hx + hx2, hy + hy2)) free = false;
+        }
+      }
+      if (free) s.buildings.unshift({ id: s.nextId++, type: "home", x: hx, y: hy, w: 2, h: 2, level: 1 });
+    }
+    return s;
   }
 
-  root.WORLD = {
-    init: init,
-    resize: resize,
-    frame: frame,
-    metrics: metrics,
-    loadHero: loadHero,
-    failReason: function () { return failReason; }
+  return {
+    COLS: COLS,
+    ROWS: ROWS,
+    MAP: MAP,
+    CROPS: CROPS,
+    BUILDINGS: BUILDINGS,
+    FARM_STEPS: FARM_STEPS,
+    BUILD_STEPS: BUILD_STEPS,
+    ELAPSE_CAP: ELAPSE_CAP,
+    fresh: fresh,
+    sanitize: sanitize,
+    farmLevel: farmLevel,
+    buildLevel: buildLevel,
+    nextStep: nextStep,
+    terrainAt: terrainAt,
+    occupied: occupied,
+    buildingById: buildingById,
+    footprint: footprint,
+    cellNorth: cellNorth,
+    pickCell: pickCell,
+    afford: afford,
+    canPlace: canPlace,
+    place: place,
+    canUpgrade: canUpgrade,
+    upgrade: upgrade,
+    upgradeCost: upgradeCost,
+    placeCost: placeCost,
+    sow: sow,
+    water: water,
+    harvest: harvest,
+    sell: sell,
+    tick: tick,
+    cropReady: cropReady,
+    bedView: bedView,
+    cratePayout: cratePayout,
+    marketPayout: marketPayout,
+    collectReward: collectReward,
+    tasks: tasks,
+    currentTask: currentTask,
+    hasType: hasType
   };
-})(typeof globalThis !== "undefined" ? globalThis : this);
-// EISH! Jozi Run — input, audio, HTML UI over the 3D street.
-// A press that starts on a button stays a button. Swipes count by distance, not a short timer.
-(function (root) {
-  "use strict";
-  var EISH = root.EISH;
-  var WORLD = root.WORLD;
-  var MESH = root.MESH;
-  var q = {};
-  try {
-    location.search.slice(1).split("&").forEach(function (p) {
-      var b = p.split("=");
-      if (b[0]) q[decodeURIComponent(b[0])] = decodeURIComponent(b[1] || "1");
-    });
-  } catch (e) {}
+})();
 
-  function load(key, fallback) {
-    try {
-      var v = localStorage.getItem(key);
-      return v == null ? fallback : JSON.parse(v);
-    } catch (err) { return fallback; }
-  }
-  function save(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (err) {}
-  }
-  function $(id) { return document.getElementById(id); }
+if (typeof module !== "undefined" && module.exports) module.exports = KHAYA;
+// Isometric neighbourhood. Original drawing, no external art.
+var DRAW = (function () {
+  var ink = "rgba(36, 44, 38, .38)";
 
-  var reducedPref = false;
-  try { reducedPref = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e2) {}
-
-  var app = {
-    screen: "title",
-    who: 0,
-    mode: "run",
-    sim: null,
-    best: load("eish_run_best", {}),
-    mute: load("eish_run_mute", false),
-    reduced: load("eish_run_rm", reducedPref),
-    seenHint: load("eish_run_hint", false),
-    menuT: 8,
-    time: 0,
-    hint: 0,
-    lanes: [],
-    jump: false,
-    slide: false,
-    bot: q.bot === "1",
-    sheet: q.sheet || "",
-    newBest: false
-  };
-  if (q.mode === "rush" || q.mode === "robot" || q.mode === "run") app.mode = q.mode;
-  if (q.mute === "1") app.mute = true;
-  if (q.who) app.who = (+q.who) % 3;
-
-  var view = $("view");
-  var started = WORLD.init(view);
-  if (!started.ok) {
-    var boot = $("boot");
-    if (boot) boot.hidden = true;
-    var fail = $("glfail");
-    if (fail) fail.hidden = false;
-    var why = $("glwhy");
-    if (why) why.textContent = started.error || "WebGL did not start.";
-    return;
-  }
-  root.__EISH_OK = true;
-  var canvas = started.canvas;
-
-  function resize() {
-    var w = view.clientWidth || window.innerWidth;
-    var h = view.clientHeight || window.innerHeight;
-    var dpr = window.devicePixelRatio || 1;
-    if (app.reduced) dpr = Math.min(dpr, 1.25);
-    WORLD.resize(w, h, dpr);
+  function north(x, y, o) {
+    return KHAYA.cellNorth(x, y, o.ox, o.oy, o.tw, o.th);
   }
 
-  var AC = null, master = null, noiseBuf = null;
-  function ac() {
-    if (!AC) {
-      try {
-        AC = new (window.AudioContext || window.webkitAudioContext)();
-        master = AC.createGain();
-        master.gain.value = app.mute ? 0 : 0.35;
-        master.connect(AC.destination);
-      } catch (err) { return null; }
-    }
-    if (AC.state === "suspended") AC.resume();
-    master.gain.value = app.mute ? 0 : 0.35;
-    return AC;
-  }
-  function tone(f, d, type, vol, slide) {
-    if (!ac() || app.mute) return;
-    var t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-    o.type = type || "triangle";
-    o.frequency.setValueAtTime(f, t);
-    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, slide), t + d);
-    g.gain.setValueAtTime(vol || 0.08, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + d + 0.02);
-  }
-  function noise(d, vol) {
-    if (!ac() || app.mute) return;
-    if (!noiseBuf) {
-      noiseBuf = AC.createBuffer(1, AC.sampleRate * 0.2, AC.sampleRate);
-      var data = noiseBuf.getChannelData(0);
-      for (var i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    }
-    var t = AC.currentTime, src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
-    src.buffer = noiseBuf; f.type = "bandpass"; f.frequency.value = 900;
-    g.gain.setValueAtTime(vol || 0.08, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    src.connect(f); f.connect(g); g.connect(master);
-    src.start(t); src.stop(t + d);
-  }
-  var musicOn = false, musicTimer = 0, stepN = 0, nextT = 0;
-  function tickMusic() {
-    if (!AC || app.mute || app.screen === "title" || app.screen === "how") return;
-    var spb = 60 / 104 / 2;
-    while (nextT < AC.currentTime + 0.12) {
-      var s = stepN % 16;
-      if (s % 4 === 0) tone(98, 0.12, "sine", 0.06, 70);
-      if (s % 2 === 0) noise(0.03, 0.03);
-      if (s === 4 || s === 12) tone(196, 0.08, "triangle", 0.04);
-      nextT += spb;
-      stepN++;
-    }
-  }
-  function music(on) {
-    if (on && !app.mute && !app.reduced && !musicOn) {
-      if (!ac()) return;
-      musicOn = true;
-      nextT = AC.currentTime + 0.05;
-      musicTimer = setInterval(tickMusic, 40);
-    } else if (!on && musicOn) {
-      musicOn = false;
-      clearInterval(musicTimer);
-    }
-  }
-  function sfx(name) {
-    if (name === "jump") tone(420, 0.08, "sine", 0.05, 220);
-    else if (name === "slide") noise(0.1, 0.06);
-    else if (name === "lane") tone(520, 0.04, "square", 0.03);
-    else if (name === "coin") tone(880, 0.06, "square", 0.04, 1320);
-    else if (name === "fare") { tone(660, 0.08, "triangle", 0.06); tone(880, 0.1, "triangle", 0.04); }
-    else if (name === "shield" || name === "kota") tone(520, 0.1, "triangle", 0.06, 780);
-    else if (name === "gate") tone(640, 0.12, "triangle", 0.06, 960);
-    else if (name === "near") tone(760, 0.05, "sine", 0.03);
-    else if (name === "die" || name === "crash" || name === "strike") tone(180, 0.2, "sawtooth", 0.05, 60);
-    else if (name === "finish") tone(523, 0.12, "triangle", 0.06, 784);
+  function corners(x, y, w, h, o) {
+    return {
+      n: north(x, y, o),
+      e: north(x + w, y, o),
+      s: north(x + w, y + h, o),
+      w: north(x, y + h, o)
+    };
   }
 
-  function show(id, on) { var el = $(id); if (el) el.hidden = !on; }
-  var buildTag = $("buildTag");
-  if (buildTag) buildTag.textContent = q.build ? ("build " + q.build) : "";
-
-  function paintUI() {
-    document.body.classList.toggle("menu", (app.screen === "title" || app.screen === "how") && !app.sheet);
-    document.body.classList.toggle("sheetmode", !!app.sheet);
-    resize();
-    var title = app.screen === "title";
-    show("title", title);
-    show("how", app.screen === "how");
-    show("pause", app.screen === "pause");
-    show("over", app.screen === "over");
-    show("hud", app.screen === "play" || app.screen === "pause");
-    show("pad", app.screen === "play");
-    var cast = MESH.CAST[app.who];
-    $("whoName").textContent = cast.name;
-    $("whoPlace").textContent = cast.place;
-    $("whoLine").textContent = cast.line;
-    $("muteBtn").textContent = app.mute ? "Sound off" : "Sound on";
-    $("rmBtn").textContent = app.reduced ? "Motion: reduced" : "Motion: full";
-    var sim = app.sim;
-    if (sim && (app.screen === "play" || app.screen === "pause" || app.screen === "over")) {
-      $("score").textContent = String(Math.floor(sim.score));
-      var sub = sim.mode === "rush" ? (sim.fares + " fares") : sim.mode === "robot" ? (sim.routes + " robots") : (Math.floor(sim.dist) + " m");
-      $("sub").textContent = sub + " · " + sim.coins + " coins";
-      $("modeName").textContent = EISH.MODES[sim.mode].name;
-      $("timer").hidden = sim.mode !== "rush";
-      if (sim.mode === "rush") $("timer").textContent = Math.ceil(sim.timeLeft) + "s";
-      $("strikes").hidden = sim.mode !== "robot";
-      if (sim.mode === "robot") {
-        var dots = $("strikes").querySelectorAll("i");
-        for (var i = 0; i < dots.length; i++) dots[i].className = i < sim.strikes ? "on" : "";
-      }
-      if (app.screen === "over") {
-        $("overTitle").textContent = sim.win ? "You made the rank" : sim.reason === "strikes" ? "Three red robots" : "Eish";
-        $("overScore").textContent = "Score " + Math.floor(sim.score);
-        $("overDetail").textContent = sim.mode === "rush" ? (sim.fares + " fares banked") : sim.mode === "robot" ? (sim.routes + " open robots, " + sim.strikes + " strikes") : (Math.floor(sim.dist) + " metres");
-        $("overBest").textContent = app.newBest ? "New best." : "Best " + Math.floor(app.best[sim.mode] || 0);
-      }
-    }
-    $("hint").hidden = !(app.screen === "play" && app.hint > 0);
-  }
-
-  function rememberBest() {
-    var sim = app.sim;
-    if (!sim) return;
-    var prev = app.best[sim.mode] || 0;
-    app.newBest = sim.score > prev;
-    if (app.newBest) {
-      app.best[sim.mode] = sim.score;
-      save("eish_run_best", app.best);
+  function poly(ctx, pts, fill, stroke) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    var i;
+    for (i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (stroke !== false) {
+      ctx.strokeStyle = stroke || ink;
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
     }
   }
 
-  function begin(mode) {
-    ac();
-    app.mode = mode;
-    var seed = q.seed ? (q.seed >>> 0) : ((Date.now() ^ (Math.random() * 1e9)) >>> 0);
-    app.sim = EISH.create(mode, seed);
-    app.screen = "play";
-    app.hint = app.seenHint ? 2.4 : 5;
-    app.seenHint = true;
-    save("eish_run_hint", true);
-    music(true);
-    paintUI();
+  function lift(p, h) { return { x: p.x, y: p.y - h }; }
+
+  function mid(a, b, t) {
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
   }
 
-  function tap(id) {
-    if (id === "mute") {
-      app.mute = !app.mute;
-      save("eish_run_mute", app.mute);
-      if (master) master.gain.value = app.mute ? 0 : 0.35;
-      paintUI();
+  function prism(ctx, c, h, top, left, right) {
+    poly(ctx, [c.w, c.s, lift(c.s, h), lift(c.w, h)], left);
+    poly(ctx, [c.s, c.e, lift(c.e, h), lift(c.s, h)], right);
+    poly(ctx, [lift(c.n, h), lift(c.e, h), lift(c.s, h), lift(c.w, h)], top);
+  }
+
+  function shade(hex, amt) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.max(0, Math.min(255, ((n >> 16) & 255) + amt));
+    var g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
+    var b = Math.max(0, Math.min(255, (n & 255) + amt));
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  function layout(w, h) {
+    var cols = KHAYA.COLS;
+    var rows = KHAYA.ROWS;
+    var margin = Math.max(12, Math.min(w, h) * 0.04);
+    var availW = Math.max(80, w - margin * 2);
+    var availH = Math.max(80, h - margin * 2);
+    var tw = availW / ((cols + rows) / 2);
+    var th = tw * 0.5;
+    var roof = th * 2.6;
+    if ((cols + rows) * th / 2 + roof > availH) {
+      var scale = availH / ((cols + rows) * th / 2 + roof);
+      tw *= scale;
+      th *= scale;
+    }
+    var plotW = (cols + rows) * tw / 2;
+    var plotH = (cols + rows) * th / 2;
+    var ox = (w - plotW) / 2 + rows * tw / 2;
+    var oy = h - margin - (cols + rows) * th / 2;
+    if (oy < th * 1.6) oy = th * 1.6;
+    return { tw: tw, th: th, ox: ox, oy: oy };
+  }
+
+  function sky(ctx, w, h) {
+    var g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, "#f7d7ae");
+    g.addColorStop(0.45, "#f3c49a");
+    g.addColorStop(1, "#e7a57a");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(232, 154, 112, .55)";
+    ctx.beginPath();
+    ctx.ellipse(w * 0.2, h * 0.42, w * 0.42, h * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(214, 122, 92, .35)";
+    ctx.beginPath();
+    ctx.ellipse(w * 0.78, h * 0.38, w * 0.36, h * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function hash(x, y) {
+    var n = (x * 17 + y * 31) % 5;
+    if (n < 0) n += 5;
+    return n;
+  }
+
+  function ground(ctx, x, y, o) {
+    var kind = KHAYA.terrainAt(x, y);
+    var c = corners(x, y, 1, 1, o);
+    var fill = kind === "path" ? "#e4c79a" : kind === "tree" ? "#6a9a52" : (hash(x, y) % 4 === 0 ? "#6fa858" : "#78b05e");
+    poly(ctx, [c.n, c.e, c.s, c.w], fill, "rgba(70, 100, 55, .18)");
+    if (kind === "path") {
+      ctx.fillStyle = "rgba(160, 116, 70, .45)";
+      var p1 = mid(c.n, c.s, 0.35);
+      var p2 = mid(c.w, c.e, 0.62);
+      ctx.beginPath();
+      ctx.ellipse(p1.x, p1.y, o.tw * 0.06, o.th * 0.08, 0.4, 0, Math.PI * 2);
+      ctx.ellipse(p2.x, p2.y, o.tw * 0.05, o.th * 0.06, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (hash(x, y) % 3 === 0) {
+      var d = mid(c.n, c.s, 0.58);
+      ctx.fillStyle = hash(x, y) % 2 ? "#e07a9a" : "#f2d36b";
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, Math.max(2, o.tw * 0.045), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function tree(ctx, x, y, o, now) {
+    var c = corners(x, y, 1, 1, o);
+    var base = mid(c.n, c.s, 0.5);
+    var sway = Math.sin(now / 700 + x) * 2;
+    prism(ctx, c, o.th * 0.35, "#8d5a32", "#a56b3c", "#6e4324");
+    ctx.fillStyle = "#6b3f86";
+    ctx.beginPath();
+    ctx.ellipse(base.x + sway, base.y - o.th * 1.15, o.tw * 0.42, o.th * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#8a56a8";
+    ctx.beginPath();
+    ctx.ellipse(base.x - o.tw * 0.12 + sway, base.y - o.th * 1.35, o.tw * 0.28, o.th * 0.46, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ink;
+    ctx.stroke();
+  }
+
+  function soil(ctx, b, o, now) {
+    var c = corners(b.x, b.y, 1, 1, o);
+    var view = KHAYA.bedView(b, now);
+    prism(ctx, c, o.th * 0.28, "#c9854a", "#a86b38", "#8d572c");
+    var top = {
+      n: lift(c.n, o.th * 0.28),
+      e: lift(c.e, o.th * 0.28),
+      s: lift(c.s, o.th * 0.28),
+      w: lift(c.w, o.th * 0.28)
+    };
+    c = top;
+    var inner = {
+      n: mid(c.n, mid(c.n, c.s, 0.5), 0.22),
+      e: mid(c.e, mid(c.n, c.s, 0.5), 0.22),
+      s: mid(c.s, mid(c.n, c.s, 0.5), 0.18),
+      w: mid(c.w, mid(c.n, c.s, 0.5), 0.22)
+    };
+    inner = {
+      n: mid(c.n, c.s, 0.18),
+      e: mid(c.e, mid(c.w, c.s, 0.5), 0.25),
+      s: mid(c.s, c.n, 0.16),
+      w: mid(c.w, mid(c.e, c.n, 0.5), 0.25)
+    };
+    poly(ctx, [
+      mid(c.n, c.s, 0.22),
+      mid(c.e, c.w, 0.72),
+      mid(c.s, c.n, 0.18),
+      mid(c.w, c.e, 0.72)
+    ], view.phase === "empty" ? "#8d5b38" : "#6e4428", false);
+    if (view.phase === "empty") {
+      ctx.strokeStyle = "rgba(90,50,30,.35)";
+      ctx.beginPath();
+      ctx.moveTo(mid(c.w, c.e, 0.35).x, mid(c.w, c.e, 0.35).y);
+      ctx.lineTo(mid(c.w, c.e, 0.65).x, mid(c.w, c.e, 0.65).y);
+      ctx.stroke();
       return;
     }
-    if (app.screen === "title") {
-      if (id === "how") app.screen = "how";
-      if (id === "mode-run") begin("run");
-      if (id === "mode-rush") begin("rush");
-      if (id === "mode-robot") begin("robot");
-    } else if (app.screen === "how") {
-      if (id === "back") app.screen = "title";
-      if (id === "rm") { app.reduced = !app.reduced; save("eish_run_rm", app.reduced); resize(); }
-    } else if (app.screen === "play") {
-      if (id === "pause") { app.screen = "pause"; music(false); }
-      if (id === "btn-left") app.lanes.push(-1);
-      if (id === "btn-right") app.lanes.push(1);
-      if (id === "btn-jump") app.jump = true;
-      if (id === "btn-slide") app.slide = true;
-    } else if (app.screen === "pause") {
-      if (id === "resume") { app.screen = "play"; music(true); }
-      if (id === "restart") begin(app.mode);
-      if (id === "menu") { app.screen = "title"; app.sim = null; music(false); }
-    } else if (app.screen === "over") {
-      if (id === "restart") begin(app.sim ? app.sim.mode : app.mode);
-      if (id === "menu") { app.screen = "title"; music(false); }
+    var center = mid(c.n, c.s, 0.5);
+    var p = view.progress;
+    var h = view.phase === "sown" ? 4 : 8 + p * o.th * 0.9;
+    var sway = Math.sin(now / 380 + b.x) * 1.5;
+    var leaf = view.crop === "tomato" ? "#d24b4b" : view.crop === "aloe" ? "#7dcea0" : view.crop === "spinach" ? "#3e9a4a" : "#e2b23a";
+    var stalks = view.phase === "sown" ? 3 : 5;
+    var i;
+    for (i = 0; i < stalks; i++) {
+      var fx = center.x + (i - 2) * o.tw * 0.08 + sway;
+      var fy = center.y + ((i % 2) - 0.5) * o.th * 0.12;
+      ctx.strokeStyle = "#3f6b32";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx + sway, fy - h);
+      ctx.stroke();
+      ctx.fillStyle = leaf;
+      ctx.beginPath();
+      ctx.ellipse(fx + sway, fy - h, view.phase === "ready" ? 7 : 4.5, view.phase === "ready" ? 6 : 3.5, 0.4, 0, Math.PI * 2);
+      ctx.fill();
     }
-    paintUI();
+    if (view.phase === "sown") {
+      ctx.fillStyle = "rgba(255,255,255,.55)";
+      ctx.font = "600 11px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("water", center.x, center.y - 8);
+    }
   }
 
-  function swipe(dirx, diry) {
-    if (app.screen !== "play") return;
-    if (Math.abs(dirx) > Math.abs(diry)) app.lanes.push(dirx > 0 ? 1 : -1);
-    else if (diry < 0) app.jump = true;
-    else app.slide = true;
+  function home(ctx, b, o) {
+    var c = corners(b.x, b.y, 2, 2, o);
+    var wall = o.th * 1.35;
+    prism(ctx, c, wall, "#f4e2c8", "#f0d7b6", "#d7b48a");
+    var roof = o.th * 0.9;
+    var center = mid(c.n, c.s, 0.5);
+    function eave(p) {
+      return { x: center.x + (p.x - center.x) * 1.08, y: center.y + (p.y - center.y) * 1.08 - wall };
+    }
+    var peak = { x: center.x, y: center.y - wall - roof };
+    poly(ctx, [eave(c.w), eave(c.n), peak], "#c4533c");
+    poly(ctx, [eave(c.n), eave(c.e), peak], "#e07052");
+    poly(ctx, [eave(c.e), eave(c.s), peak], "#b84734");
+    poly(ctx, [eave(c.s), eave(c.w), peak], "#9c3b2c");
+    var doorTop = lift(mid(c.s, c.e, 0.38), wall * 0.72);
+    var doorBot = mid(c.s, c.e, 0.42);
+    poly(ctx, [doorTop, mid(doorTop, lift(c.e, wall * 0.2), 0.35), mid(doorBot, c.e, 0.2), doorBot], b.level > 1 ? "#2f8f78" : "#8d5a32", false);
+    var win = lift(mid(c.s, c.w, 0.45), wall * 0.62);
+    poly(ctx, [win, mid(win, lift(c.s, wall * 0.4), 0.45), mid(c.s, c.w, 0.55), mid(c.s, c.w, 0.4)], "#f6e7b4", false);
+    if (b.level >= 2) {
+      ctx.fillStyle = "#e25b78";
+      ctx.beginPath();
+      ctx.arc(mid(c.w, c.s, 0.25).x, mid(c.w, c.s, 0.25).y - 4, 5, 0, Math.PI * 2);
+      ctx.arc(mid(c.e, c.s, 0.3).x, mid(c.e, c.s, 0.3).y - 4, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (b.level >= 3) {
+      var p = lift(mid(c.n, c.e, 0.45), wall + roof * 0.35);
+      poly(ctx, [p, mid(p, lift(c.e, wall), 0.5), mid(p, lift(c.s, wall), 0.35), mid(p, lift(c.n, wall), 0.2)], "#3d7ea6", false);
+    }
   }
 
-  var ptr = null;
-  canvas.addEventListener("pointerdown", function (e) {
-    if (ptr) return;
-    if (e.target && e.target.closest && e.target.closest("button")) return;
-    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-    ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, used: false };
-    ac();
-  });
-  canvas.addEventListener("pointermove", function (e) {
-    if (!ptr || e.pointerId !== ptr.id || ptr.used) return;
-    var dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
-    if (Math.abs(dx) < 26 && Math.abs(dy) < 26) return;
-    ptr.used = true;
-    swipe(dx, dy);
-  });
-  function endPointer(e) {
-    if (!ptr || e.pointerId !== ptr.id) return;
-    var dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy;
-    if (!ptr.used && (Math.abs(dx) >= 26 || Math.abs(dy) >= 26)) swipe(dx, dy);
-    ptr = null;
+  function spaza(ctx, b, o) {
+    var c = corners(b.x, b.y, 1, 1, o);
+    var h = o.th * (0.85 + (b.level - 1) * 0.25);
+    prism(ctx, c, h, "#f7e7cf", "#f0d8b8", "#e4c49a");
+    var awning = b.level > 1 ? "#2f8f78" : "#e2a53a";
+    poly(ctx, [lift(c.n, h), lift(c.e, h), lift(mid(c.e, c.s, 0.15), h + o.th * 0.28), lift(mid(c.n, c.w, 0.15), h + o.th * 0.28)], awning, false);
+    poly(ctx, [lift(c.n, h), lift(c.w, h), lift(mid(c.w, c.s, 0.15), h + o.th * 0.22), lift(mid(c.n, c.e, 0.08), h + o.th * 0.22)], shade(awning, -28), false);
+    ctx.fillStyle = "#243028";
+    ctx.font = "700 " + Math.max(9, o.tw * 0.16) + "px sans-serif";
+    ctx.textAlign = "center";
+    var label = lift(mid(c.n, c.s, 0.48), h + o.th * 0.55);
+    ctx.fillText("SPAZA", label.x, label.y);
+    if (b.level > 1) {
+      ctx.fillStyle = "#d4654a";
+      ctx.fillRect(label.x - 8, label.y + 4, 6, 8);
+      ctx.fillStyle = "#e2b23a";
+      ctx.fillRect(label.x + 2, label.y + 6, 6, 6);
+    }
   }
-  canvas.addEventListener("pointerup", endPointer);
-  canvas.addEventListener("pointercancel", endPointer);
 
-  document.body.addEventListener("click", function (e) {
-    var btn = e.target.closest ? e.target.closest("[data-tap]") : null;
-    if (!btn) return;
-    e.preventDefault();
-    tap(btn.getAttribute("data-tap"));
+  function tank(ctx, b, o) {
+    var c = corners(b.x, b.y, 1, 1, o);
+    var base = mid(c.n, c.s, 0.55);
+    var rw = o.tw * 0.28;
+    var rh = o.th * 0.22;
+    var h = o.th * 0.95;
+    ctx.fillStyle = "#3f8f64";
+    ctx.beginPath();
+    ctx.ellipse(base.x, base.y - h, rw, rh, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2f6d4f";
+    ctx.fillRect(base.x - rw, base.y - h, rw * 2, h);
+    ctx.fillStyle = "#3f8f64";
+    ctx.beginPath();
+    ctx.ellipse(base.x, base.y, rw, rh, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = ink;
+    ctx.stroke();
+    ctx.fillStyle = "#d7b48a";
+    ctx.fillRect(base.x + rw - 2, base.y - h * 0.45, 8, 4);
+  }
+
+  function workshop(ctx, b, o) {
+    var c = corners(b.x, b.y, 1, 1, o);
+    var h = o.th * 0.8;
+    prism(ctx, c, h, "#e7c49a", "#d7ae7a", "#c49662");
+    poly(ctx, [lift(c.n, h), lift(c.e, h), lift(mid(c.n, c.s, 0.5), h + o.th * 0.55)], "#a36b3c");
+    poly(ctx, [lift(c.n, h), lift(c.w, h), lift(mid(c.n, c.s, 0.5), h + o.th * 0.55)], "#8a552c");
+    ctx.fillStyle = "#f6e2a8";
+    var win = lift(mid(c.s, c.e, 0.45), h * 0.45);
+    ctx.fillRect(win.x - 6, win.y - 6, 12, 8);
+  }
+
+  function solar(ctx, b, o) {
+    var c = corners(b.x, b.y, 1, 1, o);
+    var post = mid(c.n, c.s, 0.5);
+    ctx.strokeStyle = "#8d6a45";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(post.x, post.y);
+    ctx.lineTo(post.x, post.y - o.th * 0.7);
+    ctx.stroke();
+    poly(ctx, [
+      { x: post.x - o.tw * 0.28, y: post.y - o.th * 0.7 },
+      { x: post.x + o.tw * 0.22, y: post.y - o.th * 0.95 },
+      { x: post.x + o.tw * 0.28, y: post.y - o.th * 0.7 },
+      { x: post.x - o.tw * 0.16, y: post.y - o.th * 0.5 }
+    ], "#3d7ea6");
+    ctx.strokeStyle = "rgba(255,255,255,.45)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(post.x, post.y - o.th * 0.78);
+    ctx.lineTo(post.x + o.tw * 0.05, post.y - o.th * 0.62);
+    ctx.stroke();
+  }
+
+  function building(ctx, b, o, now) {
+    if (b.type === "bed") soil(ctx, b, o, now);
+    else if (b.type === "home") home(ctx, b, o);
+    else if (b.type === "spaza") spaza(ctx, b, o);
+    else if (b.type === "tank") tank(ctx, b, o);
+    else if (b.type === "workshop") workshop(ctx, b, o);
+    else if (b.type === "solar") solar(ctx, b, o);
+  }
+
+  function footprintStroke(ctx, x, y, w, h, o, color) {
+    var c = corners(x, y, w, h, o);
+    ctx.beginPath();
+    ctx.moveTo(c.n.x, c.n.y);
+    ctx.lineTo(c.e.x, c.e.y);
+    ctx.lineTo(c.s.x, c.s.y);
+    ctx.lineTo(c.w.x, c.w.y);
+    ctx.closePath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  function render(canvas, state, view, now) {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+    }
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sky(ctx, w, h);
+    ctx.fillStyle = "#e7b07a";
+    ctx.beginPath();
+    ctx.ellipse(w * 0.5, h * 0.62, w * 0.62, h * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+    var o = layout(w, h);
+    var shadow = corners(0, 0, KHAYA.COLS, KHAYA.ROWS, o);
+    ctx.fillStyle = "rgba(90, 50, 30, .13)";
+    ctx.beginPath();
+    ctx.ellipse((shadow.n.x + shadow.s.x) / 2, (shadow.n.y + shadow.s.y) / 2 + 8, (shadow.e.x - shadow.w.x) * 0.48, o.th * 1.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    var cells = [];
+    var x, y;
+    for (y = 0; y < KHAYA.ROWS; y++) {
+      for (x = 0; x < KHAYA.COLS; x++) cells.push({ x: x, y: y, k: x + y });
+    }
+    cells.sort(function (a, b) { return a.k - b.k; });
+    var i, kind, anchor;
+    for (i = 0; i < cells.length; i++) {
+      x = cells[i].x;
+      y = cells[i].y;
+      ground(ctx, x, y, o);
+      kind = KHAYA.terrainAt(x, y);
+      if (kind === "tree") tree(ctx, x, y, o, now);
+      anchor = null;
+      var bi;
+      for (bi = 0; bi < state.buildings.length; bi++) {
+        if (state.buildings[bi].x === x && state.buildings[bi].y === y) anchor = state.buildings[bi];
+      }
+      if (anchor) building(ctx, anchor, o, now);
+    }
+    if (view.ghost) {
+      var gok = KHAYA.canPlace(state, view.ghost.type, view.ghost.x, view.ghost.y).ok;
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      building(ctx, {
+        type: view.ghost.type,
+        x: view.ghost.x,
+        y: view.ghost.y,
+        w: KHAYA.BUILDINGS[view.ghost.type].w,
+        h: KHAYA.BUILDINGS[view.ghost.type].h,
+        level: 1,
+        phase: "empty",
+        crop: null
+      }, o, now);
+      ctx.restore();
+      var def = KHAYA.BUILDINGS[view.ghost.type];
+      footprintStroke(ctx, view.ghost.x, view.ghost.y, def.w, def.h, o, gok ? "#f2c14e" : "#d64545");
+    }
+    if (view.selected) {
+      footprintStroke(ctx, view.selected.x, view.selected.y, view.selected.w, view.selected.h, o, "#f2c14e");
+    }
+    return o;
+  }
+
+  return { render: render, layout: layout };
+})();
+// Crate Day and the spaza counter. Skill games, capped pay, one collect each.
+var PLAY = (function () {
+  var CROPS = ["maize", "spinach", "tomato"];
+
+  function chip(crop) {
+    return "<button type=\"button\" class=\"chip " + crop + "\" data-crop=\"" + crop + "\">" + KHAYA.CROPS[crop].name + "</button>";
+  }
+
+  function crateStart(body, done) {
+    var order = [];
+    var i;
+    for (i = 0; i < 10; i++) order.push(CROPS[i % 3]);
+    var round = { i: 0, correct: 0, left: 1.6, order: order, over: false, token: "crate-" + Date.now() + "-" + Math.floor(Math.random() * 1e6) };
+    body.innerHTML = "<p class=\"rules\">Crate Day. A crop name lights up. Tap its crate before the bar runs out. Ten crops. No entry fee.</p><div class=\"meter\"><span id=\"crateBar\"></span></div><p id=\"crateShow\" class=\"show maize\">Maize</p><div class=\"crates\">" + CROPS.map(chip).join("") + "</div><p id=\"crateScore\" class=\"fine\">0 / 10</p>";
+    var show = body.querySelector("#crateShow");
+    var bar = body.querySelector("#crateBar");
+    var score = body.querySelector("#crateScore");
+    function present() {
+      if (round.i >= round.order.length) return finish();
+      round.left = 1.6;
+      var crop = round.order[round.i];
+      show.textContent = KHAYA.CROPS[crop].name;
+      show.className = "show " + crop;
+    }
+    function finish() {
+      round.over = true;
+      var pay = KHAYA.cratePayout(round.correct);
+      done(round.token, pay, "You sorted " + round.correct + " of 10.");
+    }
+    function answer(crop) {
+      if (round.over) return;
+      if (crop === round.order[round.i]) round.correct += 1;
+      round.i += 1;
+      score.textContent = round.correct + " right · " + round.i + " / 10";
+      present();
+    }
+    body.querySelectorAll("[data-crop]").forEach(function (btn) {
+      btn.addEventListener("click", function () { answer(btn.getAttribute("data-crop")); });
+    });
+    present();
+    var last = performance.now();
+    function frame(t) {
+      if (round.over) return;
+      var dt = Math.min(0.05, (t - last) / 1000);
+      last = t;
+      round.left -= dt;
+      bar.style.transform = "scaleX(" + Math.max(0, round.left / 1.6) + ")";
+      if (round.left <= 0) answer("__timeout__");
+      if (!round.over) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return function stop() { round.over = true; };
+  }
+
+  function marketStart(body, done) {
+    var slips = [
+      ["maize", "maize", "spinach"],
+      ["tomato", "maize"],
+      ["spinach", "spinach"],
+      ["tomato", "spinach", "maize"],
+      ["aloe", "tomato"]
+    ];
+    var round = { i: 0, served: 0, picked: [], over: false, token: "market-" + Date.now() + "-" + Math.floor(Math.random() * 1e6) };
+    var goods = ["maize", "spinach", "tomato", "aloe"];
+    body.innerHTML = "<p class=\"rules\">Spaza counter. Tap every item on the slip, then hand it over. A wrong extra item sends that customer on. Five customers. No entry fee.</p><p id=\"slip\" class=\"slip\"></p><div class=\"crates\">" + goods.map(chip).join("") + "</div><p id=\"basket\" class=\"fine\">Basket: empty</p><button type=\"button\" class=\"hot\" id=\"hand\">Hand over</button>";
+    var slip = body.querySelector("#slip");
+    var basket = body.querySelector("#basket");
+    function names(list) {
+      var count = {};
+      list.forEach(function (c) { count[c] = (count[c] || 0) + 1; });
+      return Object.keys(count).map(function (k) { return count[k] + " " + KHAYA.CROPS[k].name; }).join(", ");
+    }
+    function present() {
+      if (round.i >= slips.length) return finish();
+      round.picked = [];
+      slip.textContent = "Order: " + names(slips[round.i]);
+      basket.textContent = "Basket: empty";
+    }
+    function same(a, b) {
+      if (a.length !== b.length) return false;
+      var as = a.slice().sort().join(",");
+      var bs = b.slice().sort().join(",");
+      return as === bs;
+    }
+    function finish() {
+      round.over = true;
+      var pay = KHAYA.marketPayout(round.served);
+      done(round.token, pay, "You served " + round.served + " of 5 customers.");
+    }
+    body.querySelectorAll("[data-crop]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (round.over || round.i >= slips.length) return;
+        if (round.picked.length >= 4) return;
+        round.picked.push(btn.getAttribute("data-crop"));
+        basket.textContent = "Basket: " + names(round.picked);
+      });
+    });
+    body.querySelector("#hand").addEventListener("click", function () {
+      if (round.over || round.i >= slips.length) return;
+      if (same(round.picked, slips[round.i])) round.served += 1;
+      round.i += 1;
+      present();
+    });
+    present();
+    return function stop() { round.over = true; };
+  }
+
+  return { crateStart: crateStart, marketStart: marketStart };
+})();
+// Khaya Lane. Tap the lane, grow food, build, and play.
+(function () {
+  var SAVE = "eish-khaya-1";
+  var canvas = document.getElementById("view");
+  var modal = document.getElementById("modal");
+  var sheet = document.getElementById("sheet");
+  var modalTitle = document.getElementById("modalTitle");
+  var modalBody = document.getElementById("modalBody");
+  var card = document.getElementById("card");
+  var taskEl = document.getElementById("task");
+  var resEl = document.getElementById("res");
+  var notesEl = document.getElementById("notes");
+  var toastEl = document.getElementById("toast");
+  var placingEl = document.getElementById("placing");
+  var q = new URLSearchParams(location.search);
+  var tag = document.getElementById("buildTag");
+  if (tag) tag.textContent = q.get("build") ? "build " + q.get("build") : "";
+
+  var now0 = Date.now();
+  var state = load() || KHAYA.fresh(now0);
+  KHAYA.tick(state, now0);
+  var selectedId = null;
+  var ghost = null;
+  var stopGame = null;
+  var toastTimer = 0;
+
+  function load() {
+    try {
+      return KHAYA.sanitize(JSON.parse(localStorage.getItem(SAVE) || "null"));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function save() {
+    try { localStorage.setItem(SAVE, JSON.stringify(state)); } catch (err) { /* private mode */ }
+  }
+
+  function toast(text) {
+    toastEl.textContent = text;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2200);
+  }
+
+  function selected() {
+    return selectedId ? KHAYA.buildingById(state, selectedId) : null;
+  }
+
+  function closeModal() {
+    if (stopGame) { stopGame(); stopGame = null; }
+    modal.hidden = true;
+    sheet.setAttribute("aria-hidden", "true");
+  }
+
+  function openModal(title, html) {
+    if (stopGame) { stopGame(); stopGame = null; }
+    modalTitle.textContent = title;
+    modalBody.innerHTML = html;
+    modal.hidden = false;
+    sheet.setAttribute("aria-hidden", "false");
+  }
+
+  function costLine(cost) {
+    if (!cost) return "";
+    var bits = [];
+    if (cost.notes) bits.push(cost.notes + " notes");
+    if (cost.timber) bits.push(cost.timber + " timber");
+    if (cost.bricks) bits.push(cost.bricks + " bricks");
+    if (cost.seeds) bits.push(cost.seeds + " seeds");
+    if (cost.water) bits.push(cost.water + " water");
+    return bits.join(" · ");
+  }
+
+  function paintHud() {
+    notesEl.textContent = state.notes + " notes";
+    var bits = [
+      ["Seeds", state.seeds],
+      ["Water", state.water],
+      ["Timber", state.timber],
+      ["Bricks", state.bricks]
+    ];
+    var crops = KHAYA.CROPS;
+    Object.keys(crops).forEach(function (k) {
+      if (state.crops[k] > 0) bits.push([crops[k].name, state.crops[k]]);
+    });
+    resEl.innerHTML = bits.map(function (b) {
+      return "<span><small>" + b[0] + "</small>" + b[1] + "</span>";
+    }).join("");
+    var task = KHAYA.currentTask(state);
+    taskEl.textContent = task.done ? task.text : "Next: " + task.text;
+  }
+
+  function paintCard() {
+    var b = selected();
+    if (ghost) {
+      var def = KHAYA.BUILDINGS[ghost.type];
+      var check = KHAYA.canPlace(state, ghost.type, ghost.x, ghost.y);
+      card.innerHTML = "<b>Placing " + def.name + "</b><p>" + (check.ok ? "Tap the lane to build it." : check.reason) + "</p>";
+      return;
+    }
+    if (!b) {
+      card.innerHTML = "<b>Khaya Lane</b><p>Tap a bed to plant, or open Build.</p>";
+      return;
+    }
+    var spec = KHAYA.BUILDINGS[b.type];
+    var html = "<b>" + spec.name + "</b>";
+    if (b.type === "bed") {
+      var view = KHAYA.bedView(b, Date.now());
+      if (view.phase === "empty") {
+        html += "<p>Choose a crop.</p><div class=\"row\">";
+        Object.keys(KHAYA.CROPS).forEach(function (k) {
+          var c = KHAYA.CROPS[k];
+          var locked = KHAYA.farmLevel(state) < c.level;
+          html += "<button type=\"button\" data-sow=\"" + k + "\"" + (locked || state.seeds < 1 ? " disabled" : "") + ">" + c.name + (locked ? " · lv " + c.level : "") + "</button>";
+        });
+        html += "</div>";
+      } else if (view.phase === "sown") {
+        var waterCost = KHAYA.CROPS[b.crop].water;
+        html += "<p>" + KHAYA.CROPS[b.crop].name + " is in. It needs " + waterCost + " water.</p>";
+        html += "<button type=\"button\" class=\"hot\" data-do=\"water\"" + (state.water < waterCost ? " disabled" : "") + ">Water</button>";
+      } else if (view.phase === "growing") {
+        html += "<p>" + KHAYA.CROPS[b.crop].name + " · " + Math.ceil(view.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + view.progress + ")\"></span></div>";
+      } else {
+        html += "<p>" + KHAYA.CROPS[b.crop].name + " is ready.</p><button type=\"button\" class=\"hot\" data-do=\"harvest\">Harvest</button>";
+      }
+    } else {
+      html += "<p>" + spec.blurb + "</p>";
+      var up = KHAYA.canUpgrade(state, b.id);
+      var price = KHAYA.upgradeCost(state, b);
+      if (price) {
+        html += "<p class=\"fine\">" + costLine(price) + "</p>";
+        html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
+        if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
+      } else html += "<p class=\"fine\">Fully built.</p>";
+    }
+    card.innerHTML = html;
+  }
+
+  function paint() {
+    paintHud();
+    paintCard();
+    placingEl.hidden = !ghost;
+    if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the lane, or cancel";
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected() }, Date.now());
+  }
+
+  function act(result) {
+    if (!result || !result.ok) {
+      toast(result && result.reason ? result.reason : "That did not work.");
+      paint();
+      return;
+    }
+    if (result.xp) toast("+" + result.xp + " skill");
+    if (result.amount) toast("Picked " + result.amount + " " + KHAYA.CROPS[result.crop].name.toLowerCase());
+    if (result.notes) toast("+" + result.notes + " notes");
+    save();
+    paint();
+  }
+
+  function openBuild() {
+    var html = "";
+    Object.keys(KHAYA.BUILDINGS).forEach(function (type) {
+      var def = KHAYA.BUILDINGS[type];
+      if (!def.cost) return;
+      var cost = KHAYA.placeCost(state, type);
+      var check = KHAYA.canPlace(state, type, -1, -1);
+      var skillLock = KHAYA.buildLevel(state) < (def.skill || 1);
+      var full = false;
+      var n = 0;
+      var i;
+      for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === type) n++;
+      if (n >= def.limit) full = true;
+      html += "<article class=\"build\"><h3>" + def.name + "</h3><p>" + def.blurb + "</p><p class=\"fine\">" + costLine(cost) + "</p>";
+      if (skillLock) html += "<p class=\"fine\">Needs building level " + def.skill + ".</p>";
+      else if (full) html += "<p class=\"fine\">Already built.</p>";
+      else html += "<button type=\"button\" data-arm=\"" + type + "\"" + (KHAYA.afford(state, cost).ok ? "" : " disabled") + ">Place</button>";
+      html += "</article>";
+    });
+    openModal("Build", html);
+    modalBody.querySelectorAll("[data-arm]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        ghost = { type: btn.getAttribute("data-arm"), x: 2, y: 5 };
+        selectedId = null;
+        closeModal();
+        paint();
+      });
+    });
+  }
+
+  function openSkills() {
+    function block(label, xp, steps) {
+      var info = KHAYA.nextStep(xp, steps);
+      var lv = info.max ? steps.length : info.level;
+      var span = Math.max(1, info.next - info.prev);
+      var pct = info.max ? 1 : (xp - info.prev) / span;
+      return "<h3>" + label + " · level " + lv + "</h3><div class=\"meter\"><span style=\"transform:scaleX(" + pct + ")\"></span></div><p class=\"fine\">" + xp + " xp" + (info.max ? " · practised" : " · " + (info.next - xp) + " to the next level") + "</p>";
+    }
+    var html = block("Farming", state.farmXp, KHAYA.FARM_STEPS) + block("Building", state.buildXp, KHAYA.BUILD_STEPS);
+    html += "<ul class=\"unlocks\"><li>Maize and spinach from the start</li><li>Tomatoes at farming level 2</li><li>Aloe at farming level 3</li><li>Solar stand at building level 2</li><li>Home’s last step at building level 2</li></ul>";
+    openModal("Skills", html);
+  }
+
+  function finishGame(token, payout, line) {
+    var granted = KHAYA.collectReward(state, token, payout);
+    save();
+    var text = line + " ";
+    if (granted.ok) {
+      var bits = [];
+      if (granted.notes) bits.push(granted.notes + " notes");
+      if (granted.seeds) bits.push(granted.seeds + " seeds");
+      if (granted.water) bits.push(granted.water + " water");
+      text += "Added " + bits.join(", ") + ".";
+    } else text += granted.reason;
+    modalBody.innerHTML = "<p class=\"rules\">" + text + "</p><button type=\"button\" class=\"hot\" data-close-game>Back to the lane</button>";
+    modalBody.querySelector("[data-close-game]").addEventListener("click", closeModal);
+    paintHud();
+  }
+
+  function openPlay() {
+    openModal("Play", "<p class=\"rules\">Two games on the lane. They pay notes and supplies once when you finish. Leaving early pays nothing. There is no fee and nothing to wager.</p><article class=\"build\"><h3>Crate Day</h3><p>Sort the harvest into the right crate before the bar runs out.</p><button type=\"button\" data-game=\"crate\">Play Crate Day</button></article><article class=\"build\"><h3>Spaza counter</h3><p>Match the customer’s slip, then hand it over.</p><button type=\"button\" data-game=\"market\">Open the counter</button></article>");
+    modalBody.querySelectorAll("[data-game]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var kind = btn.getAttribute("data-game");
+        modalTitle.textContent = kind === "crate" ? "Crate Day" : "Spaza counter";
+        stopGame = kind === "crate" ? PLAY.crateStart(modalBody, finishGame) : PLAY.marketStart(modalBody, finishGame);
+      });
+    });
+  }
+
+  function openMore() {
+    var list = KHAYA.tasks(state).map(function (t) {
+      return "<li>" + (t.done ? "Done · " : "") + t.text + "</li>";
+    }).join("");
+    var sell = "";
+    Object.keys(KHAYA.CROPS).forEach(function (k) {
+      if (state.crops[k] > 0) sell += "<button type=\"button\" data-sell=\"" + k + "\">Sell 1 " + KHAYA.CROPS[k].name.toLowerCase() + " · " + KHAYA.CROPS[k].price + " notes</button>";
+    });
+    if (!sell) sell = "<p class=\"fine\">Harvest something, then sell it once a spaza is up.</p>";
+    openModal("The lane", "<ul class=\"unlocks\">" + list + "</ul><div class=\"row\">" + sell + "</div><button type=\"button\" id=\"reset\">Reset neighbourhood</button>");
+    modalBody.querySelectorAll("[data-sell]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        act(KHAYA.sell(state, btn.getAttribute("data-sell"), 1));
+        if (modal.hidden) return;
+        openMore();
+      });
+    });
+    modalBody.querySelector("#reset").addEventListener("click", function () {
+      openModal("Reset neighbourhood?", "<p class=\"rules\">This clears the lane and starts again. It cannot be undone.</p><button type=\"button\" class=\"hot\" id=\"yesReset\">Yes, start again</button>");
+      modalBody.querySelector("#yesReset").addEventListener("click", function () {
+        state = KHAYA.fresh(Date.now());
+        selectedId = null;
+        ghost = null;
+        save();
+        closeModal();
+        toast("A new lane.");
+        paint();
+      });
+    });
+  }
+
+  canvas.addEventListener("pointerdown", function (ev) {
+    if (!modal.hidden) return;
+    var rect = canvas.getBoundingClientRect();
+    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
+    var cell = KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+    if (ghost) {
+      ghost.x = cell.x;
+      ghost.y = cell.y;
+      var placed = KHAYA.place(state, ghost.type, cell.x, cell.y);
+      if (placed.ok) {
+        ghost = null;
+        selectedId = placed.id;
+      }
+      act(placed);
+      return;
+    }
+    var hit = KHAYA.occupied(state, cell.x, cell.y);
+    selectedId = hit ? hit.id : null;
+    paint();
   });
-  $("pauseBtn").addEventListener("click", function () { tap("pause"); });
 
-  window.addEventListener("keydown", function (e) {
-    if (e.repeat) return;
-    var k = e.key;
-    if (k === "ArrowLeft" || k === "a" || k === "A") swipe(-1, 0);
-    else if (k === "ArrowRight" || k === "d" || k === "D") swipe(1, 0);
-    else if (k === "ArrowUp" || k === "w" || k === "W") swipe(0, -1);
-    else if (k === "ArrowDown" || k === "s" || k === "S") swipe(0, 1);
-    else if (k === "Escape" || k === "p" || k === "P") {
-      if (app.screen === "play") tap("pause");
-      else if (app.screen === "pause") tap("resume");
-      else if (app.screen === "how" || app.screen === "over") tap(app.screen === "how" ? "back" : "menu");
-    } else if (k === "Enter" || k === " ") {
-      if (app.screen === "title") begin(app.mode);
-      else if (app.screen === "pause") tap("resume");
-      else if (app.screen === "over") tap("restart");
-      else if (app.screen === "play") app.jump = true;
-    } else if (app.screen === "title" && (k === "1" || k === "2" || k === "3")) begin(["run", "rush", "robot"][+k - 1]);
-    else return;
-    e.preventDefault();
+  card.addEventListener("click", function (ev) {
+    var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
+    var todo = ev.target.getAttribute && ev.target.getAttribute("data-do");
+    if (sow) act(KHAYA.sow(state, selectedId, sow));
+    if (todo === "water") act(KHAYA.water(state, selectedId, Date.now()));
+    if (todo === "harvest") act(KHAYA.harvest(state, selectedId, Date.now()));
+    if (todo === "upgrade") act(KHAYA.upgrade(state, selectedId));
   });
 
+  document.getElementById("dock").addEventListener("click", function (ev) {
+    var actName = ev.target.getAttribute && ev.target.getAttribute("data-act");
+    if (actName === "build") openBuild();
+    if (actName === "skills") openSkills();
+    if (actName === "play") openPlay();
+    if (actName === "more") openMore();
+    if (actName === "cancel") { ghost = null; paint(); }
+  });
+
+  modal.addEventListener("click", function (ev) {
+    if (ev.target === modal || (ev.target.getAttribute && ev.target.getAttribute("data-close") != null)) closeModal();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") {
+      if (!modal.hidden) closeModal();
+      else if (ghost) { ghost = null; paint(); }
+      else { selectedId = null; paint(); }
+    }
+  });
+
+  window.addEventListener("resize", paint);
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && app.screen === "play") tap("pause");
+    if (!document.hidden) {
+      KHAYA.tick(state, Date.now());
+      save();
+      paint();
+    }
   });
 
-  function takeInput() {
-    var input = { lane: 0, jump: app.jump, slide: app.slide };
-    if (app.lanes.length) input.lane = app.lanes.shift();
-    app.jump = false;
-    app.slide = false;
-    if (app.bot && app.sim) {
-      var bot = EISH.oracle(app.sim);
-      if (!input.lane) input.lane = bot.lane;
-      input.jump = input.jump || bot.jump;
-      input.slide = input.slide || bot.slide;
-    }
-    return input;
+  if (!state.welcomed) {
+    state.welcomed = true;
+    save();
+    openModal("Welcome to Khaya Lane", "<p class=\"rules\">This is your lane. Sow a bed, water it, and harvest. Place a spaza to sell the crop, upgrade the home, and try Crate Day or the spaza counter when you want. Notes, seeds, and timber stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
   }
 
-  var last = 0;
-  var bannerEl = $("banner");
-  function loop(now) {
-    var dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
-    last = now;
-    app.time += dt;
-    app.dt = dt;
-    if (q.hold) app.time = +q.hold;
-    if (app.screen === "title" || app.screen === "how") app.menuT += dt * (app.reduced ? 1.5 : 7);
-    if (app.screen === "play" && app.sim) {
-      EISH.step(app.sim, dt, takeInput());
-      var ev = app.sim.events;
-      for (var i = 0; i < ev.length; i++) sfx(ev[i]);
-      if (app.hint > 0) app.hint -= dt;
-      if (!app.sim.alive || app.sim.finished) {
-        rememberBest();
-        app.screen = "over";
-        music(false);
-        paintUI();
-      } else if (app.hint > 0 && app.hint < 0.05) paintUI();
-    }
-    var viewState = WORLD.frame(app);
-    if (bannerEl) {
-      var showBanner = app.screen === "play" && viewState && viewState.banner;
-      bannerEl.hidden = !showBanner;
-      if (showBanner) bannerEl.textContent = "OPEN ROBOT  " + viewState.banner;
-    }
-    if (app.screen === "play" && app.sim) {
-      $("score").textContent = String(Math.floor(app.sim.score));
-      var sub = app.sim.mode === "rush" ? (app.sim.fares + " fares") : app.sim.mode === "robot" ? (app.sim.routes + " robots") : (Math.floor(app.sim.dist) + " m");
-      $("sub").textContent = sub + " · " + app.sim.coins + " coins";
-      if (app.sim.mode === "rush") $("timer").textContent = Math.ceil(app.sim.timeLeft) + "s";
-    }
-    requestAnimationFrame(loop);
-  }
-
-  resize();
-  window.addEventListener("resize", resize);
-  paintUI();
-  var boot = $("boot");
-  if (boot) boot.hidden = true;
-  if (q.play === "1") begin(app.mode);
-  if (q.pause === "1") { begin(app.mode); app.screen = "pause"; paintUI(); }
-  if (q.over === "1") {
-    begin(app.mode);
-    app.sim.score = 480;
-    app.sim.dist = 320;
-    app.sim.coins = 12;
-    app.sim.alive = false;
-    app.sim.finished = true;
-    app.sim.reason = "hit";
-    app.sim.win = false;
-    rememberBest();
-    app.screen = "over";
-    paintUI();
-  }
-  if (q.freeze) {
-    begin(app.mode);
-    var secs = +q.freeze || 1;
-    var left = secs;
-    while (left > 0 && app.sim && app.sim.alive && !app.sim.finished) {
-      var slice = Math.min(0.05, left);
-      EISH.step(app.sim, slice, app.bot ? EISH.oracle(app.sim) : {});
-      left -= slice;
-    }
-    app.screen = "play";
-    app.bot = false;
-    paintUI();
-  }
-  var live = $("live");
   setInterval(function () {
-    if (!live) return;
-    if (app.screen === "play" && app.sim) live.textContent = EISH.MODES[app.sim.mode].name + ", score " + Math.floor(app.sim.score);
-    else live.textContent = app.screen;
-  }, 1000);
+    KHAYA.tick(state, Date.now());
+    paint();
+  }, 400);
 
-  if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(view);
-  root.__EISH = app;
-  root.__metrics = function () { return WORLD.metrics(); };
-  function beginLoop() {
-    requestAnimationFrame(loop);
-  }
-  if (WORLD.loadHero) WORLD.loadHero("assets/lerato.glb", beginLoop);
-  else beginLoop();
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
-    navigator.serviceWorker.register("sw.js").catch(function () {});
-  }
-})(typeof globalThis !== "undefined" ? globalThis : this);
+  navigator.serviceWorker.register("sw.js").catch(function () {});
+}
+window.__EISH_OK = true;
+  var boot = document.getElementById("boot");
+  if (boot) boot.hidden = true;
+  paint();
+  save();
+})();

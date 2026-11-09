@@ -1,146 +1,161 @@
-// Fairness and mode smoke tests for the Jozi runner sim. No canvas.
-require("../src/00-logic.js");
-var EISH = globalThis.EISH;
-var fails = 0;
-function assert(cond, msg) {
+// Rules for Khaya Lane. Run with: node tools/sim-runner.js
+var KHAYA = require("../src/00-logic.js");
+var failed = 0;
+
+function eq(name, got, want) {
+  var ok = JSON.stringify(got) === JSON.stringify(want);
+  if (!ok) {
+    failed++;
+    console.error("FAIL", name, "got", got, "want", want);
+  }
+}
+
+function truth(name, cond) {
   if (!cond) {
-    fails++;
-    console.error("FAIL: " + msg);
+    failed++;
+    console.error("FAIL", name);
   }
 }
 
-function gapAudit() {
-  var prevs = [null];
-  EISH.CHUNKS.forEach(function (ch) { prevs.push(EISH.chunkStats(ch)); });
-  EISH.CHUNKS.forEach(function (ch) {
-    prevs.forEach(function (prev) {
-      var g = EISH.worstGap(prev, ch);
-      assert(g < 3 && g > 0.3, ch.id + " gap " + g + " after " + (prev && prev.id));
-      var st = EISH.chunkStats(ch);
-      assert(!(st.blocks === 3), "triple block " + ch.id);
-      assert(!(st.empty === 0 && st.verbs.length > 1), "mixed verbs " + ch.id);
-    });
-  });
-}
+var s = KHAYA.fresh(1000);
+eq("starter notes", s.notes, 60);
+truth("starter home", KHAYA.hasType(s, "home"));
+truth("no negatives", s.notes >= 0 && s.seeds >= 0 && s.water >= 0 && s.timber >= 0 && s.bricks >= 0);
 
-function runOracle(mode, seed, seconds) {
-  var s = EISH.create(mode, seed);
-  var steps = Math.round(seconds * 60);
-  var diedAt = null;
-  for (var i = 0; i < steps; i++) {
-    var input = EISH.oracle(s);
-    EISH.step(s, 1 / 60, input);
-    if (!s.alive) { diedAt = s; break; }
+var bed = s.buildings.filter(function (b) { return b.type === "bed"; })[0];
+eq("sow maize", KHAYA.sow(s, bed.id, "maize").ok, true);
+eq("seed spent", s.seeds, 11);
+eq("sow twice", KHAYA.sow(s, bed.id, "maize").ok, false);
+eq("harvest early", KHAYA.harvest(s, bed.id, 1000).ok, false);
+eq("water", KHAYA.water(s, bed.id, 5000).ok, true);
+eq("water spent", s.water, 9);
+eq("not ready", KHAYA.cropReady(bed, 5000 + 15000), false);
+eq("ready", KHAYA.cropReady(bed, 5000 + 16000), true);
+var picked = KHAYA.harvest(s, bed.id, 5000 + 16000);
+eq("harvest ok", picked.ok, true);
+eq("maize yield", s.crops.maize, 3);
+eq("harvest once", KHAYA.harvest(s, bed.id, 5000 + 16000).ok, false);
+truth("farm xp", s.farmXp > 0);
+
+eq("sell without spaza", KHAYA.sell(s, "maize", 1).ok, false);
+var placed = KHAYA.place(s, "spaza", 5, 1);
+eq("place spaza", placed.ok, true);
+eq("notes after spaza", s.notes, 42);
+eq("overlap", KHAYA.place(s, "workshop", 5, 1).ok, false);
+eq("path blocked", KHAYA.place(s, "workshop", 4, 2).ok, false);
+eq("tree blocked", KHAYA.place(s, "tank", 0, 0).ok, false);
+eq("outside", KHAYA.place(s, "tank", 8, 1).ok, false);
+var broke = KHAYA.fresh(1);
+broke.notes = 0;
+broke.timber = 0;
+broke.bricks = 0;
+eq("cannot afford", KHAYA.place(broke, "spaza", 5, 1).ok, false);
+eq("funds unchanged", broke.notes, 0);
+
+eq("sell", KHAYA.sell(s, "maize", 2).ok, true);
+eq("notes from sale", s.notes, 50);
+eq("stock left", s.crops.maize, 1);
+eq("oversell", KHAYA.sell(s, "maize", 5).ok, false);
+eq("stock safe", s.crops.maize, 1);
+
+var home = s.buildings.filter(function (b) { return b.type === "home"; })[0];
+eq("upgrade home", KHAYA.upgrade(s, home.id).ok, true);
+eq("home level", home.level, 2);
+eq("upgrade cap", (function () {
+  KHAYA.upgrade(s, home.id);
+  var third = KHAYA.upgrade(s, home.id);
+  return third.ok;
+})(), false);
+truth("home stays 3 or less", home.level <= 3);
+
+var low = KHAYA.fresh(1);
+eq("tomato locked", KHAYA.sow(low, low.buildings[1].id, "tomato").ok, false);
+low.farmXp = 24;
+eq("tomato unlocked", KHAYA.sow(low, low.buildings[1].id, "tomato").ok, true);
+eq("tomato water cost", KHAYA.water(low, low.buildings[1].id, 10).ok, true);
+eq("water left", low.water, 8);
+
+eq("solar locked", KHAYA.place(KHAYA.fresh(1), "solar", 5, 1).ok, false);
+var skilled = KHAYA.fresh(1);
+skilled.buildXp = 16;
+eq("solar skill", KHAYA.canPlace(skilled, "solar", 5, 1).ok, true);
+
+var pay = KHAYA.cratePayout(10);
+eq("crate cap", pay.notes <= 24, true);
+eq("crate seeds", pay.seeds, 1);
+eq("market cap", KHAYA.marketPayout(9).notes <= 25, true);
+var token = "crate-test";
+var first = KHAYA.collectReward(s, token, KHAYA.cratePayout(10));
+eq("collect", first.ok, true);
+var notesAfter = s.notes;
+eq("collect twice", KHAYA.collectReward(s, token, KHAYA.cratePayout(10)).ok, false);
+eq("notes once", s.notes, notesAfter);
+eq("empty payout", KHAYA.collectReward(s, "other", { notes: 0 }).ok, false);
+eq("played stat", s.stats.played, 1);
+
+var clock = KHAYA.fresh(0);
+KHAYA.place(clock, "tank", 5, 1);
+var plot = clock.buildings.filter(function (b) { return b.type === "bed"; })[0];
+KHAYA.sow(clock, plot.id, "maize");
+KHAYA.water(clock, plot.id, 0);
+clock.seenAt = 0;
+clock.water = 10;
+var ticked = KHAYA.tick(clock, 15 * 60 * 1000);
+eq("elapsed cap", ticked.elapsed, KHAYA.ELAPSE_CAP);
+truth("crop not over-grown past cap", !KHAYA.cropReady(plot, 15 * 60 * 1000) || (15 * 60 * 1000 - plot.plantedAt) <= KHAYA.ELAPSE_CAP + 16000);
+truth("growth bounded", (15 * 60 * 1000 - plot.plantedAt) <= KHAYA.ELAPSE_CAP);
+truth("tank water bounded", clock.water <= 24);
+var back = KHAYA.fresh(10000);
+var before = back.buildings[1];
+KHAYA.sow(back, before.id, "spinach");
+KHAYA.water(back, before.id, 10000);
+KHAYA.tick(back, 5000);
+truth("clock back keeps plant", back.buildings[1].plantedAt === 10000);
+
+eq("bad save", KHAYA.sanitize(null), null);
+eq("wrong version", KHAYA.sanitize({ v: 2 }), null);
+var dirty = KHAYA.sanitize({
+  v: 1,
+  notes: -40,
+  seeds: "nope",
+  water: 3,
+  timber: 1,
+  bricks: 1,
+  farmXp: -5,
+  crops: { maize: -2, tomato: 4 },
+  buildings: [
+    { type: "spaza", x: 4, y: 2, level: 9 },
+    { type: "nope", x: 1, y: 1 },
+    { type: "bed", x: 6, y: 2, phase: "growing", crop: "maize", plantedAt: 50 }
+  ],
+  paid: { "ok-token": 1 }
+});
+truth("sanitized", !!dirty);
+eq("notes clamped", dirty.notes, 0);
+eq("seeds clamped", dirty.seeds, 0);
+eq("maize clamped", dirty.crops.maize, 0);
+eq("path building dropped", dirty.buildings.some(function (b) { return b.type === "spaza"; }), false);
+truth("home repaired", dirty.buildings.some(function (b) { return b.type === "home"; }));
+truth("bed kept", dirty.buildings.some(function (b) { return b.type === "bed" && b.phase === "growing"; }));
+eq("paid kept", dirty.paid["ok-token"], 1);
+
+var ox = 400, oy = 80, tw = 64, th = 32;
+var c;
+for (var y = 0; y < 8; y++) {
+  for (var x = 0; x < 8; x++) {
+    var n = KHAYA.cellNorth(x, y, ox, oy, tw, th);
+    c = KHAYA.pickCell(n.x, n.y + th / 2, ox, oy, tw, th);
+    if (c.x !== x || c.y !== y) {
+      failed++;
+      console.error("FAIL pick", x, y, c);
+    }
   }
-  return s;
 }
 
-function scripted() {
-  // Standing into a low hurdle dies. Jumping clears it.
-  var s = EISH.create("run", 1);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.ents.push({ id: 1, kind: "obs", lane: 1, x: 0, z: 8, y: 0, verb: "low", variant: 0, dead: false, resolved: false, near: false });
-  for (var i = 0; i < 80; i++) EISH.step(s, 1 / 60, {});
-  assert(!s.alive && s.reason === "hit", "low hurdle should hit a runner who does not jump, reason=" + s.reason);
+eq("tasks start", KHAYA.currentTask(KHAYA.fresh(1)).id, "sow");
 
-  s = EISH.create("run", 1);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.ents.push({ id: 1, kind: "obs", lane: 1, x: 0, z: 10, y: 0, verb: "low", variant: 0, dead: false, resolved: false, near: false });
-  var jumped = false;
-  for (i = 0; i < 120; i++) {
-    var d = 10 - s.travel;
-    var jump = !jumped && d / s.speed < 0.32 && d / s.speed > 0.2;
-    if (jump) jumped = true;
-    EISH.step(s, 1 / 60, { jump: jump });
-    if (!s.alive) break;
-  }
-  assert(s.alive, "jump should clear a low hurdle, travel=" + s.travel.toFixed(1) + " y=" + s.y.toFixed(2));
-
-  s = EISH.create("run", 1);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.ents.push({ id: 1, kind: "obs", lane: 1, x: 0, z: 10, y: 0, verb: "high", variant: 0, dead: false, resolved: false, near: false });
-  var slid = false;
-  for (i = 0; i < 120; i++) {
-    var d2 = 10 - s.travel;
-    var slide = !slid && d2 / s.speed < 0.34 && d2 / s.speed > 0.18;
-    if (slide) slid = true;
-    EISH.step(s, 1 / 60, { slide: slide });
-    if (!s.alive) break;
-  }
-  assert(s.alive, "slide should clear a high bar");
-
-  s = EISH.create("run", 1);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.ents.push({ id: 1, kind: "obs", lane: 1, x: 0, z: 12, y: 0, verb: "block", variant: 0, dead: false, resolved: false, near: false });
-  for (i = 0; i < 30; i++) EISH.step(s, 1 / 60, { lane: -1 });
-  for (i = 0; i < 90; i++) EISH.step(s, 1 / 60, {});
-  assert(s.alive && s.lane === 0, "lane change should avoid a taxi, lane=" + s.lane + " alive=" + s.alive);
-
-  // Shield absorbs one hit.
-  s = EISH.create("run", 1);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.shield = true;
-  s.ents.push({ id: 1, kind: "obs", lane: 1, x: 0, z: 6, y: 0, verb: "block", variant: 0, dead: false, resolved: false, near: false });
-  for (i = 0; i < 60; i++) EISH.step(s, 1 / 60, {});
-  assert(s.alive && !s.shield, "shield should absorb a taxi");
-
-  // Gate: wrong lane strikes, three strikes end it. Right lane scores.
-  s = EISH.create("robot", 3);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.ents.push({ id: 1, kind: "gate", lane: 0, x: EISH.laneX(0), z: 8, y: 0, verb: "boom", variant: 0, dead: false, resolved: false, near: false });
-  for (i = 0; i < 80; i++) EISH.step(s, 1 / 60, {});
-  assert(s.strikes === 1 && s.alive, "wrong robot lane is one strike, strikes=" + s.strikes);
-
-  s = EISH.create("robot", 3);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.lane = 0;
-  s.x = EISH.laneX(0);
-  s.ents.push({ id: 1, kind: "gate", lane: 0, x: EISH.laneX(0), z: 8, y: 0, verb: "boom", variant: 0, dead: false, resolved: false, near: false });
-  for (i = 0; i < 80; i++) EISH.step(s, 1 / 60, {});
-  assert(s.alive && s.routes === 1 && s.strikes === 0, "open robot should score a route");
-
-  // Rush ends on the clock even if you never crash.
-  s = EISH.create("rush", 5);
-  s.tut = 99;
-  s.cursor = 9000;
-  s.timeLeft = 0.2;
-  for (i = 0; i < 20 && !s.finished; i++) EISH.step(s, 1 / 60, {});
-  assert(s.finished && s.win && s.reason === "time", "taxi rush should finish when the clock ends");
-
-  // Coin in the same lane scores; coin in another lane does not.
-  s = EISH.create("run", 1);
-  s.tut = 99;
-  s.cursor = 5000;
-  s.ents.push({ id: 1, kind: "coin", lane: 1, x: 0, z: 4, y: 0.2, verb: null, variant: 0, dead: false, resolved: false, near: false });
-  s.ents.push({ id: 2, kind: "coin", lane: 0, x: EISH.laneX(0), z: 4.2, y: 0.2, verb: null, variant: 0, dead: false, resolved: false, near: false });
-  for (i = 0; i < 40; i++) EISH.step(s, 1 / 60, {});
-  assert(s.coins === 1, "only the coin in the runner's lane scores, coins=" + s.coins);
-}
-
-function survival() {
-  [1, 2, 7, 21, 42].forEach(function (seed) {
-    var run = runOracle("run", seed, 90);
-    assert(run.alive, "classic seed " + seed + " died at " + (run.travel | 0) + "m reason=" + run.reason + " lane=" + run.lane);
-    var rush = runOracle("rush", seed, 75);
-    assert(rush.finished && rush.reason === "time", "rush seed " + seed + " reason=" + rush.reason + " alive=" + rush.alive + " t=" + rush.timeLeft);
-    assert(rush.fares > 0, "rush seed " + seed + " collected no fares");
-    var robot = runOracle("robot", seed, 90);
-    assert(robot.alive && robot.routes >= 3, "robot seed " + seed + " routes=" + robot.routes + " strikes=" + robot.strikes + " alive=" + robot.alive + " m=" + (robot.travel | 0));
-  });
-}
-
-gapAudit();
-scripted();
-survival();
-if (fails) {
-  console.error(fails + " failure(s)");
+if (failed) {
+  console.error(failed + " failed");
   process.exit(1);
 }
 console.log("sim-runner: all checks passed");

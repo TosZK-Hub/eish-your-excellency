@@ -1,5 +1,5 @@
-var C = "ewg-v20";
-var F = ["./","index.html","style.css","game.js","boot.js","vendor/three.module.js","icon.svg","manifest.webmanifest"];
+var C = "ewg-khaya-1";
+var F = ["./","index.html","style.css","game.js","icon.svg","manifest.webmanifest"];
 self.addEventListener("install", function (e) {
   self.skipWaiting();
   e.waitUntil(caches.open(C).then(function (c) { return c.addAll(F); }));

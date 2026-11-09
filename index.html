@@ -3,91 +3,44 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#1b2430">
-<title>EISH! Jozi Run</title>
-<meta name="description" content="An original Johannesburg endless runner in real-time 3D. Three lanes, three modes, no account.">
+<meta name="theme-color" content="#2f6d4f">
+<title>EISH! Khaya Lane</title>
+<meta name="description" content="A small South African neighbourhood to farm, build, and grow. No raids, no accounts.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.js" } }
-</script>
 </head>
 <body>
-<div id="sat"></div>
-<div id="sab"></div>
-<div id="view" aria-label="EISH Jozi Run"></div>
-<div id="boot" role="status"><p class="mark">EISH!</p><p>Raising the street…</p></div>
-<div id="glfail" hidden role="alert">
-  <h1>The 3D street did not start</h1>
-  <p id="glwhy"></p>
-  <p>Jozi Run draws with WebGL. Try another browser, or disable anything blocking graphics.</p>
-</div>
-<div id="ui">
-  <header id="hud" hidden>
-    <div class="pill stack"><b id="score">0</b><small id="sub">0 m</small></div>
-    <div class="pill" id="modeName">Jozi Run</div>
-    <div class="pill timer" id="timer" hidden>75s</div>
-    <div class="strikes" id="strikes" hidden><i></i><i></i><i></i></div>
-    <button type="button" id="pauseBtn" aria-label="Pause">II</button>
+<div id="boot" role="status"><p class="mark">EISH!</p><p>Opening the lane…</p></div>
+<div id="app">
+  <header>
+    <div class="brand"><b>EISH!</b><span>Khaya Lane</span><p id="buildTag" class="stamp"></p></div>
+    <div class="notes" id="notes">0 notes</div>
   </header>
-  <p id="banner" hidden></p>
-  <p id="hint" hidden>Swipe up to jump, down to slide</p>
-  <section id="title" class="sheet">
-    <h1 class="mark" aria-label="EISH"><span>E</span><span>I</span><span>S</span><span>H</span><span>!</span></h1>
-    <div class="card">
-      <div class="who">
-        <div><b id="whoName">Lerato</b><small id="whoPlace">Braamfontein</small></div>
-      </div>
-      <p id="whoLine" class="line"></p>
-      <button type="button" class="mode hot" data-tap="mode-run"><b>Jozi Run</b><small>Endless street. One hit ends it.</small></button>
-      <button type="button" class="mode" data-tap="mode-rush"><b>Taxi Rush</b><small>75 seconds to bank fares.</small></button>
-      <button type="button" class="mode" data-tap="mode-robot"><b>Green Robot</b><small>Three strikes. Take the open robot.</small></button>
-      <div class="row">
-        <button type="button" data-tap="how">How</button>
-        <button type="button" data-tap="mute" id="muteBtn">Sound on</button>
-      </div>
+  <div class="res" id="res"></div>
+  <div class="stage"><canvas id="view" aria-label="Your neighbourhood"></canvas></div>
+  <button type="button" id="placing" data-act="cancel" hidden>Cancel</button>
+  <section class="dock" id="dock">
+    <p class="task" id="task"></p>
+    <div class="card" id="card"></div>
+    <div class="bar">
+      <button type="button" data-act="build">Build</button>
+      <button type="button" data-act="skills">Skills</button>
+      <button type="button" data-act="play">Play</button>
+      <button type="button" data-act="more">Lane</button>
     </div>
   </section>
-  <section id="how" class="sheet" hidden>
-    <div class="card tall">
-      <h2>How to run</h2>
-      <p><b>◀ ▶</b> Change lane. Swipe sideways or use the arrows.</p>
-      <p><b>▲</b> Jump drums, barriers and potholes.</p>
-      <p><b>▼</b> Slide under signs, scaffolds and branches.</p>
-      <p>Jozi Run is one hit, unless a bead bracelet takes it. Taxi Rush lasts 75 seconds. Green Robot only opens one lane.</p>
-      <button type="button" data-tap="rm" id="rmBtn">Motion: full</button>
-      <button type="button" data-tap="back">Back</button>
-    </div>
-  </section>
-  <section id="pause" class="modal" hidden>
-    <div class="card">
-      <h2>Paused</h2>
-      <p>The street will wait.</p>
-      <button type="button" class="hot" data-tap="resume">Resume</button>
-      <button type="button" data-tap="restart">Restart</button>
-      <button type="button" data-tap="menu">Menu</button>
-    </div>
-  </section>
-  <section id="over" class="modal" hidden>
-    <div class="card">
-      <h2 id="overTitle">Eish</h2>
-      <p id="overScore"></p>
-      <p id="overDetail"></p>
-      <p id="overBest"></p>
-      <button type="button" class="hot" data-tap="restart">Again</button>
-      <button type="button" data-tap="menu">Menu</button>
-    </div>
-  </section>
-  <div id="pad" hidden>
-    <button type="button" data-tap="btn-left" aria-label="Lane left">◀</button>
-    <button type="button" data-tap="btn-slide" aria-label="Slide">▼</button>
-    <button type="button" data-tap="btn-jump" aria-label="Jump">▲</button>
-    <button type="button" data-tap="btn-right" aria-label="Lane right">▶</button>
+</div>
+<div id="modal" class="modal" hidden>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <header>
+      <h2 id="modalTitle"></h2>
+      <button type="button" data-close>Close</button>
+    </header>
+    <div id="modalBody"></div>
   </div>
 </div>
-<p id="buildTag" class="build"></p>
-<p id="live" class="sr" aria-live="polite"></p>
-<script type="module" src="boot.js"></script>
+<p id="toast" class="toast" hidden></p>
+<script src="game.js"></script>
 </body>
 </html>
