@@ -12,13 +12,14 @@ var PLAY = (function () {
     for (i = 0; i < 10; i++) order.push(CROPS[i % 3]);
     var round = { i: 0, correct: 0, order: order, over: false, token: "crate-" + Date.now() + "-" + Math.floor(Math.random() * 1e6) };
     var deadline = 0;
+    var clock = 0;
     body.innerHTML = "<p class=\"rules\">Crate Day. A crop name lights up. Tap its crate before the bar runs out. Ten crops. No entry fee.</p><div class=\"meter\"><span id=\"crateBar\"></span></div><p id=\"crateShow\" class=\"show maize\">Maize</p><div class=\"crates\">" + CROPS.map(chip).join("") + "</div><p id=\"crateScore\" class=\"fine\">0 / 10</p>";
     var show = body.querySelector("#crateShow");
     var bar = body.querySelector("#crateBar");
     var score = body.querySelector("#crateScore");
     function present() {
       if (round.i >= round.order.length) return finish();
-      deadline = performance.now() + 3200;
+      deadline = clock + 3200;
       var crop = round.order[round.i];
       show.textContent = KHAYA.CROPS[crop].name;
       show.className = "show " + crop;
@@ -41,9 +42,14 @@ var PLAY = (function () {
     present();
     function frame(t) {
       if (round.over) return;
+      clock = t;
+      if (!deadline) deadline = t + 3200;
       var left = (deadline - t) / 3200;
-      bar.style.transform = "scaleX(" + Math.max(0, left) + ")";
-      if (left <= 0) answer("__timeout__");
+      bar.style.transform = "scaleX(" + Math.max(0, Math.min(1, left)) + ")";
+      if (left <= 0) {
+        if (-left > 0.25) deadline = t + 3200;
+        else answer("__timeout__");
+      }
       if (!round.over) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
