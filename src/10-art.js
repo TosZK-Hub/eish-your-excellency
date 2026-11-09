@@ -3,25 +3,32 @@ var DRAW = (function () {
   var SPRITE = 3.6;
   var img = {};
   var ready = false;
-  var names = [
-    "home1", "home2", "home3", "spaza1", "spaza2",
-    "bed_empty", "bed_sown",
-    "bed_maize_mid", "bed_maize_ready", "bed_spinach_mid", "bed_spinach_ready",
-    "bed_tomato_mid", "bed_tomato_ready", "bed_aloe_mid", "bed_aloe_ready",
-    "tank", "workshop", "solar", "jacaranda", "acacia", "aloeplant", "fence",
-    "neighbour", "neighbour2", "neighbour3"
-  ];
-  var who, d, f;
-  for (who = 0; who < 3; who++) {
-    var person = ["farmer", "doek", "jersey"][who];
-    for (d = 0; d < 4; d++) for (f = 0; f < 6; f++) names.push(person + "_w_" + d + "_" + f);
+
+  function catalogFiles() {
+    var list = [];
+    function add(n) { if (n && list.indexOf(n) < 0) list.push(n); }
+    var id, spec, i, d, f;
+    for (id in LOOK.buildings) {
+      spec = LOOK.buildings[id];
+      if (spec.file) add(spec.file);
+      if (spec.levels) for (i = 0; i < spec.levels.length; i++) add(spec.levels[i]);
+      if (spec.states) for (i = 0; i < spec.states.length; i++) add(spec.states[i]);
+    }
+    for (id in LOOK.actors) {
+      spec = LOOK.actors[id];
+      if (spec.walk) for (d = 0; d < spec.dirs; d++) for (f = 0; f < spec.frames; f++) add(spec.walk + "_" + d + "_" + f);
+      if (spec.water) for (i = 0; i < spec.water.length; i++) add(spec.water[i]);
+      if (spec.wave) for (i = 0; i < spec.wave.length; i++) add(spec.wave[i]);
+      if (spec.idle) for (i = 0; i < spec.idle.length; i++) add(spec.idle[i]);
+    }
+    add(LOOK.scenery.jacaranda.file);
+    add(LOOK.scenery.acacia.file);
+    for (i = 0; i < LOOK.scenery.neighbours.files.length; i++) add(LOOK.scenery.neighbours.files[i]);
+    return list;
   }
-  for (f = 0; f < 4; f++) {
-    names.push("gogo_" + f, "kid_" + f, "farmer_water_" + f, "jersey_wave_" + f, "hen_" + f, "dog_" + f);
-  }
-  var PATH = [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [4, 5], [4, 4], [4, 3]];
 
   function load(done) {
+    var names = catalogFiles();
     var left = names.length;
     names.forEach(function (n) {
       var el = new Image();
@@ -30,7 +37,7 @@ var DRAW = (function () {
         left -= 1;
         if (left === 0) { ready = true; if (done) done(); }
       };
-      el.src = "assets/khaya/" + n + ".png";
+      el.src = LOOK.root + n + ".png";
     });
   }
 
@@ -42,9 +49,13 @@ var DRAW = (function () {
 
   function mid(a, b, t) { return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
 
-  function layout(w, h) {
-    var cols = KHAYA.COLS;
-    var rows = KHAYA.ROWS;
+  function layout(w, h, cam) {
+    cam = cam || { x: 0, y: 0, z: 1 };
+    var z = cam.z || 1;
+    if (z < 0.55) z = 0.55;
+    if (z > 2.2) z = 2.2;
+    var cols = 8;
+    var rows = 8;
     var horizon = Math.max(72, h * 0.30);
     var availW = w * 0.96;
     var availH = Math.max(80, (h - horizon) * 0.98);
@@ -58,10 +69,28 @@ var DRAW = (function () {
       th *= s;
       plotH = (cols + rows) * th / 2;
     }
+    tw *= z;
+    th *= z;
     var plotW = (cols + rows) * tw / 2;
-    var ox = (w - plotW) / 2 + rows * tw / 2;
-    var oy = horizon + Math.max(th, (h - horizon - plotH) * 0.42);
-    return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon };
+    var ox = (w - plotW) / 2 + rows * tw / 2 + (cam.x || 0);
+    var oy = horizon + Math.max(th / z, (h - horizon - plotH * z) * 0.42) + (cam.y || 0);
+    return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
+  }
+
+  function clampCamera(w, h, cam) {
+    cam = cam || { x: 0, y: 0, z: 1 };
+    if (cam.z < 0.55) cam.z = 0.55;
+    if (cam.z > 2.2) cam.z = 2.2;
+    var o = layout(w, h, cam);
+    var north = KHAYA.cellNorth(0, 0, o.ox, o.oy, o.tw, o.th);
+    var south = KHAYA.cellNorth(KHAYA.COLS, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
+    var east = KHAYA.cellNorth(KHAYA.COLS, 0, o.ox, o.oy, o.tw, o.th);
+    var west = KHAYA.cellNorth(0, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
+    if (south.y < h * 0.42) cam.y += h * 0.42 - south.y;
+    if (north.y > h * 0.62) cam.y -= north.y - h * 0.62;
+    if (east.x < w * 0.18) cam.x += w * 0.18 - east.x;
+    if (west.x > w * 0.82) cam.x -= west.x - w * 0.82;
+    return cam;
   }
 
   function poly(ctx, pts, fill) {
@@ -157,10 +186,12 @@ var DRAW = (function () {
     return n < 0 ? n + 5 : n;
   }
 
-  function ground(ctx, x, y, o) {
+  function ground(ctx, x, y, o, state) {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
+    var open = !state || KHAYA.plotOpen(state, x, y);
     var fill = kind === "path" ? "#e4c79a" : kind === "tree" ? "#6ea356" : (hash(x, y) % 4 === 0 ? "#74a85a" : "#7eb262");
+    if (!open) fill = kind === "path" ? "#b7a07a" : "#5e7a48";
     poly(ctx, [c.n, c.e, c.s, c.w], fill);
     var p = mid(c.n, c.s, 0.55);
     ctx.save();
@@ -189,42 +220,62 @@ var DRAW = (function () {
     ctx.restore();
   }
 
-  function bedName(b, now) {
-    var view = KHAYA.bedView(b, now);
-    if (!view || view.phase === "empty") return "bed_empty";
-    if (view.phase === "sown" || view.progress < 0.34) return "bed_sown";
-    if (view.progress < 0.72) return "bed_" + b.crop + "_mid";
-    return "bed_" + b.crop + "_ready";
+  function buildingFile(b, now) {
+    var spec = LOOK.buildings[b.type];
+    if (!spec) return b.type;
+    if (b.type === "bed") {
+      var view = KHAYA.bedView(b, now);
+      if (!view || view.phase === "empty") return "bed_empty";
+      if (view.phase === "sown" || view.progress < 0.34) return "bed_sown";
+      return "bed_" + b.crop + "_" + (view.progress < 0.72 ? "mid" : "ready");
+    }
+    if (spec.levels) {
+      var lv = Math.max(1, Math.min(spec.levels.length, b.level || 1));
+      return spec.levels[lv - 1];
+    }
+    return spec.file || b.type;
   }
 
-  function spriteName(b, now) {
-    if (b.type === "home") return "home" + Math.max(1, Math.min(3, b.level));
-    if (b.type === "spaza") return "spaza" + Math.max(1, Math.min(2, b.level));
-    if (b.type === "bed") return bedName(b, now);
-    return b.type === "tank" ? "tank" : b.type;
+  function placePoint(b, o) {
+    var spec = LOOK.buildings[b.type] || { anchor: [0.5, 0.55], offset: [0, 0] };
+    var p = north(b.x + b.w * spec.anchor[0], b.y + b.h * spec.anchor[1], o);
+    return { x: p.x + (spec.offset[0] || 0), y: p.y + (spec.offset[1] || 0), spec: spec };
   }
 
-  function centerOf(b, o) {
-    var c = corners(b.x, b.y, b.w, b.h, o);
-    return mid(c.n, c.s, 0.5);
+  function shadowAt(ctx, x, y, rx, ry) {
+    ctx.save();
+    ctx.fillStyle = "rgba(72, 44, 18, 0.30)";
+    ctx.beginPath();
+    ctx.ellipse(x, y, Math.max(4, rx), Math.max(3, ry), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
-  function drawSprite(ctx, name, b, o, now, pop) {
-    var p = centerOf(b, o);
-    var sc = 1;
+  function drawSprite(ctx, name, b, o, now, pop, squash) {
+    var spot = placePoint(b, o);
+    var scale = spot.spec.scale || 1;
+    var sc = scale;
+    var sx = 1;
+    var sy = 1;
     if (pop && now - pop < 560) {
       var u = (now - pop) / 560;
-      sc = 0.25 + u * 0.85;
-      if (u > 0.72) sc = 1 + Math.sin((u - 0.72) / 0.28 * Math.PI) * 0.07;
+      sc = scale * (0.25 + u * 0.85);
+      if (u > 0.72) sc = scale * (1 + Math.sin((u - 0.72) / 0.28 * Math.PI) * 0.08);
     }
+    if (squash && now - squash < 220) {
+      var q = (now - squash) / 220;
+      sx = 1 + Math.sin(q * Math.PI) * 0.14;
+      sy = 1 - Math.sin(q * Math.PI) * 0.12;
+    }
+    var sh = spot.spec.shadow || [0.6, 0.22];
+    shadowAt(ctx, spot.x, spot.y + o.th * 0.08, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.3);
     ctx.save();
-    if (sc !== 1) {
-      ctx.translate(p.x, p.y);
-      ctx.scale(sc, sc);
-      ctx.translate(-p.x, -p.y);
-    }
-    blit(ctx, img[name], p.x, p.y, o.tw, 1);
+    ctx.translate(spot.x, spot.y);
+    ctx.scale(sc * sx, sc * sy);
+    ctx.translate(-spot.x, -spot.y);
+    blit(ctx, img[name], spot.x, spot.y, o.tw, 1);
     ctx.restore();
+    return spot;
   }
 
   function barOver(ctx, x, y, w, progress, color) {
@@ -291,70 +342,82 @@ var DRAW = (function () {
     return dy >= 0 ? 2 : 0;
   }
 
-  function along(ctx, o, now, key, route, scale, speed) {
+  function routePoint(route, now, speed) {
     var u = (now / speed) % 1;
     var f = u * route.length;
     var a = Math.floor(f) % route.length;
     var b = (a + 1) % route.length;
     var k = f - Math.floor(f);
-    var x = route[a][0] + (route[b][0] - route[a][0]) * k;
-    var y = route[a][1] + (route[b][1] - route[a][1]) * k;
-    var dir = facing(route[b][0] - route[a][0], route[b][1] - route[a][1]);
-    var frame = Math.floor(now / 140) % 6;
-    var n = north(x, y, o);
-    blit(ctx, img[key + "_w_" + dir + "_" + frame], n.x, n.y + o.th * 0.15, o.tw, scale);
+    return {
+      x: route[a][0] + (route[b][0] - route[a][0]) * k,
+      y: route[a][1] + (route[b][1] - route[a][1]) * k,
+      dir: facing(route[b][0] - route[a][0], route[b][1] - route[a][1])
+    };
   }
 
-  function life(ctx, o, now, state) {
-    var bed = null;
-    var spaza = null;
-    var home = null;
+  function actorFrame(spec, now, dir, pose) {
+    if (pose === "water" && spec.water) return spec.water[Math.floor(now / 180) % spec.water.length];
+    if (pose === "wave" && spec.wave) return spec.wave[Math.floor(now / 160) % spec.wave.length];
+    if (spec.walk) return spec.walk + "_" + (dir || 0) + "_" + (Math.floor(now / 140) % spec.frames);
+    if (spec.idle) return spec.idle[Math.floor(now / 280) % spec.idle.length];
+    return "";
+  }
+
+  function queueActors(queue, state, o, now, ctx) {
+    var known = state.collection || {};
     var i;
-    for (i = 0; i < state.buildings.length; i++) {
-      var b = state.buildings[i];
-      if (!bed && b.type === "bed") bed = b;
-      if (b.type === "spaza") spaza = b;
-      if (b.type === "home") home = b;
+    for (i = 0; i < LOOK.cast.length; i++) {
+      (function (entry) {
+        if (!known[entry.id] || !known[entry.id].have) return;
+        var spec = LOOK.actors[entry.id];
+        var x = 2;
+        var y = 2;
+        var dir = 0;
+        var pose = "walk";
+        var bi;
+        var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
+        if (housed) {
+          x = housed.x + housed.w * 0.35;
+          y = housed.y + housed.h + 0.2;
+          pose = "idle";
+        } else if (entry.near === "home") {
+          var home = null;
+          var bi;
+          for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
+          if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
+          pose = "idle";
+        } else if (entry.spot) {
+          x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
+          y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
+          pose = "idle";
+        } else if (entry.route) {
+          var step = routePoint(entry.route, now, entry.speed || 9000);
+          x = step.x;
+          y = step.y;
+          dir = step.dir;
+          if (entry.id === "farmer") {
+            var bed = null;
+            for (bi = 0; bi < state.buildings.length; bi++) {
+              if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
+            }
+            if (bed) { x = bed.x + 0.15; y = bed.y + 1.05; pose = "water"; }
+          }
+          if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
+          if (entry.id === "doek") {
+            var spaza = null;
+            for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
+            if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
+          }
+        }
+        var n = north(x, y, o);
+        var file = actorFrame(spec, now, dir, pose);
+        queue.push({ y: n.y, draw: function () {
+          var sh = spec.shadow || [0.3, 0.12];
+          shadowAt(ctx, n.x, n.y + 8, o.tw * sh[0] * 0.7, o.th * sh[1] * 1.4);
+          blit(ctx, img[file], n.x, n.y, o.tw, spec.scale);
+        } });
+      })(LOOK.cast[i]);
     }
-    if (bed && (bed.phase === "sown" || bed.phase === "growing" || bed.phase === "ready")) {
-      var watering = north(bed.x + 0.15, bed.y + 1.05, o);
-      blit(ctx, img["farmer_water_" + (Math.floor(now / 180) % 4)], watering.x, watering.y, o.tw, 0.58);
-    } else {
-      along(ctx, o, now, "farmer", [[6, 3], [6, 4], [5, 4], [5, 3]], 0.58, 9000);
-    }
-    if (spaza) {
-      var counter = north(spaza.x + 0.35, spaza.y + 1.15, o);
-      blit(ctx, img["doek_w_0_" + (Math.floor(now / 200) % 6)], counter.x, counter.y, o.tw, 0.58);
-    } else {
-      along(ctx, o, now + 2000, "doek", [[6, 1], [6, 2], [5, 2], [5, 1]], 0.58, 11000);
-    }
-    if (Math.floor(now / 5000) % 6 === 0) {
-      var wave = north(3.2, 5.2, o);
-      blit(ctx, img["jersey_wave_" + (Math.floor(now / 160) % 4)], wave.x, wave.y, o.tw, 0.58);
-    } else {
-      along(ctx, o, now + 800, "jersey", PATH, 0.58, 8000);
-    }
-    var gogoRoute = [[1, 5], [2, 5], [2, 4], [1, 4]];
-    var gu = (now / 12000) % 1 * gogoRoute.length;
-    var ga = Math.floor(gu) % gogoRoute.length;
-    var gb = (ga + 1) % gogoRoute.length;
-    var gk = gu - Math.floor(gu);
-    var gn = north(
-      gogoRoute[ga][0] + (gogoRoute[gb][0] - gogoRoute[ga][0]) * gk + 0.5,
-      gogoRoute[ga][1] + (gogoRoute[gb][1] - gogoRoute[ga][1]) * gk + 0.5,
-      o
-    );
-    blit(ctx, img["gogo_" + (Math.floor(now / 280) % 4)], gn.x, gn.y, o.tw, 0.52);
-    if (home) {
-      var kn = north(home.x + home.w + 0.65, home.y + home.h + 0.15, o);
-      blit(ctx, img["kid_" + (Math.floor(now / 320) % 4)], kn.x, kn.y, o.tw, 0.46);
-    }
-    var h1 = north(5.5 + Math.sin(now / 900) * 0.45, 4.3 + Math.cos(now / 1100) * 0.3, o);
-    var h2 = north(6.3 + Math.cos(now / 1000) * 0.35, 5.1, o);
-    blit(ctx, img["hen_" + (Math.floor(now / 180) % 4)], h1.x, h1.y, o.tw, 0.72);
-    blit(ctx, img["hen_" + (Math.floor(now / 180 + 2) % 4)], h2.x, h2.y, o.tw, 0.66);
-    var dn = north(2.4 + Math.sin(now / 1500) * 0.4, 4.2, o);
-    blit(ctx, img["dog_" + (Math.floor(now / 160) % 4)], dn.x, dn.y, o.tw, 0.78);
   }
 
   function floats(ctx, list, now) {
@@ -393,7 +456,7 @@ var DRAW = (function () {
     }
     var ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    var o = layout(w, h);
+    var o = layout(w, h, view && view.cam);
     sky(ctx, w, h, now);
     land(ctx, w, h, o);
     var cells = [];
@@ -404,44 +467,70 @@ var DRAW = (function () {
     for (i = 0; i < cells.length; i++) {
       x = cells[i].x;
       y = cells[i].y;
-      ground(ctx, x, y, o);
-      if (KHAYA.terrainAt(x, y) === "tree") {
-        var tree = hash(x, y) % 2 ? img.jacaranda : img.acacia;
-        var n = north(x + 0.5, y + 0.5, o);
-        blit(ctx, tree, n.x, n.y, o.tw, 1);
-      }
+      ground(ctx, x, y, o, state);
     }
-    var items = [];
+    var queue = [];
+    for (i = 0; i < cells.length; i++) {
+      x = cells[i].x;
+      y = cells[i].y;
+      if (KHAYA.terrainAt(x, y) !== "tree") continue;
+      (function (tx, ty) {
+        var file = hash(tx, ty) % 2 ? LOOK.scenery.jacaranda : LOOK.scenery.acacia;
+        var n = north(tx + 0.5, ty + 0.5, o);
+        queue.push({ y: n.y, draw: function () {
+          var sh = file.shadow;
+          shadowAt(ctx, n.x, n.y + 6, o.tw * sh[0] * 0.45, o.th * sh[1] * 1.2);
+          blit(ctx, img[file.file], n.x, n.y, o.tw, file.scale);
+        } });
+      })(x, y);
+    }
     for (i = 0; i < state.buildings.length; i++) {
-      var b = state.buildings[i];
-      items.push({ k: b.x + b.y + 0.1, b: b });
+      (function (building) {
+        var dragging = view.drag && view.drag.id === building.id;
+        var drawAt = building;
+        if (dragging) {
+          drawAt = {
+            type: building.type, x: view.drag.x, y: view.drag.y,
+            w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt, id: building.id
+          };
+        }
+        var spot = placePoint(drawAt, o);
+        queue.push({ y: spot.y, draw: function () {
+          ctx.save();
+          if (dragging) ctx.globalAlpha = 0.85;
+          var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          ctx.restore();
+          var job = KHAYA.buildView(building);
+          if (job && !dragging) barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
+          var prod = KHAYA.produceView(building, state);
+          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
+          if (dragging) {
+            var okMove = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
+            ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, okMove ? "#f2c14e" : "#d64545");
+          }
+        } });
+      })(state.buildings[i]);
     }
-    items.sort(function (a, b) { return a.k - b.k; });
-    for (i = 0; i < items.length; i++) {
-      var building = items[i].b;
-      var dragging = view.drag && view.drag.id === building.id;
-      var drawAt = building;
-      if (dragging) {
-        drawAt = {
-          type: building.type, x: view.drag.x, y: view.drag.y,
-          w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt
-        };
-      }
+    queueActors(queue, state, o, now, ctx);
+    queue.sort(function (a, b) { return a.y - b.y; });
+    for (i = 0; i < queue.length; i++) queue[i].draw();
+    var pid;
+    for (pid in KHAYA.PLOTS) {
+      if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
+      var plot = KHAYA.PLOTS[pid];
+      var lock = north(plot.x + plot.w / 2, plot.y + plot.h / 2, o);
       ctx.save();
-      if (dragging) ctx.globalAlpha = 0.85;
-      drawSprite(ctx, spriteName(drawAt, now), drawAt, o, now, view.born && view.born[building.id]);
+      ctx.fillStyle = "#243028";
+      ctx.beginPath();
+      ctx.arc(lock.x, lock.y, 14, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = "#f6efe2";
+      ctx.font = "700 14px Fredoka, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(plot.notes, lock.x, lock.y);
       ctx.restore();
-      var anchor = centerOf(drawAt, o);
-      var job = KHAYA.buildView(building);
-      if (job && !dragging) barOver(ctx, anchor.x, anchor.y - o.th * 1.1, o.tw * 0.7, job.progress, "#7eb6e0");
-      var prod = KHAYA.produceView(building);
-      if (prod && prod.ready && !dragging) coinBadge(ctx, anchor.x, anchor.y - o.th * 1.35, now);
-      if (dragging) {
-        var ok = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
-        ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, ok ? "#f2c14e" : "#d64545");
-      }
     }
-    life(ctx, o, now, state);
     if (view.ghost) {
       var gok = KHAYA.canPlace(state, view.ghost.type, view.ghost.x, view.ghost.y).ok;
       var ghost = {
@@ -450,7 +539,7 @@ var DRAW = (function () {
       };
       ctx.save();
       ctx.globalAlpha = 0.6;
-      drawSprite(ctx, spriteName(ghost, now), ghost, o, now, 0);
+      drawSprite(ctx, buildingFile(ghost, now), ghost, o, now, 0);
       ctx.restore();
       ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#f2c14e" : "#d64545");
     }
@@ -459,5 +548,5 @@ var DRAW = (function () {
     return o;
   }
 
-  return { load: load, render: render, layout: layout, ready: function () { return ready; } };
+  return { load: load, render: render, layout: layout, clampCamera: clampCamera, ready: function () { return ready; } };
 })();

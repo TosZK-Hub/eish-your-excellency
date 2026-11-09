@@ -1,8 +1,8 @@
 // Khaya Lane rules: farming, building, skills, and capped mini-game pay.
 // Original game logic. No account, no real-money currency.
 var KHAYA = (function () {
-  var COLS = 8;
-  var ROWS = 8;
+  var COLS = 16;
+  var ROWS = 14;
   var ELAPSE_CAP = 10 * 60 * 1000;
   var TANK_MS = 20000;
   var WATER_CAP = 24;
@@ -10,15 +10,48 @@ var KHAYA = (function () {
   var STACK_CAP = 99;
 
   var MAP = [
-    "tggggggt",
-    "gggggggg",
-    "ggggpggg",
-    "ggggpggg",
-    "ggggpggg",
-    "ggggpggg",
-    "ppppgggg",
-    "gggggggg"
+    "tggggggtggpggggt",
+    "gggggggggggggggg",
+    "ggggpgggggggpggg",
+    "ggggpgggggggpggg",
+    "ggggpgggggggpggg",
+    "ggggpgggggggpggg",
+    "ppppggggppppgggg",
+    "gggggggggggggggg",
+    "ggggpgggtggggggg",
+    "ggggpggggggggggg",
+    "gggggggggggggggt",
+    "gggggggggggggggg",
+    "ppppggggggggpggg",
+    "gggggggggggggggg"
   ];
+
+  var PLOTS = {
+    lane: { id: "lane", name: "The lane", x: 0, y: 0, w: 8, h: 8, notes: 0, level: 1, start: 1 },
+    east: { id: "east", name: "East yard", x: 8, y: 0, w: 8, h: 8, notes: 80, level: 2 },
+    south: { id: "south", name: "South field", x: 0, y: 8, w: 8, h: 6, notes: 120, level: 3 },
+    koppie: { id: "koppie", name: "The koppie", x: 8, y: 8, w: 8, h: 6, notes: 180, level: 4 }
+  };
+
+  var DAILY = [
+    { notes: 8 },
+    { seeds: 2 },
+    { notes: 12, water: 2 },
+    { notes: 16 },
+    { seeds: 3, water: 2 },
+    { notes: 22 },
+    { notes: 30, seeds: 2, water: 2 }
+  ];
+
+  var FOLK = {
+    farmer: { name: "Thabo", kind: "villager", where: ["home", "bed"], bonus: { farmXp: 1 }, blurb: "Harvests teach a little more." },
+    doek: { name: "Naledi", kind: "villager", where: ["spaza", "home"], bonus: { cap: 1 }, blurb: "The spaza holds one extra note." },
+    jersey: { name: "Sipho", kind: "villager", where: ["workshop", "home"], bonus: { buildXp: 2 }, blurb: "Building work counts for a little more." },
+    gogo: { name: "Gogo", kind: "villager", where: ["home"], bonus: { waterCap: 1 }, blurb: "The tank keeps one extra bottle." },
+    kid: { name: "Aya", kind: "villager", where: ["home", "bed"], bonus: { sowXp: 1 }, blurb: "Sowing is a bit more fun." },
+    hen: { name: "Hen", kind: "animal", where: ["home"], bonus: { cap: 1 }, blurb: "Notes pile a little higher." },
+    dog: { name: "Biscuit", kind: "animal", where: ["home"], bonus: {}, blurb: "Keeps the yard company." }
+  };
 
   var CROPS = {
     maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
@@ -72,6 +105,16 @@ var KHAYA = (function () {
       name: "Solar stand", w: 1, h: 1, limit: 1, skill: 2,
       cost: { notes: 28, timber: 2, bricks: 3 },
       blurb: "Shared power. The next building upgrade spends one less timber."
+    },
+    aloe_clump: {
+      name: "Aloe clump", w: 1, h: 1, limit: 4, skill: 1, decor: 1,
+      cost: { notes: 8 },
+      blurb: "A pot of aloe. Each clump helps the lane earn a little faster."
+    },
+    palisade: {
+      name: "Palisade", w: 1, h: 1, limit: 3, skill: 1, decor: 1,
+      cost: { notes: 12 },
+      blurb: "A short painted fence. It makes the yard feel finished."
     }
   };
 
@@ -120,6 +163,32 @@ var KHAYA = (function () {
     if (ch === "p") return "path";
     if (ch === "t") return "tree";
     return "grass";
+  }
+
+  function plotAt(x, y) {
+    var id, p;
+    for (id in PLOTS) {
+      p = PLOTS[id];
+      if (x >= p.x && y >= p.y && x < p.x + p.w && y < p.y + p.h) return p;
+    }
+    return null;
+  }
+
+  function plotOpen(state, x, y) {
+    var p = plotAt(x, y);
+    if (!p) return false;
+    return !!(state.plots && state.plots[p.id]);
+  }
+
+  function cellBlock(state, x, y, ignoreId) {
+    var land = terrainAt(x, y);
+    if (land === "out") return { ok: false, reason: "That sits outside the lane." };
+    var plot = plotAt(x, y);
+    if (plot && !plotOpen(state, x, y)) return { ok: false, reason: "Unlock the " + plot.name.toLowerCase() + " first." };
+    if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
+    if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+    if (occupied(state, x, y, ignoreId)) return { ok: false, reason: "Something is already there." };
+    return { ok: true };
   }
 
   function footprint(b) {
@@ -171,12 +240,23 @@ var KHAYA = (function () {
       crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
       farmXp: 0,
       buildXp: 0,
-      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0 },
+      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0, expanded: 0 },
       paid: {},
       tankAcc: 0,
       seenAt: now,
       nextId: 3,
       welcomed: false,
+      plots: { lane: 1 },
+      daily: { last: "", day: 0 },
+      collection: {
+        farmer: { have: 1, home: 0, seen: 1 },
+        hen: { have: 1, home: 0, seen: 1 },
+        doek: { have: 0, home: 0, seen: 0 },
+        jersey: { have: 0, home: 0, seen: 0 },
+        gogo: { have: 0, home: 0, seen: 0 },
+        kid: { have: 0, home: 0, seen: 0 },
+        dog: { have: 0, home: 0, seen: 0 }
+      },
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 }
@@ -232,15 +312,11 @@ var KHAYA = (function () {
       return { ok: false, reason: "Building level " + def.skill + " unlocks the " + def.name.toLowerCase() + "." };
     }
     if (countType(state, type) >= def.limit) return { ok: false, reason: "You already have a " + def.name.toLowerCase() + "." };
-    var dx, dy, land, block;
+    var dx, dy, block;
     for (dy = 0; dy < def.h; dy++) {
       for (dx = 0; dx < def.w; dx++) {
-        land = terrainAt(x + dx, y + dy);
-        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
-        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
-        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
-        block = occupied(state, x + dx, y + dy);
-        if (block) return { ok: false, reason: "Something is already there." };
+        block = cellBlock(state, x + dx, y + dy);
+        if (!block.ok) return block;
       }
     }
     return afford(state, placeCost(state, type));
@@ -302,7 +378,7 @@ var KHAYA = (function () {
       b.buildLeft = 0;
       return null;
     }
-    var xp = b.pendingXp || 12;
+    var xp = (b.pendingXp || 12) + folkBonus(state).buildXp;
     b.level = b.pendingLevel;
     b.pendingLevel = 0;
     b.pendingXp = 0;
@@ -332,9 +408,10 @@ var KHAYA = (function () {
     b.crop = crop;
     b.phase = "sown";
     b.plantedAt = 0;
-    state.farmXp += 2;
+    var sowXp = 2 + folkBonus(state).sowXp;
+    state.farmXp += sowXp;
     state.stats.sown += 1;
-    return { ok: true, xp: 2 };
+    return { ok: true, xp: sowXp };
   }
 
   function water(state, id, now) {
@@ -360,12 +437,13 @@ var KHAYA = (function () {
     var name = b.crop;
     var amount = def.yield;
     state.crops[name] = clamp((state.crops[name] || 0) + amount, 0, STACK_CAP);
-    state.farmXp += def.xp;
+    var gained = def.xp + folkBonus(state).farmXp;
+    state.farmXp += gained;
     state.stats.harvested += 1;
     b.crop = null;
     b.phase = "empty";
     b.plantedAt = 0;
-    return { ok: true, crop: name, amount: amount, xp: def.xp };
+    return { ok: true, crop: name, amount: amount, xp: gained };
   }
 
   function sell(state, crop, n) {
@@ -393,13 +471,14 @@ var KHAYA = (function () {
         if (b.phase === "growing" && b.plantedAt != null) b.plantedAt += discarded;
       }
     }
+    var waterCap = WATER_CAP + folkBonus(state).waterCap;
     if (hasType(state, "tank")) {
       state.tankAcc = (state.tankAcc || 0) + used;
-      while (state.tankAcc >= TANK_MS && state.water < WATER_CAP) {
+      while (state.tankAcc >= TANK_MS && state.water < waterCap) {
         state.water += 1;
         state.tankAcc -= TANK_MS;
       }
-      if (state.water >= WATER_CAP) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
+      if (state.water >= waterCap) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
     }
     var finished = [];
     for (i = 0; i < state.buildings.length; i++) {
@@ -411,32 +490,73 @@ var KHAYA = (function () {
           if (done) finished.push(done);
         }
       }
-      var spec = PRODUCE[b.type];
-      if (!spec) continue;
-      var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+      var tune = tuneProduce(state, b);
+      if (!tune) continue;
       b.prodAcc = (b.prodAcc || 0) + used;
-      while (b.prodAcc >= spec.every && (b.stored || 0) < cap) {
-        b.stored = (b.stored || 0) + spec.notes;
-        b.prodAcc -= spec.every;
+      while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap) {
+        b.stored = (b.stored || 0) + tune.notes;
+        b.prodAcc -= tune.every;
       }
-      if ((b.stored || 0) >= cap) b.prodAcc = Math.min(b.prodAcc, spec.every);
+      if ((b.stored || 0) >= tune.cap) b.prodAcc = Math.min(b.prodAcc, tune.every);
     }
+    var found = syncFolk(state);
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded, finished: finished };
+    return { elapsed: used, discarded: discarded, finished: finished, found: found };
   }
 
-  function produceView(b) {
-    if (!b) return null;
+  function decorCount(state) {
+    var n = 0;
+    var i;
+    for (i = 0; i < state.buildings.length; i++) {
+      if (BUILDINGS[state.buildings[i].type] && BUILDINGS[state.buildings[i].type].decor) n++;
+    }
+    return n;
+  }
+
+  function folkBonus(state) {
+    var out = { cap: 0, farmXp: 0, sowXp: 0, buildXp: 0, waterCap: 0 };
+    if (!state || !state.collection) return out;
+    var id, rec, spec;
+    for (id in FOLK) {
+      rec = state.collection[id];
+      spec = FOLK[id];
+      if (!rec || !rec.have || !rec.home) continue;
+      if (spec.bonus.cap) out.cap += spec.bonus.cap;
+      if (spec.bonus.farmXp) out.farmXp += spec.bonus.farmXp;
+      if (spec.bonus.sowXp) out.sowXp += spec.bonus.sowXp;
+      if (spec.bonus.buildXp) out.buildXp += spec.bonus.buildXp;
+      if (spec.bonus.waterCap) out.waterCap += spec.bonus.waterCap;
+    }
+    out.cap = Math.min(3, out.cap);
+    out.waterCap = Math.min(2, out.waterCap);
+    return out;
+  }
+
+  function tuneProduce(state, b) {
     var spec = PRODUCE[b.type];
     if (!spec) return null;
-    var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+    var decor = Math.min(4, decorCount(state));
+    var folk = folkBonus(state);
+    var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4 + decor + folk.cap;
+    if (cap > spec.cap + 8) cap = spec.cap + 8;
+    var every = spec.every;
+    if (decor) every = Math.max(4000, Math.floor(spec.every * (1 - 0.05 * decor)));
+    return { cap: cap, every: every, notes: spec.notes };
+  }
+
+  function produceView(b, state) {
+    if (!b) return null;
+    var tune = state ? tuneProduce(state, b) : null;
+    var spec = PRODUCE[b.type];
+    if (!spec && !tune) return null;
+    if (!tune) tune = { cap: spec.cap + Math.max(0, (b.level || 1) - 1) * 4, every: spec.every, notes: spec.notes };
     var stored = b.stored || 0;
     var acc = b.prodAcc || 0;
     return {
       stored: stored,
-      cap: cap,
-      progress: stored >= cap ? 1 : Math.min(1, acc / spec.every),
-      left: stored >= cap ? 0 : Math.max(0, spec.every - acc),
+      cap: tune.cap,
+      progress: stored >= tune.cap ? 1 : Math.min(1, acc / tune.every),
+      left: stored >= tune.cap ? 0 : Math.max(0, tune.every - acc),
       ready: stored > 0
     };
   }
@@ -464,15 +584,11 @@ var KHAYA = (function () {
     var b = buildingById(state, id);
     if (!b) return { ok: false, reason: "Nothing selected." };
     if (b.x === x && b.y === y) return { ok: true, same: true };
-    var dx, dy, land, block;
+    var dx, dy, block;
     for (dy = 0; dy < b.h; dy++) {
       for (dx = 0; dx < b.w; dx++) {
-        land = terrainAt(x + dx, y + dy);
-        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
-        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
-        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
-        block = occupied(state, x + dx, y + dy, id);
-        if (block) return { ok: false, reason: "Something is already there." };
+        block = cellBlock(state, x + dx, y + dy, id);
+        if (!block.ok) return block;
       }
     }
     return { ok: true };
@@ -513,6 +629,128 @@ var KHAYA = (function () {
     state.water = clamp(state.water + water, 0, WATER_CAP);
     state.stats.played += 1;
     return { ok: true, notes: notes, seeds: seeds, water: water };
+  }
+
+  function canUnlock(state, id) {
+    var plot = PLOTS[id];
+    if (!plot || plot.start) return { ok: false, reason: "That ground is already open." };
+    if (state.plots && state.plots[id]) return { ok: false, reason: "Already open." };
+    if (playerLevel(state) < plot.level) return { ok: false, reason: "Lane level " + plot.level + " opens the " + plot.name.toLowerCase() + "." };
+    return afford(state, { notes: plot.notes });
+  }
+
+  function unlockPlot(state, id) {
+    var check = canUnlock(state, id);
+    if (!check.ok) return check;
+    pay(state, { notes: PLOTS[id].notes });
+    state.plots[id] = 1;
+    state.stats.expanded = (state.stats.expanded || 0) + 1;
+    return { ok: true, plot: id, notes: PLOTS[id].notes };
+  }
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function dayKey(date) {
+    return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
+  }
+
+  function prevDay(key) {
+    var p = String(key || "").split("-");
+    if (p.length !== 3) return "";
+    var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (!isFinite(dt.getTime())) return "";
+    dt.setDate(dt.getDate() - 1);
+    return dayKey(dt);
+  }
+
+  function claimDaily(state, key) {
+    if (!state.daily) state.daily = { last: "", day: 0 };
+    if (typeof key !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return { ok: false, reason: "Bad day." };
+    if (state.daily.last === key) return { ok: false, reason: "Already collected today." };
+    var next = 1;
+    if (state.daily.last && prevDay(key) === state.daily.last) next = (state.daily.day % 7) + 1;
+    var reward = DAILY[next - 1];
+    state.daily.last = key;
+    state.daily.day = next;
+    var notes = reward.notes || 0;
+    var seeds = reward.seeds || 0;
+    var water = reward.water || 0;
+    state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + seeds, 0, STACK_CAP);
+    state.water = clamp(state.water + water, 0, WATER_CAP + folkBonus(state).waterCap);
+    return { ok: true, day: next, notes: notes, seeds: seeds, water: water };
+  }
+
+  function folkReady(state, id) {
+    var stats = state.stats || {};
+    if (id === "farmer" || id === "hen") return true;
+    if (id === "doek") return stats.placed > 0 || playerLevel(state) >= 2;
+    if (id === "kid") return stats.harvested > 0;
+    if (id === "jersey") return stats.upgraded > 0;
+    if (id === "gogo") return playerLevel(state) >= 3;
+    if (id === "dog") return stats.played > 0;
+    return false;
+  }
+
+  function syncFolk(state) {
+    var found = [];
+    if (!state.collection) state.collection = {};
+    var id;
+    for (id in FOLK) {
+      if (!state.collection[id]) state.collection[id] = { have: 0, home: 0, seen: 0 };
+      if (!state.collection[id].have && folkReady(state, id)) {
+        state.collection[id].have = 1;
+        found.push(id);
+      }
+    }
+    return found;
+  }
+
+  function housedCount(state, buildingId, except) {
+    var n = 0;
+    var id;
+    for (id in state.collection) {
+      if (id === except) continue;
+      if (state.collection[id] && state.collection[id].home === buildingId) n++;
+    }
+    return n;
+  }
+
+  function houseFolk(state, folkId, buildingId) {
+    var spec = FOLK[folkId];
+    if (!state.collection) state.collection = {};
+    var rec = state.collection[folkId];
+    if (!spec || !rec || !rec.have) return { ok: false, reason: "You have not met them yet." };
+    var b = buildingById(state, buildingId);
+    if (!b) return { ok: false, reason: "Choose a building." };
+    var allowed = false;
+    var i;
+    for (i = 0; i < spec.where.length; i++) if (spec.where[i] === b.type) allowed = true;
+    if (!allowed) return { ok: false, reason: spec.name + " stays by the " + spec.where[0] + "." };
+    var room = b.type === "home" ? 3 : 1;
+    if (housedCount(state, b.id, folkId) >= room) return { ok: false, reason: "That building is full." };
+    rec.home = b.id;
+    return { ok: true, housed: folkId };
+  }
+
+  function unhouseFolk(state, folkId) {
+    if (!state.collection || !state.collection[folkId]) return { ok: false, reason: "Nobody by that name." };
+    state.collection[folkId].home = 0;
+    return { ok: true };
+  }
+
+  function seeFolk(state, folkId) {
+    if (!state.collection || !state.collection[folkId] || !state.collection[folkId].have) return { ok: false };
+    state.collection[folkId].seen = 1;
+    return { ok: true };
+  }
+
+  function unseenFolk(state) {
+    var n = 0;
+    var id;
+    if (!state.collection) return 0;
+    for (id in state.collection) if (state.collection[id].have && !state.collection[id].seen) n++;
+    return n;
   }
 
   function tasks(state) {
@@ -572,9 +810,33 @@ var KHAYA = (function () {
         if (typeof tokens[t] === "string" && tokens[t].length <= 80) s.paid[tokens[t]] = 1;
       }
     }
+    s.plots = { lane: 1 };
+    if (data.plots && typeof data.plots === "object") {
+      var pid;
+      for (pid in PLOTS) if (data.plots[pid]) s.plots[pid] = 1;
+    }
+    s.plots.lane = 1;
+    s.daily = { last: "", day: 0 };
+    if (data.daily && typeof data.daily === "object") {
+      if (typeof data.daily.last === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.daily.last)) s.daily.last = data.daily.last;
+      s.daily.day = clamp(data.daily.day, 0, 7);
+    }
+    if (data.collection && typeof data.collection === "object") {
+      var fid, rawF;
+      for (fid in FOLK) {
+        rawF = data.collection[fid];
+        if (!rawF || typeof rawF !== "object") continue;
+        s.collection[fid] = {
+          have: rawF.have ? 1 : s.collection[fid].have,
+          home: clamp(rawF.home, 0, 999999),
+          seen: rawF.seen ? 1 : 0
+        };
+      }
+    }
     s.buildings = [];
     s.nextId = 1;
     var list = Array.isArray(data.buildings) ? data.buildings : [];
+    var idMap = {};
     var i, raw, def, b, dx, dy, ok, land, block;
     for (i = 0; i < list.length; i++) {
       raw = list[i];
@@ -606,11 +868,12 @@ var KHAYA = (function () {
         for (dx = 0; dx < b.w; dx++) {
           land = terrainAt(b.x + dx, b.y + dy);
           block = occupied(s, b.x + dx, b.y + dy);
-          if (land !== "grass" || block) { ok = false; break; }
+          if (land !== "grass" || block || !plotOpen(s, b.x + dx, b.y + dy)) { ok = false; break; }
         }
       }
       if (!ok) continue;
       if (countType(s, b.type) >= def.limit) continue;
+      if (typeof raw.id === "number") idMap[raw.id] = b.id;
       if (b.type === "bed") {
         b.crop = CROPS[raw.crop] ? raw.crop : null;
         b.phase = raw.phase === "sown" || raw.phase === "growing" ? raw.phase : "empty";
@@ -632,6 +895,12 @@ var KHAYA = (function () {
       }
       if (free) s.buildings.unshift({ id: s.nextId++, type: "home", x: hx, y: hy, w: 2, h: 2, level: 1 });
     }
+    var folkId;
+    for (folkId in s.collection) {
+      if (!s.collection[folkId].home) continue;
+      if (!idMap[s.collection[folkId].home]) s.collection[folkId].home = 0;
+      else s.collection[folkId].home = idMap[s.collection[folkId].home];
+    }
     return s;
   }
 
@@ -639,6 +908,9 @@ var KHAYA = (function () {
     COLS: COLS,
     ROWS: ROWS,
     MAP: MAP,
+    PLOTS: PLOTS,
+    DAILY: DAILY,
+    FOLK: FOLK,
     CROPS: CROPS,
     BUILDINGS: BUILDINGS,
     FARM_STEPS: FARM_STEPS,
@@ -654,6 +926,8 @@ var KHAYA = (function () {
     playerLevel: playerLevel,
     nextStep: nextStep,
     terrainAt: terrainAt,
+    plotAt: plotAt,
+    plotOpen: plotOpen,
     occupied: occupied,
     buildingById: buildingById,
     footprint: footprint,
@@ -683,35 +957,98 @@ var KHAYA = (function () {
     collectReward: collectReward,
     tasks: tasks,
     currentTask: currentTask,
-    hasType: hasType
+    hasType: hasType,
+    canUnlock: canUnlock,
+    unlockPlot: unlockPlot,
+    dayKey: dayKey,
+    prevDay: prevDay,
+    claimDaily: claimDaily,
+    syncFolk: syncFolk,
+    houseFolk: houseFolk,
+    unhouseFolk: unhouseFolk,
+    seeFolk: seeFolk,
+    unseenFolk: unseenFolk,
+    folkBonus: folkBonus,
+    decorCount: decorCount,
+    tuneProduce: tuneProduce
   };
 })();
 
 if (typeof module !== "undefined" && module.exports) module.exports = KHAYA;
+// Sprite catalog for Khaya Lane. Swap LOOK.root (and the file names) when a new
+// illustrated set lands in assets/sprites/gen/. Footprints, anchors, and offsets stay.
+var LOOK = {
+  root: "assets/khaya/",
+  buildings: {
+    home: { anchor: [0.5, 0.58], offset: [0, -6], shadow: [1.2, 0.42], scale: 1, levels: ["home1", "home2", "home3"] },
+    bed: {
+      anchor: [0.5, 0.56], offset: [0, 2], shadow: [0.7, 0.26], scale: 1,
+      states: ["bed_empty", "bed_sown", "bed_maize_mid", "bed_maize_ready", "bed_spinach_mid", "bed_spinach_ready", "bed_tomato_mid", "bed_tomato_ready", "bed_aloe_mid", "bed_aloe_ready"]
+    },
+    spaza: { anchor: [0.5, 0.58], offset: [0, -4], shadow: [0.85, 0.32], scale: 1, levels: ["spaza1", "spaza2"] },
+    tank: { anchor: [0.5, 0.62], offset: [0, -8], shadow: [0.55, 0.22], scale: 1, file: "tank" },
+    workshop: { anchor: [0.5, 0.58], offset: [0, -4], shadow: [0.8, 0.3], scale: 1, file: "workshop" },
+    solar: { anchor: [0.5, 0.6], offset: [0, -6], shadow: [0.7, 0.24], scale: 1, file: "solar" },
+    aloe_clump: { anchor: [0.5, 0.7], offset: [0, 4], shadow: [0.4, 0.16], scale: 0.85, file: "aloeplant" },
+    palisade: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.55, 0.18], scale: 0.9, file: "fence" }
+  },
+  actors: {
+    farmer: { scale: 0.58, anchor: [0.5, 0.88], shadow: [0.36, 0.14], walk: "farmer_w", frames: 6, dirs: 4, water: ["farmer_water_0", "farmer_water_1", "farmer_water_2", "farmer_water_3"] },
+    doek: { scale: 0.58, anchor: [0.5, 0.88], shadow: [0.36, 0.14], walk: "doek_w", frames: 6, dirs: 4 },
+    jersey: { scale: 0.58, anchor: [0.5, 0.88], shadow: [0.36, 0.14], walk: "jersey_w", frames: 6, dirs: 4, wave: ["jersey_wave_0", "jersey_wave_1", "jersey_wave_2", "jersey_wave_3"] },
+    gogo: { scale: 0.52, anchor: [0.5, 0.88], shadow: [0.34, 0.14], idle: ["gogo_0", "gogo_1", "gogo_2", "gogo_3"] },
+    kid: { scale: 0.46, anchor: [0.5, 0.88], shadow: [0.28, 0.12], idle: ["kid_0", "kid_1", "kid_2", "kid_3"] },
+    hen: { scale: 0.7, anchor: [0.5, 0.82], shadow: [0.32, 0.12], idle: ["hen_0", "hen_1", "hen_2", "hen_3"] },
+    dog: { scale: 0.76, anchor: [0.5, 0.82], shadow: [0.4, 0.14], idle: ["dog_0", "dog_1", "dog_2", "dog_3"] }
+  },
+  scenery: {
+    jacaranda: { file: "jacaranda", scale: 1, shadow: [0.9, 0.28] },
+    acacia: { file: "acacia", scale: 1, shadow: [0.95, 0.26] },
+    neighbours: { files: ["neighbour", "neighbour2", "neighbour3"], scale: 0.62, shadow: [0.7, 0.24] }
+  },
+  cast: [
+    { id: "farmer", route: [[6, 3], [6, 4], [5, 4], [5, 3]], speed: 9000 },
+    { id: "doek", route: [[6, 1], [6, 2], [5, 2], [5, 1]], speed: 11000 },
+    { id: "jersey", route: [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6]], speed: 8000 },
+    { id: "gogo", route: [[1, 5], [2, 5], [2, 4], [1, 4]], speed: 12000 },
+    { id: "kid", near: "home", speed: 0 },
+    { id: "hen", spot: [5.6, 4.4], wobble: 0.4 },
+    { id: "dog", spot: [2.4, 4.2], wobble: 0.35 }
+  ]
+};
+
+if (typeof module !== "undefined" && module.exports) module.exports = LOOK;
 // Khaya Lane scene. Sprites are original Blender renders. The veld, sky and UI motion are drawn here.
 var DRAW = (function () {
   var SPRITE = 3.6;
   var img = {};
   var ready = false;
-  var names = [
-    "home1", "home2", "home3", "spaza1", "spaza2",
-    "bed_empty", "bed_sown",
-    "bed_maize_mid", "bed_maize_ready", "bed_spinach_mid", "bed_spinach_ready",
-    "bed_tomato_mid", "bed_tomato_ready", "bed_aloe_mid", "bed_aloe_ready",
-    "tank", "workshop", "solar", "jacaranda", "acacia", "aloeplant", "fence",
-    "neighbour", "neighbour2", "neighbour3"
-  ];
-  var who, d, f;
-  for (who = 0; who < 3; who++) {
-    var person = ["farmer", "doek", "jersey"][who];
-    for (d = 0; d < 4; d++) for (f = 0; f < 6; f++) names.push(person + "_w_" + d + "_" + f);
+
+  function catalogFiles() {
+    var list = [];
+    function add(n) { if (n && list.indexOf(n) < 0) list.push(n); }
+    var id, spec, i, d, f;
+    for (id in LOOK.buildings) {
+      spec = LOOK.buildings[id];
+      if (spec.file) add(spec.file);
+      if (spec.levels) for (i = 0; i < spec.levels.length; i++) add(spec.levels[i]);
+      if (spec.states) for (i = 0; i < spec.states.length; i++) add(spec.states[i]);
+    }
+    for (id in LOOK.actors) {
+      spec = LOOK.actors[id];
+      if (spec.walk) for (d = 0; d < spec.dirs; d++) for (f = 0; f < spec.frames; f++) add(spec.walk + "_" + d + "_" + f);
+      if (spec.water) for (i = 0; i < spec.water.length; i++) add(spec.water[i]);
+      if (spec.wave) for (i = 0; i < spec.wave.length; i++) add(spec.wave[i]);
+      if (spec.idle) for (i = 0; i < spec.idle.length; i++) add(spec.idle[i]);
+    }
+    add(LOOK.scenery.jacaranda.file);
+    add(LOOK.scenery.acacia.file);
+    for (i = 0; i < LOOK.scenery.neighbours.files.length; i++) add(LOOK.scenery.neighbours.files[i]);
+    return list;
   }
-  for (f = 0; f < 4; f++) {
-    names.push("gogo_" + f, "kid_" + f, "farmer_water_" + f, "jersey_wave_" + f, "hen_" + f, "dog_" + f);
-  }
-  var PATH = [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [4, 5], [4, 4], [4, 3]];
 
   function load(done) {
+    var names = catalogFiles();
     var left = names.length;
     names.forEach(function (n) {
       var el = new Image();
@@ -720,7 +1057,7 @@ var DRAW = (function () {
         left -= 1;
         if (left === 0) { ready = true; if (done) done(); }
       };
-      el.src = "assets/khaya/" + n + ".png";
+      el.src = LOOK.root + n + ".png";
     });
   }
 
@@ -732,9 +1069,13 @@ var DRAW = (function () {
 
   function mid(a, b, t) { return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
 
-  function layout(w, h) {
-    var cols = KHAYA.COLS;
-    var rows = KHAYA.ROWS;
+  function layout(w, h, cam) {
+    cam = cam || { x: 0, y: 0, z: 1 };
+    var z = cam.z || 1;
+    if (z < 0.55) z = 0.55;
+    if (z > 2.2) z = 2.2;
+    var cols = 8;
+    var rows = 8;
     var horizon = Math.max(72, h * 0.30);
     var availW = w * 0.96;
     var availH = Math.max(80, (h - horizon) * 0.98);
@@ -748,10 +1089,28 @@ var DRAW = (function () {
       th *= s;
       plotH = (cols + rows) * th / 2;
     }
+    tw *= z;
+    th *= z;
     var plotW = (cols + rows) * tw / 2;
-    var ox = (w - plotW) / 2 + rows * tw / 2;
-    var oy = horizon + Math.max(th, (h - horizon - plotH) * 0.42);
-    return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon };
+    var ox = (w - plotW) / 2 + rows * tw / 2 + (cam.x || 0);
+    var oy = horizon + Math.max(th / z, (h - horizon - plotH * z) * 0.42) + (cam.y || 0);
+    return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
+  }
+
+  function clampCamera(w, h, cam) {
+    cam = cam || { x: 0, y: 0, z: 1 };
+    if (cam.z < 0.55) cam.z = 0.55;
+    if (cam.z > 2.2) cam.z = 2.2;
+    var o = layout(w, h, cam);
+    var north = KHAYA.cellNorth(0, 0, o.ox, o.oy, o.tw, o.th);
+    var south = KHAYA.cellNorth(KHAYA.COLS, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
+    var east = KHAYA.cellNorth(KHAYA.COLS, 0, o.ox, o.oy, o.tw, o.th);
+    var west = KHAYA.cellNorth(0, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
+    if (south.y < h * 0.42) cam.y += h * 0.42 - south.y;
+    if (north.y > h * 0.62) cam.y -= north.y - h * 0.62;
+    if (east.x < w * 0.18) cam.x += w * 0.18 - east.x;
+    if (west.x > w * 0.82) cam.x -= west.x - w * 0.82;
+    return cam;
   }
 
   function poly(ctx, pts, fill) {
@@ -847,10 +1206,12 @@ var DRAW = (function () {
     return n < 0 ? n + 5 : n;
   }
 
-  function ground(ctx, x, y, o) {
+  function ground(ctx, x, y, o, state) {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
+    var open = !state || KHAYA.plotOpen(state, x, y);
     var fill = kind === "path" ? "#e4c79a" : kind === "tree" ? "#6ea356" : (hash(x, y) % 4 === 0 ? "#74a85a" : "#7eb262");
+    if (!open) fill = kind === "path" ? "#b7a07a" : "#5e7a48";
     poly(ctx, [c.n, c.e, c.s, c.w], fill);
     var p = mid(c.n, c.s, 0.55);
     ctx.save();
@@ -879,42 +1240,62 @@ var DRAW = (function () {
     ctx.restore();
   }
 
-  function bedName(b, now) {
-    var view = KHAYA.bedView(b, now);
-    if (!view || view.phase === "empty") return "bed_empty";
-    if (view.phase === "sown" || view.progress < 0.34) return "bed_sown";
-    if (view.progress < 0.72) return "bed_" + b.crop + "_mid";
-    return "bed_" + b.crop + "_ready";
+  function buildingFile(b, now) {
+    var spec = LOOK.buildings[b.type];
+    if (!spec) return b.type;
+    if (b.type === "bed") {
+      var view = KHAYA.bedView(b, now);
+      if (!view || view.phase === "empty") return "bed_empty";
+      if (view.phase === "sown" || view.progress < 0.34) return "bed_sown";
+      return "bed_" + b.crop + "_" + (view.progress < 0.72 ? "mid" : "ready");
+    }
+    if (spec.levels) {
+      var lv = Math.max(1, Math.min(spec.levels.length, b.level || 1));
+      return spec.levels[lv - 1];
+    }
+    return spec.file || b.type;
   }
 
-  function spriteName(b, now) {
-    if (b.type === "home") return "home" + Math.max(1, Math.min(3, b.level));
-    if (b.type === "spaza") return "spaza" + Math.max(1, Math.min(2, b.level));
-    if (b.type === "bed") return bedName(b, now);
-    return b.type === "tank" ? "tank" : b.type;
+  function placePoint(b, o) {
+    var spec = LOOK.buildings[b.type] || { anchor: [0.5, 0.55], offset: [0, 0] };
+    var p = north(b.x + b.w * spec.anchor[0], b.y + b.h * spec.anchor[1], o);
+    return { x: p.x + (spec.offset[0] || 0), y: p.y + (spec.offset[1] || 0), spec: spec };
   }
 
-  function centerOf(b, o) {
-    var c = corners(b.x, b.y, b.w, b.h, o);
-    return mid(c.n, c.s, 0.5);
+  function shadowAt(ctx, x, y, rx, ry) {
+    ctx.save();
+    ctx.fillStyle = "rgba(72, 44, 18, 0.30)";
+    ctx.beginPath();
+    ctx.ellipse(x, y, Math.max(4, rx), Math.max(3, ry), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
-  function drawSprite(ctx, name, b, o, now, pop) {
-    var p = centerOf(b, o);
-    var sc = 1;
+  function drawSprite(ctx, name, b, o, now, pop, squash) {
+    var spot = placePoint(b, o);
+    var scale = spot.spec.scale || 1;
+    var sc = scale;
+    var sx = 1;
+    var sy = 1;
     if (pop && now - pop < 560) {
       var u = (now - pop) / 560;
-      sc = 0.25 + u * 0.85;
-      if (u > 0.72) sc = 1 + Math.sin((u - 0.72) / 0.28 * Math.PI) * 0.07;
+      sc = scale * (0.25 + u * 0.85);
+      if (u > 0.72) sc = scale * (1 + Math.sin((u - 0.72) / 0.28 * Math.PI) * 0.08);
     }
+    if (squash && now - squash < 220) {
+      var q = (now - squash) / 220;
+      sx = 1 + Math.sin(q * Math.PI) * 0.14;
+      sy = 1 - Math.sin(q * Math.PI) * 0.12;
+    }
+    var sh = spot.spec.shadow || [0.6, 0.22];
+    shadowAt(ctx, spot.x, spot.y + o.th * 0.08, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.3);
     ctx.save();
-    if (sc !== 1) {
-      ctx.translate(p.x, p.y);
-      ctx.scale(sc, sc);
-      ctx.translate(-p.x, -p.y);
-    }
-    blit(ctx, img[name], p.x, p.y, o.tw, 1);
+    ctx.translate(spot.x, spot.y);
+    ctx.scale(sc * sx, sc * sy);
+    ctx.translate(-spot.x, -spot.y);
+    blit(ctx, img[name], spot.x, spot.y, o.tw, 1);
     ctx.restore();
+    return spot;
   }
 
   function barOver(ctx, x, y, w, progress, color) {
@@ -981,70 +1362,82 @@ var DRAW = (function () {
     return dy >= 0 ? 2 : 0;
   }
 
-  function along(ctx, o, now, key, route, scale, speed) {
+  function routePoint(route, now, speed) {
     var u = (now / speed) % 1;
     var f = u * route.length;
     var a = Math.floor(f) % route.length;
     var b = (a + 1) % route.length;
     var k = f - Math.floor(f);
-    var x = route[a][0] + (route[b][0] - route[a][0]) * k;
-    var y = route[a][1] + (route[b][1] - route[a][1]) * k;
-    var dir = facing(route[b][0] - route[a][0], route[b][1] - route[a][1]);
-    var frame = Math.floor(now / 140) % 6;
-    var n = north(x, y, o);
-    blit(ctx, img[key + "_w_" + dir + "_" + frame], n.x, n.y + o.th * 0.15, o.tw, scale);
+    return {
+      x: route[a][0] + (route[b][0] - route[a][0]) * k,
+      y: route[a][1] + (route[b][1] - route[a][1]) * k,
+      dir: facing(route[b][0] - route[a][0], route[b][1] - route[a][1])
+    };
   }
 
-  function life(ctx, o, now, state) {
-    var bed = null;
-    var spaza = null;
-    var home = null;
+  function actorFrame(spec, now, dir, pose) {
+    if (pose === "water" && spec.water) return spec.water[Math.floor(now / 180) % spec.water.length];
+    if (pose === "wave" && spec.wave) return spec.wave[Math.floor(now / 160) % spec.wave.length];
+    if (spec.walk) return spec.walk + "_" + (dir || 0) + "_" + (Math.floor(now / 140) % spec.frames);
+    if (spec.idle) return spec.idle[Math.floor(now / 280) % spec.idle.length];
+    return "";
+  }
+
+  function queueActors(queue, state, o, now, ctx) {
+    var known = state.collection || {};
     var i;
-    for (i = 0; i < state.buildings.length; i++) {
-      var b = state.buildings[i];
-      if (!bed && b.type === "bed") bed = b;
-      if (b.type === "spaza") spaza = b;
-      if (b.type === "home") home = b;
+    for (i = 0; i < LOOK.cast.length; i++) {
+      (function (entry) {
+        if (!known[entry.id] || !known[entry.id].have) return;
+        var spec = LOOK.actors[entry.id];
+        var x = 2;
+        var y = 2;
+        var dir = 0;
+        var pose = "walk";
+        var bi;
+        var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
+        if (housed) {
+          x = housed.x + housed.w * 0.35;
+          y = housed.y + housed.h + 0.2;
+          pose = "idle";
+        } else if (entry.near === "home") {
+          var home = null;
+          var bi;
+          for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
+          if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
+          pose = "idle";
+        } else if (entry.spot) {
+          x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
+          y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
+          pose = "idle";
+        } else if (entry.route) {
+          var step = routePoint(entry.route, now, entry.speed || 9000);
+          x = step.x;
+          y = step.y;
+          dir = step.dir;
+          if (entry.id === "farmer") {
+            var bed = null;
+            for (bi = 0; bi < state.buildings.length; bi++) {
+              if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
+            }
+            if (bed) { x = bed.x + 0.15; y = bed.y + 1.05; pose = "water"; }
+          }
+          if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
+          if (entry.id === "doek") {
+            var spaza = null;
+            for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
+            if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
+          }
+        }
+        var n = north(x, y, o);
+        var file = actorFrame(spec, now, dir, pose);
+        queue.push({ y: n.y, draw: function () {
+          var sh = spec.shadow || [0.3, 0.12];
+          shadowAt(ctx, n.x, n.y + 8, o.tw * sh[0] * 0.7, o.th * sh[1] * 1.4);
+          blit(ctx, img[file], n.x, n.y, o.tw, spec.scale);
+        } });
+      })(LOOK.cast[i]);
     }
-    if (bed && (bed.phase === "sown" || bed.phase === "growing" || bed.phase === "ready")) {
-      var watering = north(bed.x + 0.15, bed.y + 1.05, o);
-      blit(ctx, img["farmer_water_" + (Math.floor(now / 180) % 4)], watering.x, watering.y, o.tw, 0.58);
-    } else {
-      along(ctx, o, now, "farmer", [[6, 3], [6, 4], [5, 4], [5, 3]], 0.58, 9000);
-    }
-    if (spaza) {
-      var counter = north(spaza.x + 0.35, spaza.y + 1.15, o);
-      blit(ctx, img["doek_w_0_" + (Math.floor(now / 200) % 6)], counter.x, counter.y, o.tw, 0.58);
-    } else {
-      along(ctx, o, now + 2000, "doek", [[6, 1], [6, 2], [5, 2], [5, 1]], 0.58, 11000);
-    }
-    if (Math.floor(now / 5000) % 6 === 0) {
-      var wave = north(3.2, 5.2, o);
-      blit(ctx, img["jersey_wave_" + (Math.floor(now / 160) % 4)], wave.x, wave.y, o.tw, 0.58);
-    } else {
-      along(ctx, o, now + 800, "jersey", PATH, 0.58, 8000);
-    }
-    var gogoRoute = [[1, 5], [2, 5], [2, 4], [1, 4]];
-    var gu = (now / 12000) % 1 * gogoRoute.length;
-    var ga = Math.floor(gu) % gogoRoute.length;
-    var gb = (ga + 1) % gogoRoute.length;
-    var gk = gu - Math.floor(gu);
-    var gn = north(
-      gogoRoute[ga][0] + (gogoRoute[gb][0] - gogoRoute[ga][0]) * gk + 0.5,
-      gogoRoute[ga][1] + (gogoRoute[gb][1] - gogoRoute[ga][1]) * gk + 0.5,
-      o
-    );
-    blit(ctx, img["gogo_" + (Math.floor(now / 280) % 4)], gn.x, gn.y, o.tw, 0.52);
-    if (home) {
-      var kn = north(home.x + home.w + 0.65, home.y + home.h + 0.15, o);
-      blit(ctx, img["kid_" + (Math.floor(now / 320) % 4)], kn.x, kn.y, o.tw, 0.46);
-    }
-    var h1 = north(5.5 + Math.sin(now / 900) * 0.45, 4.3 + Math.cos(now / 1100) * 0.3, o);
-    var h2 = north(6.3 + Math.cos(now / 1000) * 0.35, 5.1, o);
-    blit(ctx, img["hen_" + (Math.floor(now / 180) % 4)], h1.x, h1.y, o.tw, 0.72);
-    blit(ctx, img["hen_" + (Math.floor(now / 180 + 2) % 4)], h2.x, h2.y, o.tw, 0.66);
-    var dn = north(2.4 + Math.sin(now / 1500) * 0.4, 4.2, o);
-    blit(ctx, img["dog_" + (Math.floor(now / 160) % 4)], dn.x, dn.y, o.tw, 0.78);
   }
 
   function floats(ctx, list, now) {
@@ -1083,7 +1476,7 @@ var DRAW = (function () {
     }
     var ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    var o = layout(w, h);
+    var o = layout(w, h, view && view.cam);
     sky(ctx, w, h, now);
     land(ctx, w, h, o);
     var cells = [];
@@ -1094,44 +1487,70 @@ var DRAW = (function () {
     for (i = 0; i < cells.length; i++) {
       x = cells[i].x;
       y = cells[i].y;
-      ground(ctx, x, y, o);
-      if (KHAYA.terrainAt(x, y) === "tree") {
-        var tree = hash(x, y) % 2 ? img.jacaranda : img.acacia;
-        var n = north(x + 0.5, y + 0.5, o);
-        blit(ctx, tree, n.x, n.y, o.tw, 1);
-      }
+      ground(ctx, x, y, o, state);
     }
-    var items = [];
+    var queue = [];
+    for (i = 0; i < cells.length; i++) {
+      x = cells[i].x;
+      y = cells[i].y;
+      if (KHAYA.terrainAt(x, y) !== "tree") continue;
+      (function (tx, ty) {
+        var file = hash(tx, ty) % 2 ? LOOK.scenery.jacaranda : LOOK.scenery.acacia;
+        var n = north(tx + 0.5, ty + 0.5, o);
+        queue.push({ y: n.y, draw: function () {
+          var sh = file.shadow;
+          shadowAt(ctx, n.x, n.y + 6, o.tw * sh[0] * 0.45, o.th * sh[1] * 1.2);
+          blit(ctx, img[file.file], n.x, n.y, o.tw, file.scale);
+        } });
+      })(x, y);
+    }
     for (i = 0; i < state.buildings.length; i++) {
-      var b = state.buildings[i];
-      items.push({ k: b.x + b.y + 0.1, b: b });
+      (function (building) {
+        var dragging = view.drag && view.drag.id === building.id;
+        var drawAt = building;
+        if (dragging) {
+          drawAt = {
+            type: building.type, x: view.drag.x, y: view.drag.y,
+            w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt, id: building.id
+          };
+        }
+        var spot = placePoint(drawAt, o);
+        queue.push({ y: spot.y, draw: function () {
+          ctx.save();
+          if (dragging) ctx.globalAlpha = 0.85;
+          var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          ctx.restore();
+          var job = KHAYA.buildView(building);
+          if (job && !dragging) barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
+          var prod = KHAYA.produceView(building, state);
+          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
+          if (dragging) {
+            var okMove = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
+            ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, okMove ? "#f2c14e" : "#d64545");
+          }
+        } });
+      })(state.buildings[i]);
     }
-    items.sort(function (a, b) { return a.k - b.k; });
-    for (i = 0; i < items.length; i++) {
-      var building = items[i].b;
-      var dragging = view.drag && view.drag.id === building.id;
-      var drawAt = building;
-      if (dragging) {
-        drawAt = {
-          type: building.type, x: view.drag.x, y: view.drag.y,
-          w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt
-        };
-      }
+    queueActors(queue, state, o, now, ctx);
+    queue.sort(function (a, b) { return a.y - b.y; });
+    for (i = 0; i < queue.length; i++) queue[i].draw();
+    var pid;
+    for (pid in KHAYA.PLOTS) {
+      if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
+      var plot = KHAYA.PLOTS[pid];
+      var lock = north(plot.x + plot.w / 2, plot.y + plot.h / 2, o);
       ctx.save();
-      if (dragging) ctx.globalAlpha = 0.85;
-      drawSprite(ctx, spriteName(drawAt, now), drawAt, o, now, view.born && view.born[building.id]);
+      ctx.fillStyle = "#243028";
+      ctx.beginPath();
+      ctx.arc(lock.x, lock.y, 14, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = "#f6efe2";
+      ctx.font = "700 14px Fredoka, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(plot.notes, lock.x, lock.y);
       ctx.restore();
-      var anchor = centerOf(drawAt, o);
-      var job = KHAYA.buildView(building);
-      if (job && !dragging) barOver(ctx, anchor.x, anchor.y - o.th * 1.1, o.tw * 0.7, job.progress, "#7eb6e0");
-      var prod = KHAYA.produceView(building);
-      if (prod && prod.ready && !dragging) coinBadge(ctx, anchor.x, anchor.y - o.th * 1.35, now);
-      if (dragging) {
-        var ok = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
-        ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, ok ? "#f2c14e" : "#d64545");
-      }
     }
-    life(ctx, o, now, state);
     if (view.ghost) {
       var gok = KHAYA.canPlace(state, view.ghost.type, view.ghost.x, view.ghost.y).ok;
       var ghost = {
@@ -1140,7 +1559,7 @@ var DRAW = (function () {
       };
       ctx.save();
       ctx.globalAlpha = 0.6;
-      drawSprite(ctx, spriteName(ghost, now), ghost, o, now, 0);
+      drawSprite(ctx, buildingFile(ghost, now), ghost, o, now, 0);
       ctx.restore();
       ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#f2c14e" : "#d64545");
     }
@@ -1149,7 +1568,7 @@ var DRAW = (function () {
     return o;
   }
 
-  return { load: load, render: render, layout: layout, ready: function () { return ready; } };
+  return { load: load, render: render, layout: layout, clampCamera: clampCamera, ready: function () { return ready; } };
 })();
 // Crate Day and the spaza counter. Skill games, capped pay, one collect each.
 var PLAY = (function () {
@@ -1296,6 +1715,11 @@ var PLAY = (function () {
   var muted = localStorage.getItem("eish-khaya-mute") === "1";
   var drag = null;
   var laneLevel = KHAYA.playerLevel(state);
+  var cam = { x: 0, y: 0, z: 1, vx: 0, vy: 0 };
+  var pointers = {};
+  var pinch = 0;
+  var squash = {};
+  var cheerTimer = 0;
   var actx = null;
   var wind = null;
 
@@ -1448,6 +1872,37 @@ var PLAY = (function () {
         return "<li" + (t.done ? " class=\"done\"" : "") + ">" + t.text + "</li>";
       }).join("");
     }
+    var laneBtn = document.querySelector("[data-act=more]");
+    if (laneBtn) {
+      var badges = KHAYA.unseenFolk(state);
+      if (!state.daily || state.daily.last !== KHAYA.dayKey(new Date())) badges += 1;
+      laneBtn.innerHTML = "Lane" + (badges ? "<span class=\"badge\">" + badges + "</span>" : "");
+    }
+  }
+
+  function flyCoins(x, y, n) {
+    if (!notesEl) return;
+    var target = notesEl.getBoundingClientRect();
+    var i;
+    for (i = 0; i < Math.min(8, Math.max(1, n)); i++) {
+      var el = document.createElement("i");
+      el.className = "fly";
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      document.body.appendChild(el);
+      (function (node, delay) {
+        setTimeout(function () {
+          node.style.transform = "translate(" + (target.left + target.width / 2 - x) + "px," + (target.top + target.height / 2 - y) + "px) scale(0.35)";
+          node.style.opacity = "0.15";
+        }, 20 + delay);
+        setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 680 + delay);
+      })(el, i * 45);
+    }
+  }
+
+  function noteArrivals() {
+    var found = KHAYA.syncFolk(state);
+    if (found.length) toast(KHAYA.FOLK[found[0]].name + " can stay on the lane");
   }
 
   function celebrate() {
@@ -1455,6 +1910,13 @@ var PLAY = (function () {
     if (after > laneLevel) {
       toast("Level " + after);
       chime("place");
+      var cheer = document.getElementById("cheer");
+      if (cheer) {
+        cheer.hidden = false;
+        cheer.textContent = "Level " + after;
+        clearTimeout(cheerTimer);
+        cheerTimer = setTimeout(function () { cheer.hidden = true; }, 1500);
+      }
       floats.push({
         x: canvas.clientWidth / 2,
         y: 72,
@@ -1525,7 +1987,7 @@ var PLAY = (function () {
   }
 
   function cellPoint(b) {
-    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
+    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
     var n = KHAYA.cellNorth(b.x + b.w / 2, b.y + b.h / 2, o.ox, o.oy, o.tw, o.th);
     return { x: n.x, y: n.y };
   }
@@ -1536,7 +1998,7 @@ var PLAY = (function () {
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, Date.now());
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, Date.now());
   }
 
   function act(result) {
@@ -1567,11 +2029,14 @@ var PLAY = (function () {
       toast("+" + result.notes + " notes");
       if (result.collected && focus) {
         var coin = cellPoint(focus);
-        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, result.notes) });
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(6, result.notes) });
+        var rect = canvas.getBoundingClientRect();
+        flyCoins(rect.left + coin.x, rect.top + coin.y, result.notes);
       }
     } else if (result.xp) {
       chime("tap");
     }
+    noteArrivals();
     celebrate();
     save();
     paint();
@@ -1653,16 +2118,91 @@ var PLAY = (function () {
     });
   }
 
+  function dailyBlock() {
+    var today = KHAYA.dayKey(new Date());
+    var ready = !state.daily || state.daily.last !== today;
+    var html = "<h3>Seven days</h3><div class=\"days\">";
+    var i;
+    for (i = 1; i <= 7; i++) {
+      var cls = "";
+      if (state.daily && i < state.daily.day) cls = " done";
+      if (state.daily && i === state.daily.day && !ready) cls = " done";
+      if (ready && i === ((state.daily && state.daily.last && KHAYA.prevDay(today) === state.daily.last) ? (state.daily.day % 7) + 1 : 1)) cls = " now";
+      html += "<span class=\"day" + cls + "\">" + i + "</span>";
+    }
+    html += "</div>";
+    if (ready) html += "<button type=\"button\" class=\"hot\" data-daily>Collect today's gift</button>";
+    else html += "<p class=\"fine\">Already collected today. The next gift waits until tomorrow.</p>";
+    return html;
+  }
+
+  function bookBlock() {
+    var html = "<h3>The lane book</h3><div class=\"book\">";
+    var id, spec, rec, homes, hi;
+    for (id in KHAYA.FOLK) {
+      spec = KHAYA.FOLK[id];
+      rec = state.collection[id] || { have: 0 };
+      if (rec.have) KHAYA.seeFolk(state, id);
+      html += "<article class=\"folk" + (rec.have ? "" : " locked") + "\"><b>" + (rec.have ? spec.name : "???") + "</b><p class=\"fine\">" + (rec.have ? spec.blurb : "Not met yet.") + "</p>";
+      if (rec.have) {
+        homes = "";
+        for (hi = 0; hi < state.buildings.length; hi++) {
+          var allow = spec.where.indexOf(state.buildings[hi].type) >= 0;
+          if (allow) homes += "<button type=\"button\" data-house=\"" + id + "\" data-bid=\"" + state.buildings[hi].id + "\">" + (rec.home === state.buildings[hi].id ? "Staying · " : "House at ") + KHAYA.BUILDINGS[state.buildings[hi].type].name + "</button>";
+        }
+        if (rec.home) homes += "<button type=\"button\" data-unhouse=\"" + id + "\">Let them wander</button>";
+        html += "<div class=\"row\">" + homes + "</div>";
+      }
+      html += "</article>";
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function openUnlock(id) {
+    var plot = KHAYA.PLOTS[id];
+    var check = KHAYA.canUnlock(state, id);
+    var html = "<p class=\"rules\">Open the " + plot.name.toLowerCase() + " for " + plot.notes + " notes. It needs lane level " + plot.level + ".</p>";
+    html += "<button type=\"button\" class=\"hot\" data-unlock=\"" + id + "\"" + (check.ok ? "" : " disabled") + ">Unlock</button>";
+    if (!check.ok) html += "<p class=\"fine\">" + check.reason + "</p>";
+    openModal(plot.name, html);
+    var btn = modalBody.querySelector("[data-unlock]");
+    if (btn) btn.addEventListener("click", function () {
+      act(KHAYA.unlockPlot(state, id));
+      if (!modal.hidden) closeModal();
+    });
+  }
+
   function openMore() {
     var list = KHAYA.tasks(state).map(function (t) {
       return "<li>" + (t.done ? "Done · " : "") + t.text + "</li>";
     }).join("");
+    var head = dailyBlock() + bookBlock();
+    save();
     var sell = "";
     Object.keys(KHAYA.CROPS).forEach(function (k) {
       if (state.crops[k] > 0) sell += "<button type=\"button\" data-sell=\"" + k + "\">Sell 1 " + KHAYA.CROPS[k].name.toLowerCase() + " · " + KHAYA.CROPS[k].price + " notes</button>";
     });
     if (!sell) sell = "<p class=\"fine\">Harvest something, then sell it once a spaza is up.</p>";
-    openModal("The lane", "<ul class=\"unlocks\">" + list + "</ul><div class=\"row\">" + sell + "</div><button type=\"button\" id=\"reset\">Reset neighbourhood</button>");
+    openModal("The lane", head + "<ul class=\"unlocks\">" + list + "</ul><div class=\"row\">" + sell + "</div><button type=\"button\" id=\"reset\">Reset neighbourhood</button>");
+    var dailyBtn = modalBody.querySelector("[data-daily]");
+    if (dailyBtn) dailyBtn.addEventListener("click", function () {
+      var got = KHAYA.claimDaily(state, KHAYA.dayKey(new Date()));
+      act(got);
+      if (!modal.hidden) openMore();
+    });
+    modalBody.querySelectorAll("[data-house]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        act(KHAYA.houseFolk(state, btn.getAttribute("data-house"), Number(btn.getAttribute("data-bid"))));
+        if (!modal.hidden) openMore();
+      });
+    });
+    modalBody.querySelectorAll("[data-unhouse]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        act(KHAYA.unhouseFolk(state, btn.getAttribute("data-unhouse")));
+        if (!modal.hidden) openMore();
+      });
+    });
     modalBody.querySelectorAll("[data-sell]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         act(KHAYA.sell(state, btn.getAttribute("data-sell"), 1));
@@ -1686,12 +2226,26 @@ var PLAY = (function () {
 
   function cellFrom(ev) {
     var rect = canvas.getBoundingClientRect();
-    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
+    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
     return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+  }
+
+  function pinchDist() {
+    var ids = Object.keys(pointers);
+    if (ids.length < 2) return 0;
+    var a = pointers[ids[0]];
+    var b = pointers[ids[1]];
+    return Math.hypot(a.x - b.x, a.y - b.y) || 1;
   }
 
   canvas.addEventListener("pointerdown", function (ev) {
     if (!modal.hidden) return;
+    pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    if (Object.keys(pointers).length >= 2) {
+      drag = null;
+      pinch = pinchDist();
+      return;
+    }
     var cell = cellFrom(ev);
     if (ghost) {
       ghost.x = cell.x;
@@ -1703,18 +2257,46 @@ var PLAY = (function () {
     }
     var hit = KHAYA.occupied(state, cell.x, cell.y);
     if (!hit) {
-      selectedId = null;
-      paint();
+      var plot = KHAYA.plotAt(cell.x, cell.y);
+      drag = {
+        pan: true, px: ev.clientX, py: ev.clientY, lx: ev.clientX, ly: ev.clientY,
+        moved: false, pointer: ev.pointerId,
+        plot: plot && !KHAYA.plotOpen(state, cell.x, cell.y) ? plot.id : ""
+      };
+      try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
       return;
     }
+    squash[hit.id] = Date.now();
     drag = { id: hit.id, px: ev.clientX, py: ev.clientY, moved: false, cx: hit.x, cy: hit.y, pointer: ev.pointerId };
     try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
   });
 
   canvas.addEventListener("pointermove", function (ev) {
+    if (pointers[ev.pointerId]) pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    if (Object.keys(pointers).length >= 2) {
+      var dist = pinchDist();
+      if (pinch) {
+        cam.z *= dist / pinch;
+        DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+      }
+      pinch = dist;
+      paint();
+      return;
+    }
     if (!drag || ev.pointerId !== drag.pointer) return;
     if (Math.hypot(ev.clientX - drag.px, ev.clientY - drag.py) > 12) drag.moved = true;
     if (!drag.moved) return;
+    if (drag.pan) {
+      cam.x += ev.clientX - drag.lx;
+      cam.y += ev.clientY - drag.ly;
+      cam.vx = (ev.clientX - drag.lx) * 0.6;
+      cam.vy = (ev.clientY - drag.ly) * 0.6;
+      drag.lx = ev.clientX;
+      drag.ly = ev.clientY;
+      DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+      paint();
+      return;
+    }
     var cell = cellFrom(ev);
     if (drag.ghost) {
       ghost.x = cell.x;
@@ -1727,9 +2309,16 @@ var PLAY = (function () {
   });
 
   function endDrag(ev) {
+    if (ev && pointers[ev.pointerId]) delete pointers[ev.pointerId];
+    if (Object.keys(pointers).length < 2) pinch = 0;
     if (!drag || (ev && ev.pointerId !== drag.pointer)) return;
     var item = drag;
     drag = null;
+    if (item.pan) {
+      if (!item.moved && item.plot) openUnlock(item.plot);
+      else { selectedId = null; paint(); }
+      return;
+    }
     if (item.ghost) {
       var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
@@ -1751,7 +2340,18 @@ var PLAY = (function () {
   }
 
   canvas.addEventListener("pointerup", endDrag);
-  canvas.addEventListener("pointercancel", function (ev) { drag = null; paint(); });
+  canvas.addEventListener("pointercancel", function (ev) {
+    if (ev && pointers[ev.pointerId]) delete pointers[ev.pointerId];
+    drag = null;
+    paint();
+  });
+  canvas.addEventListener("wheel", function (ev) {
+    if (!modal.hidden) return;
+    ev.preventDefault();
+    cam.z *= ev.deltaY > 0 ? 0.92 : 1.08;
+    DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+    paint();
+  }, { passive: false });
 
   card.addEventListener("click", function (ev) {
     var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
@@ -1820,8 +2420,18 @@ var PLAY = (function () {
   var hudAt = 0;
   function frame() {
     var now = Date.now();
+    if (!drag || !drag.pan) {
+      cam.x += cam.vx;
+      cam.y += cam.vy;
+      cam.vx *= 0.9;
+      cam.vy *= 0.9;
+      if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
+      if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
+      if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+    }
     if (now - hudAt > 350) {
       var ticked = KHAYA.tick(state, now);
+      if (ticked.found && ticked.found.length) noteArrivals();
       if (ticked.finished && ticked.finished.length) {
         var i;
         for (i = 0; i < ticked.finished.length; i++) born[ticked.finished[i].id] = now;
@@ -1837,7 +2447,7 @@ var PLAY = (function () {
     }
     floats = floats.filter(function (f) { return now - f.t < 1000; });
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, now);
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

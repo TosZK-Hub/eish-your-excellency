@@ -163,6 +163,85 @@ for (var y = 0; y < 8; y++) {
 }
 
 eq("tasks start", KHAYA.currentTask(KHAYA.fresh(1)).id, "sow");
+
+var wide = KHAYA.fresh(1);
+eq("east locked", KHAYA.canPlace(wide, "bed", 9, 2).ok, false);
+eq("lane still open", KHAYA.canPlace(wide, "workshop", 6, 4).ok, true);
+eq("east needs level", KHAYA.canUnlock(wide, "east").ok, false);
+wide.farmXp = 18;
+wide.buildXp = 0;
+eq("level 2 still short on notes? wait", KHAYA.playerLevel(wide) >= 2, true);
+wide.notes = 80;
+eq("unlock east", KHAYA.unlockPlot(wide, "east").ok, true);
+eq("east notes spent", wide.notes, 0);
+eq("unlock twice", KHAYA.unlockPlot(wide, "east").ok, false);
+eq("east place", KHAYA.canPlace(wide, "bed", 9, 2).ok, false);
+wide.timber = 8;
+wide.notes = 20;
+eq("east bed after open", KHAYA.place(wide, "bed", 9, 2).ok, true);
+eq("koppie still shut", KHAYA.place(wide, "bed", 10, 10).ok, false);
+
+var day = KHAYA.fresh(1);
+var firstDay = KHAYA.claimDaily(day, "2026-11-09");
+eq("day 1", firstDay.day, 1);
+eq("day 1 notes", day.notes, 68);
+eq("same day", KHAYA.claimDaily(day, "2026-11-09").ok, false);
+eq("notes held", day.notes, 68);
+var second = KHAYA.claimDaily(day, "2026-11-10");
+eq("day 2", second.day, 2);
+eq("day 2 seeds", second.seeds, 2);
+var skipped = KHAYA.claimDaily(day, "2026-11-12");
+eq("gap resets", skipped.day, 1);
+eq("bad day", KHAYA.claimDaily(day, "tomorrow").ok, false);
+eq("month edge", KHAYA.prevDay("2026-03-01"), "2026-02-28");
+var kept = KHAYA.sanitize({ v: 1, notes: 5, daily: { last: "2026-11-09", day: 3 }, plots: { east: 1 } });
+eq("daily kept", kept.daily.last, "2026-11-09");
+eq("daily day kept", kept.daily.day, 3);
+eq("plot migrated", kept.plots.east, 1);
+eq("lane stays", kept.plots.lane, 1);
+eq("claim after load", KHAYA.claimDaily(kept, "2026-11-09").ok, false);
+
+var yard = KHAYA.fresh(1);
+eq("pot", KHAYA.place(yard, "aloe_clump", 6, 4).ok, true);
+var shop2 = null;
+KHAYA.place(yard, "spaza", 5, 1);
+shop2 = yard.buildings.filter(function (b) { return b.type === "spaza"; })[0];
+shop2.stored = 0;
+shop2.prodAcc = 0;
+yard.seenAt = 0;
+KHAYA.tick(yard, 8000);
+eq("decor speeds notes", shop2.stored >= 1, true);
+eq("decor cap room", KHAYA.tuneProduce(yard, shop2).cap, 13);
+
+var bare = KHAYA.fresh(0);
+KHAYA.place(bare, "spaza", 5, 1);
+var bareShop = bare.buildings.filter(function (b) { return b.type === "spaza"; })[0];
+bare.seenAt = 0;
+KHAYA.tick(bare, 15 * 60 * 1000);
+eq("plain cap unchanged", bareShop.stored, 12);
+
+var folk = KHAYA.fresh(1);
+eq("thabo starts known", folk.collection.farmer.have, 1);
+eq("naledi locked", folk.collection.doek.have, 0);
+folk.stats.placed = 1;
+var met = KHAYA.syncFolk(folk);
+eq("naledi arrives", met.indexOf("doek") >= 0, true);
+eq("house without spaza", KHAYA.houseFolk(folk, "doek", folk.buildings[0].id).ok, true);
+eq("thabo xp housed", KHAYA.folkBonus(folk).cap >= 1, true);
+folk.collection.kid.have = 1;
+eq("full home", (function () {
+  KHAYA.houseFolk(folk, "farmer", folk.buildings[0].id);
+  KHAYA.houseFolk(folk, "hen", folk.buildings[0].id);
+  return KHAYA.houseFolk(folk, "kid", folk.buildings[0].id).ok;
+})(), false);
+var oldFolk = KHAYA.sanitize({
+  v: 1,
+  notes: 10,
+  collection: { farmer: { have: 1, home: 1, seen: 0 } },
+  buildings: [{ id: 1, type: "home", x: 1, y: 2, level: 1 }]
+});
+truth("home id remapped", oldFolk.collection.farmer.home > 0);
+eq("v3 rejected", KHAYA.sanitize({ v: 3 }), null);
 var guided = KHAYA.fresh(1);
 guided.stats.sown = 1;
 guided.stats.watered = 1;

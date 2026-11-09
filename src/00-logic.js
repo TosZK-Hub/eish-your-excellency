@@ -1,8 +1,8 @@
 // Khaya Lane rules: farming, building, skills, and capped mini-game pay.
 // Original game logic. No account, no real-money currency.
 var KHAYA = (function () {
-  var COLS = 8;
-  var ROWS = 8;
+  var COLS = 16;
+  var ROWS = 14;
   var ELAPSE_CAP = 10 * 60 * 1000;
   var TANK_MS = 20000;
   var WATER_CAP = 24;
@@ -10,15 +10,48 @@ var KHAYA = (function () {
   var STACK_CAP = 99;
 
   var MAP = [
-    "tggggggt",
-    "gggggggg",
-    "ggggpggg",
-    "ggggpggg",
-    "ggggpggg",
-    "ggggpggg",
-    "ppppgggg",
-    "gggggggg"
+    "tggggggtggpggggt",
+    "gggggggggggggggg",
+    "ggggpgggggggpggg",
+    "ggggpgggggggpggg",
+    "ggggpgggggggpggg",
+    "ggggpgggggggpggg",
+    "ppppggggppppgggg",
+    "gggggggggggggggg",
+    "ggggpgggtggggggg",
+    "ggggpggggggggggg",
+    "gggggggggggggggt",
+    "gggggggggggggggg",
+    "ppppggggggggpggg",
+    "gggggggggggggggg"
   ];
+
+  var PLOTS = {
+    lane: { id: "lane", name: "The lane", x: 0, y: 0, w: 8, h: 8, notes: 0, level: 1, start: 1 },
+    east: { id: "east", name: "East yard", x: 8, y: 0, w: 8, h: 8, notes: 80, level: 2 },
+    south: { id: "south", name: "South field", x: 0, y: 8, w: 8, h: 6, notes: 120, level: 3 },
+    koppie: { id: "koppie", name: "The koppie", x: 8, y: 8, w: 8, h: 6, notes: 180, level: 4 }
+  };
+
+  var DAILY = [
+    { notes: 8 },
+    { seeds: 2 },
+    { notes: 12, water: 2 },
+    { notes: 16 },
+    { seeds: 3, water: 2 },
+    { notes: 22 },
+    { notes: 30, seeds: 2, water: 2 }
+  ];
+
+  var FOLK = {
+    farmer: { name: "Thabo", kind: "villager", where: ["home", "bed"], bonus: { farmXp: 1 }, blurb: "Harvests teach a little more." },
+    doek: { name: "Naledi", kind: "villager", where: ["spaza", "home"], bonus: { cap: 1 }, blurb: "The spaza holds one extra note." },
+    jersey: { name: "Sipho", kind: "villager", where: ["workshop", "home"], bonus: { buildXp: 2 }, blurb: "Building work counts for a little more." },
+    gogo: { name: "Gogo", kind: "villager", where: ["home"], bonus: { waterCap: 1 }, blurb: "The tank keeps one extra bottle." },
+    kid: { name: "Aya", kind: "villager", where: ["home", "bed"], bonus: { sowXp: 1 }, blurb: "Sowing is a bit more fun." },
+    hen: { name: "Hen", kind: "animal", where: ["home"], bonus: { cap: 1 }, blurb: "Notes pile a little higher." },
+    dog: { name: "Biscuit", kind: "animal", where: ["home"], bonus: {}, blurb: "Keeps the yard company." }
+  };
 
   var CROPS = {
     maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
@@ -72,6 +105,16 @@ var KHAYA = (function () {
       name: "Solar stand", w: 1, h: 1, limit: 1, skill: 2,
       cost: { notes: 28, timber: 2, bricks: 3 },
       blurb: "Shared power. The next building upgrade spends one less timber."
+    },
+    aloe_clump: {
+      name: "Aloe clump", w: 1, h: 1, limit: 4, skill: 1, decor: 1,
+      cost: { notes: 8 },
+      blurb: "A pot of aloe. Each clump helps the lane earn a little faster."
+    },
+    palisade: {
+      name: "Palisade", w: 1, h: 1, limit: 3, skill: 1, decor: 1,
+      cost: { notes: 12 },
+      blurb: "A short painted fence. It makes the yard feel finished."
     }
   };
 
@@ -120,6 +163,32 @@ var KHAYA = (function () {
     if (ch === "p") return "path";
     if (ch === "t") return "tree";
     return "grass";
+  }
+
+  function plotAt(x, y) {
+    var id, p;
+    for (id in PLOTS) {
+      p = PLOTS[id];
+      if (x >= p.x && y >= p.y && x < p.x + p.w && y < p.y + p.h) return p;
+    }
+    return null;
+  }
+
+  function plotOpen(state, x, y) {
+    var p = plotAt(x, y);
+    if (!p) return false;
+    return !!(state.plots && state.plots[p.id]);
+  }
+
+  function cellBlock(state, x, y, ignoreId) {
+    var land = terrainAt(x, y);
+    if (land === "out") return { ok: false, reason: "That sits outside the lane." };
+    var plot = plotAt(x, y);
+    if (plot && !plotOpen(state, x, y)) return { ok: false, reason: "Unlock the " + plot.name.toLowerCase() + " first." };
+    if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
+    if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+    if (occupied(state, x, y, ignoreId)) return { ok: false, reason: "Something is already there." };
+    return { ok: true };
   }
 
   function footprint(b) {
@@ -171,12 +240,23 @@ var KHAYA = (function () {
       crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
       farmXp: 0,
       buildXp: 0,
-      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0 },
+      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0, expanded: 0 },
       paid: {},
       tankAcc: 0,
       seenAt: now,
       nextId: 3,
       welcomed: false,
+      plots: { lane: 1 },
+      daily: { last: "", day: 0 },
+      collection: {
+        farmer: { have: 1, home: 0, seen: 1 },
+        hen: { have: 1, home: 0, seen: 1 },
+        doek: { have: 0, home: 0, seen: 0 },
+        jersey: { have: 0, home: 0, seen: 0 },
+        gogo: { have: 0, home: 0, seen: 0 },
+        kid: { have: 0, home: 0, seen: 0 },
+        dog: { have: 0, home: 0, seen: 0 }
+      },
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 }
@@ -232,15 +312,11 @@ var KHAYA = (function () {
       return { ok: false, reason: "Building level " + def.skill + " unlocks the " + def.name.toLowerCase() + "." };
     }
     if (countType(state, type) >= def.limit) return { ok: false, reason: "You already have a " + def.name.toLowerCase() + "." };
-    var dx, dy, land, block;
+    var dx, dy, block;
     for (dy = 0; dy < def.h; dy++) {
       for (dx = 0; dx < def.w; dx++) {
-        land = terrainAt(x + dx, y + dy);
-        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
-        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
-        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
-        block = occupied(state, x + dx, y + dy);
-        if (block) return { ok: false, reason: "Something is already there." };
+        block = cellBlock(state, x + dx, y + dy);
+        if (!block.ok) return block;
       }
     }
     return afford(state, placeCost(state, type));
@@ -302,7 +378,7 @@ var KHAYA = (function () {
       b.buildLeft = 0;
       return null;
     }
-    var xp = b.pendingXp || 12;
+    var xp = (b.pendingXp || 12) + folkBonus(state).buildXp;
     b.level = b.pendingLevel;
     b.pendingLevel = 0;
     b.pendingXp = 0;
@@ -332,9 +408,10 @@ var KHAYA = (function () {
     b.crop = crop;
     b.phase = "sown";
     b.plantedAt = 0;
-    state.farmXp += 2;
+    var sowXp = 2 + folkBonus(state).sowXp;
+    state.farmXp += sowXp;
     state.stats.sown += 1;
-    return { ok: true, xp: 2 };
+    return { ok: true, xp: sowXp };
   }
 
   function water(state, id, now) {
@@ -360,12 +437,13 @@ var KHAYA = (function () {
     var name = b.crop;
     var amount = def.yield;
     state.crops[name] = clamp((state.crops[name] || 0) + amount, 0, STACK_CAP);
-    state.farmXp += def.xp;
+    var gained = def.xp + folkBonus(state).farmXp;
+    state.farmXp += gained;
     state.stats.harvested += 1;
     b.crop = null;
     b.phase = "empty";
     b.plantedAt = 0;
-    return { ok: true, crop: name, amount: amount, xp: def.xp };
+    return { ok: true, crop: name, amount: amount, xp: gained };
   }
 
   function sell(state, crop, n) {
@@ -393,13 +471,14 @@ var KHAYA = (function () {
         if (b.phase === "growing" && b.plantedAt != null) b.plantedAt += discarded;
       }
     }
+    var waterCap = WATER_CAP + folkBonus(state).waterCap;
     if (hasType(state, "tank")) {
       state.tankAcc = (state.tankAcc || 0) + used;
-      while (state.tankAcc >= TANK_MS && state.water < WATER_CAP) {
+      while (state.tankAcc >= TANK_MS && state.water < waterCap) {
         state.water += 1;
         state.tankAcc -= TANK_MS;
       }
-      if (state.water >= WATER_CAP) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
+      if (state.water >= waterCap) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
     }
     var finished = [];
     for (i = 0; i < state.buildings.length; i++) {
@@ -411,32 +490,73 @@ var KHAYA = (function () {
           if (done) finished.push(done);
         }
       }
-      var spec = PRODUCE[b.type];
-      if (!spec) continue;
-      var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+      var tune = tuneProduce(state, b);
+      if (!tune) continue;
       b.prodAcc = (b.prodAcc || 0) + used;
-      while (b.prodAcc >= spec.every && (b.stored || 0) < cap) {
-        b.stored = (b.stored || 0) + spec.notes;
-        b.prodAcc -= spec.every;
+      while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap) {
+        b.stored = (b.stored || 0) + tune.notes;
+        b.prodAcc -= tune.every;
       }
-      if ((b.stored || 0) >= cap) b.prodAcc = Math.min(b.prodAcc, spec.every);
+      if ((b.stored || 0) >= tune.cap) b.prodAcc = Math.min(b.prodAcc, tune.every);
     }
+    var found = syncFolk(state);
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded, finished: finished };
+    return { elapsed: used, discarded: discarded, finished: finished, found: found };
   }
 
-  function produceView(b) {
-    if (!b) return null;
+  function decorCount(state) {
+    var n = 0;
+    var i;
+    for (i = 0; i < state.buildings.length; i++) {
+      if (BUILDINGS[state.buildings[i].type] && BUILDINGS[state.buildings[i].type].decor) n++;
+    }
+    return n;
+  }
+
+  function folkBonus(state) {
+    var out = { cap: 0, farmXp: 0, sowXp: 0, buildXp: 0, waterCap: 0 };
+    if (!state || !state.collection) return out;
+    var id, rec, spec;
+    for (id in FOLK) {
+      rec = state.collection[id];
+      spec = FOLK[id];
+      if (!rec || !rec.have || !rec.home) continue;
+      if (spec.bonus.cap) out.cap += spec.bonus.cap;
+      if (spec.bonus.farmXp) out.farmXp += spec.bonus.farmXp;
+      if (spec.bonus.sowXp) out.sowXp += spec.bonus.sowXp;
+      if (spec.bonus.buildXp) out.buildXp += spec.bonus.buildXp;
+      if (spec.bonus.waterCap) out.waterCap += spec.bonus.waterCap;
+    }
+    out.cap = Math.min(3, out.cap);
+    out.waterCap = Math.min(2, out.waterCap);
+    return out;
+  }
+
+  function tuneProduce(state, b) {
     var spec = PRODUCE[b.type];
     if (!spec) return null;
-    var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+    var decor = Math.min(4, decorCount(state));
+    var folk = folkBonus(state);
+    var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4 + decor + folk.cap;
+    if (cap > spec.cap + 8) cap = spec.cap + 8;
+    var every = spec.every;
+    if (decor) every = Math.max(4000, Math.floor(spec.every * (1 - 0.05 * decor)));
+    return { cap: cap, every: every, notes: spec.notes };
+  }
+
+  function produceView(b, state) {
+    if (!b) return null;
+    var tune = state ? tuneProduce(state, b) : null;
+    var spec = PRODUCE[b.type];
+    if (!spec && !tune) return null;
+    if (!tune) tune = { cap: spec.cap + Math.max(0, (b.level || 1) - 1) * 4, every: spec.every, notes: spec.notes };
     var stored = b.stored || 0;
     var acc = b.prodAcc || 0;
     return {
       stored: stored,
-      cap: cap,
-      progress: stored >= cap ? 1 : Math.min(1, acc / spec.every),
-      left: stored >= cap ? 0 : Math.max(0, spec.every - acc),
+      cap: tune.cap,
+      progress: stored >= tune.cap ? 1 : Math.min(1, acc / tune.every),
+      left: stored >= tune.cap ? 0 : Math.max(0, tune.every - acc),
       ready: stored > 0
     };
   }
@@ -464,15 +584,11 @@ var KHAYA = (function () {
     var b = buildingById(state, id);
     if (!b) return { ok: false, reason: "Nothing selected." };
     if (b.x === x && b.y === y) return { ok: true, same: true };
-    var dx, dy, land, block;
+    var dx, dy, block;
     for (dy = 0; dy < b.h; dy++) {
       for (dx = 0; dx < b.w; dx++) {
-        land = terrainAt(x + dx, y + dy);
-        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
-        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
-        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
-        block = occupied(state, x + dx, y + dy, id);
-        if (block) return { ok: false, reason: "Something is already there." };
+        block = cellBlock(state, x + dx, y + dy, id);
+        if (!block.ok) return block;
       }
     }
     return { ok: true };
@@ -513,6 +629,128 @@ var KHAYA = (function () {
     state.water = clamp(state.water + water, 0, WATER_CAP);
     state.stats.played += 1;
     return { ok: true, notes: notes, seeds: seeds, water: water };
+  }
+
+  function canUnlock(state, id) {
+    var plot = PLOTS[id];
+    if (!plot || plot.start) return { ok: false, reason: "That ground is already open." };
+    if (state.plots && state.plots[id]) return { ok: false, reason: "Already open." };
+    if (playerLevel(state) < plot.level) return { ok: false, reason: "Lane level " + plot.level + " opens the " + plot.name.toLowerCase() + "." };
+    return afford(state, { notes: plot.notes });
+  }
+
+  function unlockPlot(state, id) {
+    var check = canUnlock(state, id);
+    if (!check.ok) return check;
+    pay(state, { notes: PLOTS[id].notes });
+    state.plots[id] = 1;
+    state.stats.expanded = (state.stats.expanded || 0) + 1;
+    return { ok: true, plot: id, notes: PLOTS[id].notes };
+  }
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function dayKey(date) {
+    return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
+  }
+
+  function prevDay(key) {
+    var p = String(key || "").split("-");
+    if (p.length !== 3) return "";
+    var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (!isFinite(dt.getTime())) return "";
+    dt.setDate(dt.getDate() - 1);
+    return dayKey(dt);
+  }
+
+  function claimDaily(state, key) {
+    if (!state.daily) state.daily = { last: "", day: 0 };
+    if (typeof key !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return { ok: false, reason: "Bad day." };
+    if (state.daily.last === key) return { ok: false, reason: "Already collected today." };
+    var next = 1;
+    if (state.daily.last && prevDay(key) === state.daily.last) next = (state.daily.day % 7) + 1;
+    var reward = DAILY[next - 1];
+    state.daily.last = key;
+    state.daily.day = next;
+    var notes = reward.notes || 0;
+    var seeds = reward.seeds || 0;
+    var water = reward.water || 0;
+    state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + seeds, 0, STACK_CAP);
+    state.water = clamp(state.water + water, 0, WATER_CAP + folkBonus(state).waterCap);
+    return { ok: true, day: next, notes: notes, seeds: seeds, water: water };
+  }
+
+  function folkReady(state, id) {
+    var stats = state.stats || {};
+    if (id === "farmer" || id === "hen") return true;
+    if (id === "doek") return stats.placed > 0 || playerLevel(state) >= 2;
+    if (id === "kid") return stats.harvested > 0;
+    if (id === "jersey") return stats.upgraded > 0;
+    if (id === "gogo") return playerLevel(state) >= 3;
+    if (id === "dog") return stats.played > 0;
+    return false;
+  }
+
+  function syncFolk(state) {
+    var found = [];
+    if (!state.collection) state.collection = {};
+    var id;
+    for (id in FOLK) {
+      if (!state.collection[id]) state.collection[id] = { have: 0, home: 0, seen: 0 };
+      if (!state.collection[id].have && folkReady(state, id)) {
+        state.collection[id].have = 1;
+        found.push(id);
+      }
+    }
+    return found;
+  }
+
+  function housedCount(state, buildingId, except) {
+    var n = 0;
+    var id;
+    for (id in state.collection) {
+      if (id === except) continue;
+      if (state.collection[id] && state.collection[id].home === buildingId) n++;
+    }
+    return n;
+  }
+
+  function houseFolk(state, folkId, buildingId) {
+    var spec = FOLK[folkId];
+    if (!state.collection) state.collection = {};
+    var rec = state.collection[folkId];
+    if (!spec || !rec || !rec.have) return { ok: false, reason: "You have not met them yet." };
+    var b = buildingById(state, buildingId);
+    if (!b) return { ok: false, reason: "Choose a building." };
+    var allowed = false;
+    var i;
+    for (i = 0; i < spec.where.length; i++) if (spec.where[i] === b.type) allowed = true;
+    if (!allowed) return { ok: false, reason: spec.name + " stays by the " + spec.where[0] + "." };
+    var room = b.type === "home" ? 3 : 1;
+    if (housedCount(state, b.id, folkId) >= room) return { ok: false, reason: "That building is full." };
+    rec.home = b.id;
+    return { ok: true, housed: folkId };
+  }
+
+  function unhouseFolk(state, folkId) {
+    if (!state.collection || !state.collection[folkId]) return { ok: false, reason: "Nobody by that name." };
+    state.collection[folkId].home = 0;
+    return { ok: true };
+  }
+
+  function seeFolk(state, folkId) {
+    if (!state.collection || !state.collection[folkId] || !state.collection[folkId].have) return { ok: false };
+    state.collection[folkId].seen = 1;
+    return { ok: true };
+  }
+
+  function unseenFolk(state) {
+    var n = 0;
+    var id;
+    if (!state.collection) return 0;
+    for (id in state.collection) if (state.collection[id].have && !state.collection[id].seen) n++;
+    return n;
   }
 
   function tasks(state) {
@@ -572,9 +810,33 @@ var KHAYA = (function () {
         if (typeof tokens[t] === "string" && tokens[t].length <= 80) s.paid[tokens[t]] = 1;
       }
     }
+    s.plots = { lane: 1 };
+    if (data.plots && typeof data.plots === "object") {
+      var pid;
+      for (pid in PLOTS) if (data.plots[pid]) s.plots[pid] = 1;
+    }
+    s.plots.lane = 1;
+    s.daily = { last: "", day: 0 };
+    if (data.daily && typeof data.daily === "object") {
+      if (typeof data.daily.last === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.daily.last)) s.daily.last = data.daily.last;
+      s.daily.day = clamp(data.daily.day, 0, 7);
+    }
+    if (data.collection && typeof data.collection === "object") {
+      var fid, rawF;
+      for (fid in FOLK) {
+        rawF = data.collection[fid];
+        if (!rawF || typeof rawF !== "object") continue;
+        s.collection[fid] = {
+          have: rawF.have ? 1 : s.collection[fid].have,
+          home: clamp(rawF.home, 0, 999999),
+          seen: rawF.seen ? 1 : 0
+        };
+      }
+    }
     s.buildings = [];
     s.nextId = 1;
     var list = Array.isArray(data.buildings) ? data.buildings : [];
+    var idMap = {};
     var i, raw, def, b, dx, dy, ok, land, block;
     for (i = 0; i < list.length; i++) {
       raw = list[i];
@@ -606,11 +868,12 @@ var KHAYA = (function () {
         for (dx = 0; dx < b.w; dx++) {
           land = terrainAt(b.x + dx, b.y + dy);
           block = occupied(s, b.x + dx, b.y + dy);
-          if (land !== "grass" || block) { ok = false; break; }
+          if (land !== "grass" || block || !plotOpen(s, b.x + dx, b.y + dy)) { ok = false; break; }
         }
       }
       if (!ok) continue;
       if (countType(s, b.type) >= def.limit) continue;
+      if (typeof raw.id === "number") idMap[raw.id] = b.id;
       if (b.type === "bed") {
         b.crop = CROPS[raw.crop] ? raw.crop : null;
         b.phase = raw.phase === "sown" || raw.phase === "growing" ? raw.phase : "empty";
@@ -632,6 +895,12 @@ var KHAYA = (function () {
       }
       if (free) s.buildings.unshift({ id: s.nextId++, type: "home", x: hx, y: hy, w: 2, h: 2, level: 1 });
     }
+    var folkId;
+    for (folkId in s.collection) {
+      if (!s.collection[folkId].home) continue;
+      if (!idMap[s.collection[folkId].home]) s.collection[folkId].home = 0;
+      else s.collection[folkId].home = idMap[s.collection[folkId].home];
+    }
     return s;
   }
 
@@ -639,6 +908,9 @@ var KHAYA = (function () {
     COLS: COLS,
     ROWS: ROWS,
     MAP: MAP,
+    PLOTS: PLOTS,
+    DAILY: DAILY,
+    FOLK: FOLK,
     CROPS: CROPS,
     BUILDINGS: BUILDINGS,
     FARM_STEPS: FARM_STEPS,
@@ -654,6 +926,8 @@ var KHAYA = (function () {
     playerLevel: playerLevel,
     nextStep: nextStep,
     terrainAt: terrainAt,
+    plotAt: plotAt,
+    plotOpen: plotOpen,
     occupied: occupied,
     buildingById: buildingById,
     footprint: footprint,
@@ -683,7 +957,20 @@ var KHAYA = (function () {
     collectReward: collectReward,
     tasks: tasks,
     currentTask: currentTask,
-    hasType: hasType
+    hasType: hasType,
+    canUnlock: canUnlock,
+    unlockPlot: unlockPlot,
+    dayKey: dayKey,
+    prevDay: prevDay,
+    claimDaily: claimDaily,
+    syncFolk: syncFolk,
+    houseFolk: houseFolk,
+    unhouseFolk: unhouseFolk,
+    seeFolk: seeFolk,
+    unseenFolk: unseenFolk,
+    folkBonus: folkBonus,
+    decorCount: decorCount,
+    tuneProduce: tuneProduce
   };
 })();
 

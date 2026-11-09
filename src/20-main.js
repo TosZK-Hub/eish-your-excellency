@@ -30,6 +30,11 @@
   var muted = localStorage.getItem("eish-khaya-mute") === "1";
   var drag = null;
   var laneLevel = KHAYA.playerLevel(state);
+  var cam = { x: 0, y: 0, z: 1, vx: 0, vy: 0 };
+  var pointers = {};
+  var pinch = 0;
+  var squash = {};
+  var cheerTimer = 0;
   var actx = null;
   var wind = null;
 
@@ -182,6 +187,37 @@
         return "<li" + (t.done ? " class=\"done\"" : "") + ">" + t.text + "</li>";
       }).join("");
     }
+    var laneBtn = document.querySelector("[data-act=more]");
+    if (laneBtn) {
+      var badges = KHAYA.unseenFolk(state);
+      if (!state.daily || state.daily.last !== KHAYA.dayKey(new Date())) badges += 1;
+      laneBtn.innerHTML = "Lane" + (badges ? "<span class=\"badge\">" + badges + "</span>" : "");
+    }
+  }
+
+  function flyCoins(x, y, n) {
+    if (!notesEl) return;
+    var target = notesEl.getBoundingClientRect();
+    var i;
+    for (i = 0; i < Math.min(8, Math.max(1, n)); i++) {
+      var el = document.createElement("i");
+      el.className = "fly";
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      document.body.appendChild(el);
+      (function (node, delay) {
+        setTimeout(function () {
+          node.style.transform = "translate(" + (target.left + target.width / 2 - x) + "px," + (target.top + target.height / 2 - y) + "px) scale(0.35)";
+          node.style.opacity = "0.15";
+        }, 20 + delay);
+        setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 680 + delay);
+      })(el, i * 45);
+    }
+  }
+
+  function noteArrivals() {
+    var found = KHAYA.syncFolk(state);
+    if (found.length) toast(KHAYA.FOLK[found[0]].name + " can stay on the lane");
   }
 
   function celebrate() {
@@ -189,6 +225,13 @@
     if (after > laneLevel) {
       toast("Level " + after);
       chime("place");
+      var cheer = document.getElementById("cheer");
+      if (cheer) {
+        cheer.hidden = false;
+        cheer.textContent = "Level " + after;
+        clearTimeout(cheerTimer);
+        cheerTimer = setTimeout(function () { cheer.hidden = true; }, 1500);
+      }
       floats.push({
         x: canvas.clientWidth / 2,
         y: 72,
@@ -259,7 +302,7 @@
   }
 
   function cellPoint(b) {
-    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
+    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
     var n = KHAYA.cellNorth(b.x + b.w / 2, b.y + b.h / 2, o.ox, o.oy, o.tw, o.th);
     return { x: n.x, y: n.y };
   }
@@ -270,7 +313,7 @@
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, Date.now());
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, Date.now());
   }
 
   function act(result) {
@@ -301,11 +344,14 @@
       toast("+" + result.notes + " notes");
       if (result.collected && focus) {
         var coin = cellPoint(focus);
-        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, result.notes) });
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(6, result.notes) });
+        var rect = canvas.getBoundingClientRect();
+        flyCoins(rect.left + coin.x, rect.top + coin.y, result.notes);
       }
     } else if (result.xp) {
       chime("tap");
     }
+    noteArrivals();
     celebrate();
     save();
     paint();
@@ -387,16 +433,91 @@
     });
   }
 
+  function dailyBlock() {
+    var today = KHAYA.dayKey(new Date());
+    var ready = !state.daily || state.daily.last !== today;
+    var html = "<h3>Seven days</h3><div class=\"days\">";
+    var i;
+    for (i = 1; i <= 7; i++) {
+      var cls = "";
+      if (state.daily && i < state.daily.day) cls = " done";
+      if (state.daily && i === state.daily.day && !ready) cls = " done";
+      if (ready && i === ((state.daily && state.daily.last && KHAYA.prevDay(today) === state.daily.last) ? (state.daily.day % 7) + 1 : 1)) cls = " now";
+      html += "<span class=\"day" + cls + "\">" + i + "</span>";
+    }
+    html += "</div>";
+    if (ready) html += "<button type=\"button\" class=\"hot\" data-daily>Collect today's gift</button>";
+    else html += "<p class=\"fine\">Already collected today. The next gift waits until tomorrow.</p>";
+    return html;
+  }
+
+  function bookBlock() {
+    var html = "<h3>The lane book</h3><div class=\"book\">";
+    var id, spec, rec, homes, hi;
+    for (id in KHAYA.FOLK) {
+      spec = KHAYA.FOLK[id];
+      rec = state.collection[id] || { have: 0 };
+      if (rec.have) KHAYA.seeFolk(state, id);
+      html += "<article class=\"folk" + (rec.have ? "" : " locked") + "\"><b>" + (rec.have ? spec.name : "???") + "</b><p class=\"fine\">" + (rec.have ? spec.blurb : "Not met yet.") + "</p>";
+      if (rec.have) {
+        homes = "";
+        for (hi = 0; hi < state.buildings.length; hi++) {
+          var allow = spec.where.indexOf(state.buildings[hi].type) >= 0;
+          if (allow) homes += "<button type=\"button\" data-house=\"" + id + "\" data-bid=\"" + state.buildings[hi].id + "\">" + (rec.home === state.buildings[hi].id ? "Staying · " : "House at ") + KHAYA.BUILDINGS[state.buildings[hi].type].name + "</button>";
+        }
+        if (rec.home) homes += "<button type=\"button\" data-unhouse=\"" + id + "\">Let them wander</button>";
+        html += "<div class=\"row\">" + homes + "</div>";
+      }
+      html += "</article>";
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function openUnlock(id) {
+    var plot = KHAYA.PLOTS[id];
+    var check = KHAYA.canUnlock(state, id);
+    var html = "<p class=\"rules\">Open the " + plot.name.toLowerCase() + " for " + plot.notes + " notes. It needs lane level " + plot.level + ".</p>";
+    html += "<button type=\"button\" class=\"hot\" data-unlock=\"" + id + "\"" + (check.ok ? "" : " disabled") + ">Unlock</button>";
+    if (!check.ok) html += "<p class=\"fine\">" + check.reason + "</p>";
+    openModal(plot.name, html);
+    var btn = modalBody.querySelector("[data-unlock]");
+    if (btn) btn.addEventListener("click", function () {
+      act(KHAYA.unlockPlot(state, id));
+      if (!modal.hidden) closeModal();
+    });
+  }
+
   function openMore() {
     var list = KHAYA.tasks(state).map(function (t) {
       return "<li>" + (t.done ? "Done · " : "") + t.text + "</li>";
     }).join("");
+    var head = dailyBlock() + bookBlock();
+    save();
     var sell = "";
     Object.keys(KHAYA.CROPS).forEach(function (k) {
       if (state.crops[k] > 0) sell += "<button type=\"button\" data-sell=\"" + k + "\">Sell 1 " + KHAYA.CROPS[k].name.toLowerCase() + " · " + KHAYA.CROPS[k].price + " notes</button>";
     });
     if (!sell) sell = "<p class=\"fine\">Harvest something, then sell it once a spaza is up.</p>";
-    openModal("The lane", "<ul class=\"unlocks\">" + list + "</ul><div class=\"row\">" + sell + "</div><button type=\"button\" id=\"reset\">Reset neighbourhood</button>");
+    openModal("The lane", head + "<ul class=\"unlocks\">" + list + "</ul><div class=\"row\">" + sell + "</div><button type=\"button\" id=\"reset\">Reset neighbourhood</button>");
+    var dailyBtn = modalBody.querySelector("[data-daily]");
+    if (dailyBtn) dailyBtn.addEventListener("click", function () {
+      var got = KHAYA.claimDaily(state, KHAYA.dayKey(new Date()));
+      act(got);
+      if (!modal.hidden) openMore();
+    });
+    modalBody.querySelectorAll("[data-house]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        act(KHAYA.houseFolk(state, btn.getAttribute("data-house"), Number(btn.getAttribute("data-bid"))));
+        if (!modal.hidden) openMore();
+      });
+    });
+    modalBody.querySelectorAll("[data-unhouse]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        act(KHAYA.unhouseFolk(state, btn.getAttribute("data-unhouse")));
+        if (!modal.hidden) openMore();
+      });
+    });
     modalBody.querySelectorAll("[data-sell]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         act(KHAYA.sell(state, btn.getAttribute("data-sell"), 1));
@@ -420,12 +541,26 @@
 
   function cellFrom(ev) {
     var rect = canvas.getBoundingClientRect();
-    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
+    var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
     return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+  }
+
+  function pinchDist() {
+    var ids = Object.keys(pointers);
+    if (ids.length < 2) return 0;
+    var a = pointers[ids[0]];
+    var b = pointers[ids[1]];
+    return Math.hypot(a.x - b.x, a.y - b.y) || 1;
   }
 
   canvas.addEventListener("pointerdown", function (ev) {
     if (!modal.hidden) return;
+    pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    if (Object.keys(pointers).length >= 2) {
+      drag = null;
+      pinch = pinchDist();
+      return;
+    }
     var cell = cellFrom(ev);
     if (ghost) {
       ghost.x = cell.x;
@@ -437,18 +572,46 @@
     }
     var hit = KHAYA.occupied(state, cell.x, cell.y);
     if (!hit) {
-      selectedId = null;
-      paint();
+      var plot = KHAYA.plotAt(cell.x, cell.y);
+      drag = {
+        pan: true, px: ev.clientX, py: ev.clientY, lx: ev.clientX, ly: ev.clientY,
+        moved: false, pointer: ev.pointerId,
+        plot: plot && !KHAYA.plotOpen(state, cell.x, cell.y) ? plot.id : ""
+      };
+      try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
       return;
     }
+    squash[hit.id] = Date.now();
     drag = { id: hit.id, px: ev.clientX, py: ev.clientY, moved: false, cx: hit.x, cy: hit.y, pointer: ev.pointerId };
     try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
   });
 
   canvas.addEventListener("pointermove", function (ev) {
+    if (pointers[ev.pointerId]) pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+    if (Object.keys(pointers).length >= 2) {
+      var dist = pinchDist();
+      if (pinch) {
+        cam.z *= dist / pinch;
+        DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+      }
+      pinch = dist;
+      paint();
+      return;
+    }
     if (!drag || ev.pointerId !== drag.pointer) return;
     if (Math.hypot(ev.clientX - drag.px, ev.clientY - drag.py) > 12) drag.moved = true;
     if (!drag.moved) return;
+    if (drag.pan) {
+      cam.x += ev.clientX - drag.lx;
+      cam.y += ev.clientY - drag.ly;
+      cam.vx = (ev.clientX - drag.lx) * 0.6;
+      cam.vy = (ev.clientY - drag.ly) * 0.6;
+      drag.lx = ev.clientX;
+      drag.ly = ev.clientY;
+      DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+      paint();
+      return;
+    }
     var cell = cellFrom(ev);
     if (drag.ghost) {
       ghost.x = cell.x;
@@ -461,9 +624,16 @@
   });
 
   function endDrag(ev) {
+    if (ev && pointers[ev.pointerId]) delete pointers[ev.pointerId];
+    if (Object.keys(pointers).length < 2) pinch = 0;
     if (!drag || (ev && ev.pointerId !== drag.pointer)) return;
     var item = drag;
     drag = null;
+    if (item.pan) {
+      if (!item.moved && item.plot) openUnlock(item.plot);
+      else { selectedId = null; paint(); }
+      return;
+    }
     if (item.ghost) {
       var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
@@ -485,7 +655,18 @@
   }
 
   canvas.addEventListener("pointerup", endDrag);
-  canvas.addEventListener("pointercancel", function (ev) { drag = null; paint(); });
+  canvas.addEventListener("pointercancel", function (ev) {
+    if (ev && pointers[ev.pointerId]) delete pointers[ev.pointerId];
+    drag = null;
+    paint();
+  });
+  canvas.addEventListener("wheel", function (ev) {
+    if (!modal.hidden) return;
+    ev.preventDefault();
+    cam.z *= ev.deltaY > 0 ? 0.92 : 1.08;
+    DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+    paint();
+  }, { passive: false });
 
   card.addEventListener("click", function (ev) {
     var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
@@ -554,8 +735,18 @@
   var hudAt = 0;
   function frame() {
     var now = Date.now();
+    if (!drag || !drag.pan) {
+      cam.x += cam.vx;
+      cam.y += cam.vy;
+      cam.vx *= 0.9;
+      cam.vy *= 0.9;
+      if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
+      if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
+      if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
+    }
     if (now - hudAt > 350) {
       var ticked = KHAYA.tick(state, now);
+      if (ticked.found && ticked.found.length) noteArrivals();
       if (ticked.finished && ticked.finished.length) {
         var i;
         for (i = 0; i < ticked.finished.length; i++) born[ticked.finished[i].id] = now;
@@ -571,7 +762,7 @@
     }
     floats = floats.filter(function (f) { return now - f.t < 1000; });
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, now);
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
