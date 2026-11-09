@@ -971,14 +971,15 @@ var PLAY = (function () {
     var order = [];
     var i;
     for (i = 0; i < 10; i++) order.push(CROPS[i % 3]);
-    var round = { i: 0, correct: 0, left: 1.6, order: order, over: false, token: "crate-" + Date.now() + "-" + Math.floor(Math.random() * 1e6) };
+    var round = { i: 0, correct: 0, order: order, over: false, token: "crate-" + Date.now() + "-" + Math.floor(Math.random() * 1e6) };
+    var deadline = 0;
     body.innerHTML = "<p class=\"rules\">Crate Day. A crop name lights up. Tap its crate before the bar runs out. Ten crops. No entry fee.</p><div class=\"meter\"><span id=\"crateBar\"></span></div><p id=\"crateShow\" class=\"show maize\">Maize</p><div class=\"crates\">" + CROPS.map(chip).join("") + "</div><p id=\"crateScore\" class=\"fine\">0 / 10</p>";
     var show = body.querySelector("#crateShow");
     var bar = body.querySelector("#crateBar");
     var score = body.querySelector("#crateScore");
     function present() {
       if (round.i >= round.order.length) return finish();
-      round.left = 1.6;
+      deadline = performance.now() + 3200;
       var crop = round.order[round.i];
       show.textContent = KHAYA.CROPS[crop].name;
       show.className = "show " + crop;
@@ -999,14 +1000,11 @@ var PLAY = (function () {
       btn.addEventListener("click", function () { answer(btn.getAttribute("data-crop")); });
     });
     present();
-    var last = performance.now();
     function frame(t) {
       if (round.over) return;
-      var dt = Math.min(0.05, (t - last) / 1000);
-      last = t;
-      round.left -= dt;
-      bar.style.transform = "scaleX(" + Math.max(0, round.left / 1.6) + ")";
-      if (round.left <= 0) answer("__timeout__");
+      var left = (deadline - t) / 3200;
+      bar.style.transform = "scaleX(" + Math.max(0, left) + ")";
+      if (left <= 0) answer("__timeout__");
       if (!round.over) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
@@ -1272,6 +1270,12 @@ var PLAY = (function () {
   }
 
   function finishGame(token, payout, line) {
+    var empty = !payout || ((payout.notes || 0) + (payout.seeds || 0) + (payout.water || 0) <= 0);
+    if (empty) {
+      modalBody.innerHTML = "<p class=\"rules\">" + line + " No notes this round. You can try again.</p><button type=\"button\" class=\"hot\" data-close-game>Back to the lane</button>";
+      modalBody.querySelector("[data-close-game]").addEventListener("click", closeModal);
+      return;
+    }
     var granted = KHAYA.collectReward(state, token, payout);
     save();
     var text = line + " ";

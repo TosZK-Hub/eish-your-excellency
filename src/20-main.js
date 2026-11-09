@@ -202,6 +202,12 @@
   }
 
   function finishGame(token, payout, line) {
+    var empty = !payout || ((payout.notes || 0) + (payout.seeds || 0) + (payout.water || 0) <= 0);
+    if (empty) {
+      modalBody.innerHTML = "<p class=\"rules\">" + line + " No notes this round. You can try again.</p><button type=\"button\" class=\"hot\" data-close-game>Back to the lane</button>";
+      modalBody.querySelector("[data-close-game]").addEventListener("click", closeModal);
+      return;
+    }
     var granted = KHAYA.collectReward(state, token, payout);
     save();
     var text = line + " ";
