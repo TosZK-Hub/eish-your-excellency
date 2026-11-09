@@ -62,12 +62,26 @@ def shell(groups, name, inflate, mat):
             doomed.append(v)
     bmesh.ops.delete(bm, geom=doomed, context="VERTS")
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    for _ in range(8):
+        boundary = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
+        for v in boundary:
+            nbrs = []
+            for e in v.link_edges:
+                if e.is_boundary:
+                    nbrs.append(e.other_vert(v).co)
+            if nbrs:
+                avg = Vector((0, 0, 0))
+                for p in nbrs:
+                    avg += p
+                avg /= len(nbrs)
+                v.co = v.co.lerp(avg, 0.7)
+        bmesh.ops.smooth_vert(bm, verts=list(bm.verts), factor=0.35, use_axis_x=True, use_axis_y=True, use_axis_z=True)
     for v in bm.verts:
         v.co += v.normal * inflate
     bmesh.update_edit_mesh(obj.data)
     bpy.ops.object.mode_set(mode="OBJECT")
     mod = obj.modifiers.new("shell", "SOLIDIFY")
-    mod.thickness = 0.012
+    mod.thickness = 0.008
     mod.offset = 1.0
     bpy.ops.object.modifier_apply(modifier=mod.name)
     obj.data.materials.clear()
@@ -84,9 +98,9 @@ jacket_groups = [
 pants_groups = ["pelvis", "thigh_l", "thigh_r", "calf_l", "calf_r"]
 shoe_groups = ["foot_l", "foot_r", "ball_l", "ball_r", "ball_leaf_l", "ball_leaf_r"]
 
-jacket = shell(jacket_groups, "Jacket", 0.018, solid_mat("jacket", (0.10, 0.55, 0.50), 0.78))
-pants = shell(pants_groups, "Trousers", 0.016, solid_mat("trousers", (0.08, 0.14, 0.13), 0.8))
-shoes = shell(shoe_groups, "Sneakers", 0.02, solid_mat("sneakers", (0.93, 0.91, 0.86), 0.45))
+jacket = shell(jacket_groups, "Jacket", 0.02, solid_mat("jacket", (0.12, 0.58, 0.54), 0.74))
+pants = shell(pants_groups, "Trousers", 0.018, solid_mat("trousers", (0.1, 0.18, 0.16), 0.8))
+shoes = shell(shoe_groups, "Sneakers", 0.03, solid_mat("sneakers", (0.94, 0.93, 0.9), 0.42))
 # dark sole: a second thinner shell slightly lower is overkill; tint the shoe and add a sole box per foot later
 
 # Drop curves and any leftover import junk. Hair from the pack is authored at the
@@ -105,22 +119,69 @@ if height > 2.2 or height < 1.4:
     arm.scale = (1.7 / height, 1.7 / height, 1.7 / height)
     bpy.context.view_layer.update()
 
-hair_mat = solid_mat("hair", (0.07, 0.045, 0.035), 0.86)
-bpy.ops.mesh.primitive_uv_sphere_add(radius=0.085, segments=20, ring_count=12)
+hair_mat = solid_mat("hair", (0.09, 0.055, 0.04), 0.84)
+head_h, head_t = (arm.matrix_world @ arm.data.bones["Head"].head_local, arm.matrix_world @ arm.data.bones["Head"].tail_local)
+centroid = (head_h + head_t) * 0.5
+neck_xy = Vector((head_h.x, head_h.y, 0))
+head_idx = body.vertex_groups["Head"].index
+coords = []
+for v in body.data.vertices:
+    for g in v.groups:
+        if g.group == head_idx and g.weight > 0.45:
+            coords.append(body.matrix_world @ v.co)
+            break
+nose = max(coords, key=lambda p: (Vector((p.x, p.y, 0)) - neck_xy).length)
+forward = (Vector((nose.x, nose.y, 0)) - neck_xy).normalized()
+bpy.ops.mesh.primitive_uv_sphere_add(radius=0.13, segments=32, ring_count=18, location=centroid + Vector((0, 0, 0.01)))
 cap = bpy.context.active_object
-cap.name = "HairCap"
+cap.name = "Hair"
+wrap = cap.modifiers.new("wrap", "SHRINKWRAP")
+wrap.target = body
+wrap.wrap_method = "NEAREST_SURFACEPOINT"
+wrap.wrap_mode = "OUTSIDE"
+wrap.offset = 0.01
+bpy.ops.object.modifier_apply(modifier=wrap.name)
+bpy.ops.object.mode_set(mode="EDIT")
+bm = bmesh.from_edit_mesh(cap.data)
+doomed = []
+for v in bm.verts:
+    w = cap.matrix_world @ v.co
+    ahead = (Vector((w.x, w.y, 0)) - neck_xy).dot(forward)
+    # Keep only the crown. A brim over the eyes hides the face.
+    if w.z < head_t.z - 0.06:
+        doomed.append(v)
+    elif ahead > 0.01:
+        doomed.append(v)
+bmesh.ops.delete(bm, geom=doomed, context="VERTS")
+for _ in range(6):
+    boundary = [v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
+    for v in boundary:
+        nbrs = [e.other_vert(v).co for e in v.link_edges if e.is_boundary]
+        if nbrs:
+            avg = Vector((0, 0, 0))
+            for p in nbrs:
+                avg += p
+            v.co = v.co.lerp(avg / len(nbrs), 0.75)
+    bmesh.ops.smooth_vert(bm, verts=list(bm.verts), factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
+bmesh.update_edit_mesh(cap.data)
+bpy.ops.object.mode_set(mode="OBJECT")
+thick = cap.modifiers.new("thick", "SOLIDIFY")
+thick.thickness = 0.014
+thick.offset = 1
+bpy.ops.object.modifier_apply(modifier=thick.name)
+vg = cap.vertex_groups.new(name="Head")
+vg.add(list(range(len(cap.data.vertices))), 1.0, "REPLACE")
+arm_mod = cap.modifiers.new("Arm", "ARMATURE")
+arm_mod.object = arm
 cap.data.materials.append(hair_mat)
-bpy.ops.mesh.primitive_uv_sphere_add(radius=0.045, segments=16, ring_count=10)
+bpy.ops.mesh.primitive_uv_sphere_add(radius=0.05, segments=16, ring_count=10, location=centroid + Vector((0, 0, 0.11)) - forward * 0.01)
 bun = bpy.context.active_object
-bun.name = "HairBun"
+bun.name = "Bun"
+vg = bun.vertex_groups.new(name="Head")
+vg.add(list(range(len(bun.data.vertices))), 1.0, "REPLACE")
+arm_mod = bun.modifiers.new("Arm", "ARMATURE")
+arm_mod.object = arm
 bun.data.materials.append(hair_mat)
-for obj, local in ((cap, (0.0, 0.16, -0.02)), (bun, (0.02, 0.22, -0.04))):
-    obj.parent = arm
-    obj.parent_type = "BONE"
-    obj.parent_bone = "Head"
-    obj.location = local
-    obj.rotation_euler = (0, 0, 0)
-    obj.scale = (1, 1, 1)
 
 def pose(name, angles):
     b = arm.pose.bones[name]

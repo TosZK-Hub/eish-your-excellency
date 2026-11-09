@@ -29,7 +29,7 @@
 
   var app = {
     screen: "title",
-    who: load("eish_run_who", 0) % 3,
+    who: 0,
     mode: "run",
     sim: null,
     best: load("eish_run_best", {}),
@@ -225,9 +225,6 @@
       return;
     }
     if (app.screen === "title") {
-      if (id === "who-prev") app.who = (app.who + 2) % 3;
-      if (id === "who-next") app.who = (app.who + 1) % 3;
-      save("eish_run_who", app.who);
       if (id === "how") app.screen = "how";
       if (id === "mode-run") begin("run");
       if (id === "mode-rush") begin("rush");
@@ -253,10 +250,7 @@
   }
 
   function swipe(dirx, diry) {
-    if (app.screen !== "play") {
-      if (app.screen === "title" && dirx) tap(dirx < 0 ? "who-prev" : "who-next");
-      return;
-    }
+    if (app.screen !== "play") return;
     if (Math.abs(dirx) > Math.abs(diry)) app.lanes.push(dirx > 0 ? 1 : -1);
     else if (diry < 0) app.jump = true;
     else app.slide = true;

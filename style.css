@@ -41,7 +41,7 @@ button:active { transform: scale(0.98); }
 }
 .card h2 { margin: 0; text-align: center; }
 .card p { margin: 0; text-align: center; }
-.who { display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; gap: 8px; text-align: center; }
+.who { text-align: center; }
 .who b { display: block; font-size: 22px; }
 .who small, .line, button small { display: block; font-weight: 600; color: #5c4a42; font-size: 13px; }
 button.mode { text-align: center; }

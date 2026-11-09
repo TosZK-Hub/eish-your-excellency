@@ -663,7 +663,7 @@
   var CAST = [
     {
       id: "lerato", name: "Lerato", place: "Braamfontein",
-      line: "Cropped jacket, high puff, white runners. She takes the jump before the rank fills.",
+      line: "This review build is Lerato only. Jacket, trousers, and a run on the new rig.",
       skin: "#c4845c", skinDeep: "#8d5340",
       hair: "#1b140f", band: "#ff6b4a",
       cloth: "#14988e", clothDeep: "#0c645e",
@@ -1125,25 +1125,25 @@
   function buildTaxi(variant) {
     var THREE = T();
     var g = new THREE.Group();
-    var body = add(g, geoBox(0.98, 1.15, 2.15), mat("#f4f1ea", 0.42, 0.18), 0, 0.95, 0);
-    var cabin = add(g, geoBox(0.9, 0.48, 1.15), glassMat(), 0, 1.28, -0.05);
-    cabin.castShadow = false;
-    var band = add(g, geoBox(1.0, 0.12, 2.16), stripeMat(STRIPES[(variant || 0) % STRIPES.length]), 0, 1.05, 0);
+    var paint = mat("#f3efe6", 0.55, 0.08);
+    var body = add(g, geoBox(1.05, 1.28, 2.55), paint, 0, 0.95, 0);
+    var band = add(g, geoBox(1.08, 0.16, 2.57), stripeMat(STRIPES[(variant || 0) % STRIPES.length]), 0, 0.72, 0);
     band.castShadow = false;
-    add(g, geoBox(0.86, 0.42, 0.06), glassMat(), 0, 1.22, 1.06);
-    add(g, geoSphere(0.07, 10, 8), mat("#e23b3b", 0.4, 0.1), -0.36, 0.95, 1.08);
-    add(g, geoSphere(0.07, 10, 8), mat("#e23b3b", 0.4, 0.1), 0.36, 0.95, 1.08);
-    add(g, geoBox(0.28, 0.1, 0.02), mat("#f0c14d", 0.5, 0.1), 0, 0.72, 1.09);
-    add(g, geoBox(1.02, 0.12, 0.12), mat("#2a2428", 0.6, 0.3), 0, 0.48, 1.02);
-    add(g, geoBox(0.7, 0.08, 0.35), mat("#d9d3c8", 0.7, 0.1), 0, 1.62, -0.15);
+    var glass = add(g, geoBox(0.98, 0.42, 1.7), glassMat(), 0, 1.28, -0.05);
+    glass.castShadow = false;
+    add(g, geoBox(0.9, 0.36, 0.06), glassMat(), 0, 1.22, 1.28);
+    add(g, geoBox(0.04, 0.9, 2.2), mat("#d7d2c6", 0.6, 0.05), 0.52, 1.05, 0);
+    add(g, geoBox(0.22, 0.08, 0.04), mat("#e23b3b", 0.45, 0.1), -0.28, 0.55, 1.28);
+    add(g, geoBox(0.22, 0.08, 0.04), mat("#e23b3b", 0.45, 0.1), 0.28, 0.55, 1.28);
+    add(g, geoBox(1.08, 0.08, 0.16), mat("#2a2428", 0.65, 0.2), 0, 0.38, 1.15);
     function wheel(x, z) {
       var w = add(g, new THREE.CylinderGeometry(0.22, 0.22, 0.14, 12), mat("#1a1618", 0.7, 0.2), x, 0.22, z);
       w.rotation.z = Math.PI / 2;
     }
-    wheel(-0.48, 0.7);
-    wheel(0.48, 0.7);
-    wheel(-0.48, -0.7);
-    wheel(0.48, -0.7);
+    wheel(-0.52, 0.85);
+    wheel(0.52, 0.85);
+    wheel(-0.52, -0.85);
+    wheel(0.52, -0.85);
     g.userData.kind = "taxi";
     return g;
   }
@@ -1353,7 +1353,7 @@
     canvas.width = 256;
     canvas.height = 512;
     var g = canvas.getContext("2d");
-    var walls = ["#e7d3b0", "#e07a52", "#cfc8bc", "#f3e6c4", "#6a7580"];
+    var walls = ["#e4d2b8", "#d7c4a8", "#efe6d4", "#c9b79a", "#b7c0c4"];
     var accents = ["#d4534a", "#128f86", "#ffb703", "#7a4ad4", "#2a6fbf"];
     g.fillStyle = walls[style % walls.length];
     g.fillRect(0, 0, 256, 512);
@@ -1483,12 +1483,12 @@
     trunk.position.y = 0.8;
     trunk.castShadow = true;
     g.add(trunk);
-    var cols = ["#8e4ea8", "#c98ad4", "#6d3488", "#e4c0ef"];
+    var leaf = new THREE.MeshStandardMaterial({ color: "#6d8f4e", roughness: 0.86 });
+      var bloom = new THREE.MeshStandardMaterial({ color: "#8d6aa8", roughness: 0.84 });
     var i;
-    for (i = 0; i < 5; i++) {
-      var canopy = new THREE.Mesh(new THREE.SphereGeometry(0.42 - (i % 3) * 0.06, 12, 10), new THREE.MeshStandardMaterial({ color: cols[i % cols.length], roughness: 0.78 }));
-      canopy.position.set((i - 2) * 0.22, 1.55 + (i % 2) * 0.22, (i % 3 - 1) * 0.12);
-      canopy.scale.set(1.2, 0.7, 1);
+    for (i = 0; i < 7; i++) {
+      var canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34 + (i % 3) * 0.06, 1), i % 2 ? bloom : leaf);
+      canopy.position.set(Math.cos(i * 1.3) * 0.28, 1.45 + (i % 4) * 0.16, Math.sin(i * 1.3) * 0.22);
       canopy.castShadow = true;
       g.add(canopy);
     }
@@ -1784,21 +1784,19 @@
     hideProps();
     for (i = 0; i < props.length; i++) props[i].object.visible = false;
     var mode = app.sheet === "run" ? "run" : "idle";
-    var yaw = app.sheet === "back" ? 0 : app.sheet === "side" || app.sheet === "run" ? Math.PI / 2 : app.sheet === "three" ? Math.PI + 0.55 : Math.PI;
-    var who = app.who || 0;
-    var lineup = app.sheet !== "run" && app.sheet !== "side";
+    var yaw = app.sheet === "back" ? 0 : app.sheet === "side" || app.sheet === "run" ? Math.PI / 2 : app.sheet === "three" ? Math.PI + 0.7 : Math.PI;
     for (i = 0; i < runners.length; i++) {
-      var show = lineup || i === who;
-      runners[i].object.visible = show;
-      if (!show) continue;
-      runners[i].animate({ mode: mode, phase: (app.time || 0) * 1.7, t: app.time, dt: app.dt || 0.016, blink: false });
-      runners[i].object.position.set(lineup ? (i - 1) * 1.15 : 0, 0, 0);
-      runners[i].object.rotation.y = yaw;
-      runners[i].object.scale.set(1, 1, 1);
+      runners[i].object.visible = i === 0;
     }
-    camera.position.set(app.sheet === "run" ? 2.4 : 0.15, 1.05, app.sheet === "run" ? 0.15 : 3.35);
-    camera.lookAt(0, 0.95, 0);
-    camera.fov = verticalFov(lineup ? 42 : 28, camera.aspect);
+    var hero = runners[0];
+    hero.animate({ mode: mode, phase: (app.time || 0) * 1.7, t: app.time, dt: app.dt || 0.016, blink: false });
+    hero.object.position.set(0, 0, 0);
+    hero.object.rotation.y = yaw;
+    hero.object.scale.set(1, 1, 1);
+    var side = app.sheet === "run" || app.sheet === "side";
+    camera.position.set(side ? 2.15 : (app.sheet === "three" ? 1.15 : 0.05), 1.15, side ? 0.35 : 3.15);
+    camera.lookAt(0, 0.88, 0);
+    camera.fov = verticalFov(side ? 32 : 28, camera.aspect);
     camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     return { banner: "" };
@@ -1967,7 +1965,7 @@
 
   var app = {
     screen: "title",
-    who: load("eish_run_who", 0) % 3,
+    who: 0,
     mode: "run",
     sim: null,
     best: load("eish_run_best", {}),
@@ -2163,9 +2161,6 @@
       return;
     }
     if (app.screen === "title") {
-      if (id === "who-prev") app.who = (app.who + 2) % 3;
-      if (id === "who-next") app.who = (app.who + 1) % 3;
-      save("eish_run_who", app.who);
       if (id === "how") app.screen = "how";
       if (id === "mode-run") begin("run");
       if (id === "mode-rush") begin("rush");
@@ -2191,10 +2186,7 @@
   }
 
   function swipe(dirx, diry) {
-    if (app.screen !== "play") {
-      if (app.screen === "title" && dirx) tap(dirx < 0 ? "who-prev" : "who-next");
-      return;
-    }
+    if (app.screen !== "play") return;
     if (Math.abs(dirx) > Math.abs(diry)) app.lanes.push(dirx > 0 ? 1 : -1);
     else if (diry < 0) app.jump = true;
     else app.slide = true;

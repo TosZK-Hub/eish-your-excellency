@@ -9,7 +9,7 @@
   var CAST = [
     {
       id: "lerato", name: "Lerato", place: "Braamfontein",
-      line: "Cropped jacket, high puff, white runners. She takes the jump before the rank fills.",
+      line: "This review build is Lerato only. Jacket, trousers, and a run on the new rig.",
       skin: "#c4845c", skinDeep: "#8d5340",
       hair: "#1b140f", band: "#ff6b4a",
       cloth: "#14988e", clothDeep: "#0c645e",
@@ -471,25 +471,25 @@
   function buildTaxi(variant) {
     var THREE = T();
     var g = new THREE.Group();
-    var body = add(g, geoBox(0.98, 1.15, 2.15), mat("#f4f1ea", 0.42, 0.18), 0, 0.95, 0);
-    var cabin = add(g, geoBox(0.9, 0.48, 1.15), glassMat(), 0, 1.28, -0.05);
-    cabin.castShadow = false;
-    var band = add(g, geoBox(1.0, 0.12, 2.16), stripeMat(STRIPES[(variant || 0) % STRIPES.length]), 0, 1.05, 0);
+    var paint = mat("#f3efe6", 0.55, 0.08);
+    var body = add(g, geoBox(1.05, 1.28, 2.55), paint, 0, 0.95, 0);
+    var band = add(g, geoBox(1.08, 0.16, 2.57), stripeMat(STRIPES[(variant || 0) % STRIPES.length]), 0, 0.72, 0);
     band.castShadow = false;
-    add(g, geoBox(0.86, 0.42, 0.06), glassMat(), 0, 1.22, 1.06);
-    add(g, geoSphere(0.07, 10, 8), mat("#e23b3b", 0.4, 0.1), -0.36, 0.95, 1.08);
-    add(g, geoSphere(0.07, 10, 8), mat("#e23b3b", 0.4, 0.1), 0.36, 0.95, 1.08);
-    add(g, geoBox(0.28, 0.1, 0.02), mat("#f0c14d", 0.5, 0.1), 0, 0.72, 1.09);
-    add(g, geoBox(1.02, 0.12, 0.12), mat("#2a2428", 0.6, 0.3), 0, 0.48, 1.02);
-    add(g, geoBox(0.7, 0.08, 0.35), mat("#d9d3c8", 0.7, 0.1), 0, 1.62, -0.15);
+    var glass = add(g, geoBox(0.98, 0.42, 1.7), glassMat(), 0, 1.28, -0.05);
+    glass.castShadow = false;
+    add(g, geoBox(0.9, 0.36, 0.06), glassMat(), 0, 1.22, 1.28);
+    add(g, geoBox(0.04, 0.9, 2.2), mat("#d7d2c6", 0.6, 0.05), 0.52, 1.05, 0);
+    add(g, geoBox(0.22, 0.08, 0.04), mat("#e23b3b", 0.45, 0.1), -0.28, 0.55, 1.28);
+    add(g, geoBox(0.22, 0.08, 0.04), mat("#e23b3b", 0.45, 0.1), 0.28, 0.55, 1.28);
+    add(g, geoBox(1.08, 0.08, 0.16), mat("#2a2428", 0.65, 0.2), 0, 0.38, 1.15);
     function wheel(x, z) {
       var w = add(g, new THREE.CylinderGeometry(0.22, 0.22, 0.14, 12), mat("#1a1618", 0.7, 0.2), x, 0.22, z);
       w.rotation.z = Math.PI / 2;
     }
-    wheel(-0.48, 0.7);
-    wheel(0.48, 0.7);
-    wheel(-0.48, -0.7);
-    wheel(0.48, -0.7);
+    wheel(-0.52, 0.85);
+    wheel(0.52, 0.85);
+    wheel(-0.52, -0.85);
+    wheel(0.52, -0.85);
     g.userData.kind = "taxi";
     return g;
   }
