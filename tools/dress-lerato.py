@@ -144,41 +144,43 @@ shoe_groups = ["foot_l", "foot_r", "ball_l", "ball_r", "ball_leaf_l", "ball_leaf
 
 jacket = shell(jacket_groups, "Jacket", 0.012, solid_mat("jacket", (0.12, 0.58, 0.54), 0.74), extra=jacket_extra)
 pants = shell(pants_groups, "Trousers", 0.02, solid_mat("trousers", (0.1, 0.18, 0.16), 0.8), extra=pants_extra)
-shoes = shell(shoe_groups, "Sneakers", 0.018, solid_mat("sneakers", (0.95, 0.94, 0.91), 0.4), reshape=collapse_toes)
-# Fuse the toe grooves into one volume. This object already carries the body's armature modifier.
-bpy.context.view_layer.objects.active = shoes
-for m in shoes.modifiers:
-    if m.type == "ARMATURE":
-        m.show_viewport = False
-fuse = shoes.modifiers.new("fuse", "REMESH")
-fuse.mode = "VOXEL"
-fuse.voxel_size = 0.016
-fuse.use_smooth_shade = True
-bpy.ops.object.modifier_apply(modifier="fuse")
-for m in shoes.modifiers:
-    if m.type == "ARMATURE":
-        m.show_viewport = True
-shoes.vertex_groups.clear()
-left = shoes.vertex_groups.new(name="foot_l")
-right = shoes.vertex_groups.new(name="foot_r")
-lv, rv = [], []
-for v in shoes.data.vertices:
-    (lv if v.co.x >= 0 else rv).append(v.index)
-left.add(lv, 1.0, "REPLACE")
-right.add(rv, 1.0, "REPLACE")
-# Scale each shoe up around its own center so the toe box meets the trouser cuff.
-for indices in (lv, rv):
-    if not indices:
-        continue
-    center = sum((shoes.data.vertices[i].co for i in indices), Vector()) / len(indices)
-    zs = [shoes.data.vertices[i].co.z for i in indices]
-    z0 = min(zs)
-    for i in indices:
-        v = shoes.data.vertices[i]
-        v.co = center + (v.co - center) * 1.5
-        if v.co.z < z0 + 0.015:
-            v.co.z -= 0.01
-print("SHOE fused", len(shoes.data.vertices))
+
+def solid_shoe(side):
+    # A closed ellipsoid plus a sole. Same parenting as the hair, which does follow its bone.
+    bone = arm.data.bones["foot_" + side]
+    head = arm.matrix_world @ bone.head_local
+    tail = arm.matrix_world @ bone.tail_local
+    center = (head + tail) * 0.5
+    center.z = min(head.z, tail.z) + 0.02
+    white = solid_mat("sneaker_" + side, (0.95, 0.94, 0.91), 0.4)
+    sole_m = solid_mat("sole_" + side, (0.12, 0.1, 0.09), 0.7)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.048, segments=24, ring_count=16, location=center)
+    upper = bpy.context.active_object
+    upper.scale = (1.05, 2.15, 0.72)
+    bpy.ops.object.transform_apply(scale=True)
+    upper.data.materials.append(white)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=center + Vector((0, 0, -0.025)))
+    sole = bpy.context.active_object
+    sole.scale = (0.1, 0.2, 0.028)
+    bpy.ops.object.transform_apply(scale=True)
+    sole.data.materials.append(sole_m)
+    bpy.ops.object.select_all(action="DESELECT")
+    upper.select_set(True)
+    sole.select_set(True)
+    bpy.context.view_layer.objects.active = upper
+    bpy.ops.object.join()
+    shoe = bpy.context.active_object
+    shoe.name = "Sneaker_" + side
+    held = shoe.matrix_world.copy()
+    shoe.parent = arm
+    shoe.matrix_world = held
+    vg = shoe.vertex_groups.new(name="foot_" + side)
+    vg.add(list(range(len(shoe.data.vertices))), 1.0, "REPLACE")
+    shoe.modifiers.new("Arm", "ARMATURE").object = arm
+    print("SHOE", side, "verts", len(shoe.data.vertices))
+
+solid_shoe("l")
+solid_shoe("r")
 
 # Hide the body under the clothes. Head, neck and hands stay.
 KEEP = ("Head", "neck_", "hand_", "index_", "middle_", "ring_", "pinky_", "thumb_")
