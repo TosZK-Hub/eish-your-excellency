@@ -1,6 +1,7 @@
-html, body { margin: 0; height: 100%; background: #1b2430; overflow: hidden; touch-action: none; font-family: "Trebuchet MS", Verdana, sans-serif; color: #241820; }
+html, body { margin: 0; height: 100%; background: #1c2430; overflow: hidden; touch-action: none; font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif; color: #241820; }
 #view { position: fixed; inset: 0; }
-#view canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+body.sheetmode #ui { visibility: hidden; }
+body.sheetmode #view { top: 0 !important; height: 100% !important; right: 0 !important; bottom: 0 !important; }
 /* Menu keeps the whole runner in the 3D view. The card sits below it, not on top of the mesh. */
 body.menu #view { top: 62px; bottom: auto; height: calc(100vh - 62px - 430px); }
 .build { position: fixed; z-index: 6; left: 8px; bottom: 6px; margin: 0; color: #fffaf2; font-size: 12px; font-weight: 800; text-shadow: 0 1px 2px #241820; pointer-events: none; }
@@ -34,8 +35,9 @@ button:active { transform: scale(0.98); }
 .sheet { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); gap: 8px; }
 .sheet .mark { margin-bottom: auto; padding-top: 8px; }
 .card {
-  width: min(420px, 100%); margin: 0 auto; background: rgba(255, 248, 236, 0.94);
-  border: 4px solid #241820; border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  width: min(420px, 100%); margin: 0 auto; background: rgba(255, 250, 242, 0.96);
+  border: 2px solid #241820; border-radius: 22px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 16px 40px rgba(28, 22, 32, 0.28);
 }
 .card h2 { margin: 0; text-align: center; }
 .card p { margin: 0; text-align: center; }

@@ -130,6 +130,14 @@
     var roof = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.08, 1.05), new THREE.MeshStandardMaterial({ color: "#cbb89a", roughness: 0.8 }));
     roof.position.y = 0.54;
     mesh.add(roof);
+    var awning = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.05, 0.22), new THREE.MeshStandardMaterial({ color: style % 2 ? "#c4473a" : "#1f8f7a", roughness: 0.7 }));
+    awning.position.set(0, -0.28, -0.58);
+    mesh.add(awning);
+    if (style % 3 !== 2) {
+      var bal = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.04, 0.16), new THREE.MeshStandardMaterial({ color: "#d9d3c7", roughness: 0.8 }));
+      bal.position.set(0, 0.08, -0.55);
+      mesh.add(bal);
+    }
     if (style % 2 === 0) {
       var tank = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.18, 8), new THREE.MeshStandardMaterial({ color: "#8d9398", roughness: 0.5, metalness: 0.4 }));
       tank.position.set(0.2, 0.66, 0.1);
@@ -145,12 +153,12 @@
     trunk.position.y = 0.8;
     trunk.castShadow = true;
     g.add(trunk);
-    var cols = ["#9b59b6", "#d7a4e2", "#7d3c98"];
+    var cols = ["#8e4ea8", "#c98ad4", "#6d3488", "#e4c0ef"];
     var i;
-    for (i = 0; i < 3; i++) {
-      var canopy = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), new THREE.MeshStandardMaterial({ color: cols[i], roughness: 0.72 }));
-      canopy.position.set((i - 1) * 0.28, 1.7 + (i === 1 ? 0.25 : 0), (i === 2 ? 0.1 : -0.05));
-      canopy.scale.set(1.15, 0.75, 1);
+    for (i = 0; i < 5; i++) {
+      var canopy = new THREE.Mesh(new THREE.SphereGeometry(0.42 - (i % 3) * 0.06, 12, 10), new THREE.MeshStandardMaterial({ color: cols[i % cols.length], roughness: 0.78 }));
+      canopy.position.set((i - 2) * 0.22, 1.55 + (i % 2) * 0.22, (i % 3 - 1) * 0.12);
+      canopy.scale.set(1.2, 0.7, 1);
       canopy.castShadow = true;
       g.add(canopy);
     }
@@ -172,7 +180,7 @@
     }
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    renderer.toneMappingExposure = 1.12;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setClearColor(0xf3d7b0, 1);
@@ -200,9 +208,9 @@
     sun.shadow.bias = -0.0008;
     scene.add(sun);
     scene.add(sun.target);
-    var fill = new THREE.DirectionalLight(0xfff0d8, 0.65);
-    fill.position.set(-6, 6, -8);
-    scene.add(fill);
+    var rim = new THREE.DirectionalLight(0xffd2a8, 0.85);
+    rim.position.set(-4, 3, 6);
+    scene.add(rim);
 
     var map = roadTexture();
     roadMat = new THREE.MeshStandardMaterial({ map: map, roughness: 0.92, metalness: 0.02 });
@@ -392,7 +400,8 @@
       else kind = "scaffold";
       var chev = takeProp("chev", 0);
       if (chev) {
-        chev.object.position.set(e.x, 0, z + 2.4);
+        chev.object.position.set(e.x, 0.02, z + 2.8);
+        chev.object.scale.set(1.7, 1.7, 1.7);
         var color = e.verb === "low" ? "#f0c14d" : e.verb === "high" ? "#5aaadc" : "#e23b3b";
         if (chev.object.userData.cone) chev.object.userData.cone.material.color.set(color);
         chev.object.visible = true;
@@ -402,10 +411,13 @@
     if (!slot) return;
     slot.object.position.set(e.x, e.kind === "coin" || e.kind === "shield" || e.kind === "kota" ? 0 : 0, z);
     if (kind === "taxi") slot.object.rotation.y = 0;
-    if (kind === "coin") slot.object.rotation.y = time * 3;
+    if (kind === "coin") {
+          slot.object.rotation.y = time * 3;
+          slot.object.position.y = (e.y > 1 ? 0.85 : 0.15) + Math.sin(time * 5 + e.z) * 0.06;
+        }
     if (kind === "fare" && slot.object.userData.arm) slot.object.userData.arm.rotation.x = -0.8 + Math.sin(time * 6 + e.z) * 0.5;
-    if (e.kind === "coin" && e.y > 1) slot.object.position.y = 0.7;
-    else if (e.kind !== "coin") slot.object.position.y = 0;
+    if (e.kind === "coin") slot.object.position.y = (e.y > 1 ? 0.85 : 0.15) + Math.sin(time * 5 + e.z) * 0.06;
+    else slot.object.position.y = 0;
   }
 
   function verticalFov(hfovDeg, aspect) {
@@ -435,8 +447,36 @@
     camera.updateProjectionMatrix();
   }
 
+  function frameSheet(app) {
+    var i;
+    for (i = 0; i < buildings.length; i++) buildings[i].visible = false;
+    for (i = 0; i < trees.length; i++) trees[i].visible = false;
+    hideProps();
+    for (i = 0; i < props.length; i++) props[i].object.visible = false;
+    var mode = app.sheet === "run" ? "run" : "idle";
+    var yaw = app.sheet === "back" ? 0 : app.sheet === "side" || app.sheet === "run" ? Math.PI / 2 : app.sheet === "three" ? Math.PI + 0.55 : Math.PI;
+    var who = app.who || 0;
+    var lineup = app.sheet !== "run" && app.sheet !== "side";
+    for (i = 0; i < runners.length; i++) {
+      var show = lineup || i === who;
+      runners[i].object.visible = show;
+      if (!show) continue;
+      runners[i].animate({ mode: mode, phase: (app.time || 0) * 1.7, t: app.time, dt: app.dt || 0.016, blink: false });
+      runners[i].object.position.set(lineup ? (i - 1) * 1.15 : 0, 0, 0);
+      runners[i].object.rotation.y = yaw;
+      runners[i].object.scale.set(1, 1, 1);
+    }
+    camera.position.set(app.sheet === "run" ? 2.4 : 0.15, 1.05, app.sheet === "run" ? 0.15 : 3.35);
+    camera.lookAt(0, 0.95, 0);
+    camera.fov = verticalFov(lineup ? 42 : 28, camera.aspect);
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    return { banner: "" };
+  }
+
   function frame(app) {
     if (!clockReady) return;
+    if (app.sheet) return frameSheet(app);
     var travel = 0;
     var who = app.who || 0;
     var i;
@@ -460,6 +500,10 @@
         });
         runner.object.position.set(sim.x, sim.y, 0);
         runner.object.rotation.y = 0;
+        var squash = 1;
+        if (sim.air > 0) squash = sim.air < 0.12 ? 0.9 : 1.06;
+        else if (sim.slide > 0) squash = 0.86;
+        runner.object.scale.set(1, squash, 1);
         frameCamera(app, sim.x);
         sun.target.position.set(sim.x, 0, -6);
       }

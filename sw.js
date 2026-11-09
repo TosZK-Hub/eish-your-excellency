@@ -1,4 +1,4 @@
-var C = "ewg-v17";
+var C = "ewg-v18";
 var F = ["./","index.html","style.css","game.js","boot.js","vendor/three.module.js","icon.svg","manifest.webmanifest"];
 self.addEventListener("install", function (e) {
   self.skipWaiting();

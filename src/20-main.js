@@ -43,6 +43,7 @@
     jump: false,
     slide: false,
     bot: q.bot === "1",
+    sheet: q.sheet || "",
     newBest: false
   };
   if (q.mode === "rush" || q.mode === "robot" || q.mode === "run") app.mode = q.mode;
@@ -152,7 +153,8 @@
   if (buildTag) buildTag.textContent = q.build ? ("build " + q.build) : "";
 
   function paintUI() {
-    document.body.classList.toggle("menu", app.screen === "title" || app.screen === "how");
+    document.body.classList.toggle("menu", (app.screen === "title" || app.screen === "how") && !app.sheet);
+    document.body.classList.toggle("sheetmode", !!app.sheet);
     resize();
     var title = app.screen === "title";
     show("title", title);
@@ -338,6 +340,7 @@
     last = now;
     app.time += dt;
     app.dt = dt;
+    if (q.hold) app.time = +q.hold;
     if (app.screen === "title" || app.screen === "how") app.menuT += dt * (app.reduced ? 1.5 : 7);
     if (app.screen === "play" && app.sim) {
       EISH.step(app.sim, dt, takeInput());

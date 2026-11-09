@@ -331,11 +331,11 @@
       queueLane(s, dir);
     }
     var target = laneX(s.lane);
-    s.x += (target - s.x) * (1 - Math.exp(-14 * dt));
+    s.x += (target - s.x) * (1 - Math.exp(-18 * dt));
     if (s.air > 0) {
       s.air += dt;
       if (s.air >= JUMP_DUR) { s.air = 0; s.y = 0; }
-      else s.y = Math.sin((s.air / JUMP_DUR) * Math.PI) * 1.68;
+      else s.y = Math.sin((s.air / JUMP_DUR) * Math.PI) * 1.82;
     } else s.y = 0;
     if (s.slide > 0) {
       s.slide += dt;
@@ -454,7 +454,7 @@
       var front = e.verb === "block" ? 1.25 : 0.8;
       var back = e.verb === "block" ? -0.55 : -0.42;
       if (ahead > front || ahead < back) continue;
-      half = e.verb === "block" ? 0.5 : 0.46;
+      half = e.verb === "block" ? 0.48 : 0.4;
       var adx = Math.abs(s.x - e.x);
       if (adx > half) {
         if (!e.near && adx < half + 0.32 && ahead < 0.45 && ahead > -0.2) {
