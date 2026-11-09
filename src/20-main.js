@@ -19,7 +19,7 @@
   if (tag) tag.textContent = q.get("build") ? "build " + q.get("build") : "";
 
   var now0 = Date.now();
-  var state = load() || KHAYA.fresh(now0);
+  var state = q.get("fresh") ? KHAYA.fresh(now0) : (load() || KHAYA.fresh(now0));
   KHAYA.tick(state, now0);
   var selectedId = null;
   var ghost = null;
@@ -30,7 +30,7 @@
   var muted = localStorage.getItem("eish-khaya-mute") === "1";
   var drag = null;
   var laneLevel = KHAYA.playerLevel(state);
-  var cam = { x: 0, y: 0, z: 1, vx: 0, vy: 0 };
+  var cam = { x: 0, y: 0, z: q.get("zoom") ? Number(q.get("zoom")) || 1 : 1, vx: 0, vy: 0 };
   var pointers = {};
   var pinch = 0;
   var squash = {};
@@ -54,7 +54,7 @@
     toastEl.textContent = text;
     toastEl.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 1600);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2400);
   }
 
   function audio() {
@@ -176,6 +176,11 @@
     }).join("");
     var info = KHAYA.nextStep(KHAYA.playerXp(state), KHAYA.PLAYER_STEPS);
     var lv = KHAYA.playerLevel(state);
+    var ordersBtn = document.getElementById("orders");
+    if (ordersBtn) {
+      var list = state.orders && state.orders.phase === "here" ? state.orders.list : [];
+      ordersBtn.textContent = list && list.length ? "Orders " + list.length : "Orders";
+    }
     if (levelEl) levelEl.textContent = String(lv);
     if (xpFill) {
       var span = Math.max(1, info.next - info.prev);
@@ -337,11 +342,13 @@
       chime("place");
     }
     if (result.amount) {
-      chime("harvest");
+      chime(result.crit ? "place" : "harvest");
       if (focus) {
         var p = cellPoint(focus);
-        floats.push({ x: p.x, y: p.y, t: Date.now(), text: "+" + result.amount + " " + result.crop, color: "#2f6d4f" });
+        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
       }
+      if (result.crit) toast("A golden mielie. Triple harvest.");
+      if (result.combo >= 3) toast("Combo " + result.combo + ". +" + (result.notes || 0) + " notes.");
     } else if (result.notes) {
       chime("harvest");
       toast("+" + result.notes + " notes");
@@ -354,6 +361,7 @@
     } else if (result.xp) {
       chime("tap");
     }
+    if (result.chest) toast("Level " + result.chest + " chest is waiting in the lane book.");
     noteArrivals();
     celebrate();
     save();
@@ -426,12 +434,16 @@
   }
 
   function openPlay() {
-    openModal("Play", "<p class=\"rules\">Two games on the lane. They pay notes and supplies once when you finish. Leaving early pays nothing. There is no fee and nothing to wager.</p><article class=\"build\"><h3>Crate Day</h3><p>Sort the harvest into the right crate before the bar runs out.</p><button type=\"button\" data-game=\"crate\">Play Crate Day</button></article><article class=\"build\"><h3>Spaza counter</h3><p>Match the customer’s slip, then hand it over.</p><button type=\"button\" data-game=\"market\">Open the counter</button></article>");
+    openModal("Play", "<p class=\"rules\">Games on the lane. They pay notes once when you finish. Leaving early pays nothing. There is no fee and nothing to wager.</p><article class=\"build\"><h3>Crate Day</h3><p>Sort the harvest into the right crate before the bar runs out.</p><button type=\"button\" data-game=\"crate\">Play Crate Day</button></article><article class=\"build\"><h3>Spaza counter</h3><p>Match the customer’s slip, then hand it over.</p><button type=\"button\" data-game=\"market\">Open the counter</button></article><article class=\"build\"><h3>Penalty</h3><p>Five kicks. Time the bar. The keeper dives.</p><button type=\"button\" data-game=\"penalty\">Take the kicks</button></article><article class=\"build\"><h3>Diketo</h3><p>Tap the stone while it is lit. Eight stones.</p><button type=\"button\" data-game=\"diketo\">Play diketo</button></article>");
     modalBody.querySelectorAll("[data-game]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var kind = btn.getAttribute("data-game");
-        modalTitle.textContent = kind === "crate" ? "Crate Day" : "Spaza counter";
-        stopGame = kind === "crate" ? PLAY.crateStart(modalBody, finishGame) : PLAY.marketStart(modalBody, finishGame);
+        var titles = { crate: "Crate Day", market: "Spaza counter", penalty: "Penalty", diketo: "Diketo" };
+        modalTitle.textContent = titles[kind] || "Play";
+        if (kind === "crate") stopGame = PLAY.crateStart(modalBody, finishGame);
+        else if (kind === "market") stopGame = PLAY.marketStart(modalBody, finishGame);
+        else if (kind === "penalty") stopGame = PLAY.penaltyStart(modalBody, finishGame);
+        else stopGame = PLAY.diketoStart(modalBody, finishGame);
       });
     });
   }
@@ -461,7 +473,9 @@
       spec = KHAYA.FOLK[id];
       rec = state.collection[id] || { have: 0 };
       if (rec.have) KHAYA.seeFolk(state, id);
-      html += "<article class=\"folk" + (rec.have ? "" : " locked") + "\"><b>" + (rec.have ? spec.name : "???") + "</b><p class=\"fine\">" + (rec.have ? spec.blurb : "Not met yet.") + "</p>";
+      var tale = KHAYA.storyView(state, id);
+      html += "<article class=\"folk" + (rec.have ? "" : " locked") + "\"><b>" + (rec.have ? spec.name : (tale && tale.open ? spec.name : "???")) + "</b><p class=\"fine\">" + (rec.have ? spec.blurb : (tale && tale.open ? tale.say : "Not met yet.")) + "</p>";
+      if (tale && tale.open && !tale.done) html += "<button type=\"button\" data-story=\"" + id + "\">Reply</button>";
       if (rec.have) {
         homes = "";
         for (hi = 0; hi < state.buildings.length; hi++) {
@@ -495,7 +509,17 @@
     var list = KHAYA.tasks(state).map(function (t) {
       return "<li>" + (t.done ? "Done · " : "") + t.text + "</li>";
     }).join("");
-    var head = dailyBlock() + bookBlock();
+    var braai = "";
+    var today = KHAYA.dayKey(new Date());
+    if (KHAYA.weekendKey(today)) {
+      var progress = state.braai && state.braai.key === KHAYA.weekendKey(today) ? state.braai.n : 0;
+      braai = "<h3>Braai Day</h3><p class=\"fine\">Harvest 4 crops this weekend. " + Math.min(4, progress) + " of 4.</p>";
+      if (state.chest) braai += "<button type=\"button\" data-chest>Open the level " + state.chest.level + " chest</button>";
+      braai += "<button type=\"button\" data-braai>Share the braai</button>";
+    } else if (state.chest) {
+      braai = "<button type=\"button\" data-chest>Open the level " + state.chest.level + " chest</button>";
+    }
+    var head = dailyBlock() + braai + bookBlock();
     save();
     var sell = "";
     Object.keys(KHAYA.CROPS).forEach(function (k) {
@@ -514,6 +538,24 @@
         act(KHAYA.houseFolk(state, btn.getAttribute("data-house"), Number(btn.getAttribute("data-bid"))));
         if (!modal.hidden) openMore();
       });
+    });
+    modalBody.querySelectorAll("[data-story]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var told = KHAYA.advanceStory(state, btn.getAttribute("data-story"));
+        act(told.ok ? told : { ok: false, reason: told.reason });
+        if (told.say) toast(told.say);
+        if (!modal.hidden) openMore();
+      });
+    });
+    var chestBtn = modalBody.querySelector("[data-chest]");
+    if (chestBtn) chestBtn.addEventListener("click", function () {
+      act(KHAYA.claimChest(state));
+      if (!modal.hidden) openMore();
+    });
+    var braaiBtn = modalBody.querySelector("[data-braai]");
+    if (braaiBtn) braaiBtn.addEventListener("click", function () {
+      act(KHAYA.claimBraai(state, KHAYA.dayKey(new Date())));
+      if (!modal.hidden) openMore();
     });
     modalBody.querySelectorAll("[data-unhouse]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -710,7 +752,7 @@
     }
   });
 
-  if (q.get("go") === "1") state.welcomed = true;
+  if (q.get("go") === "1" || q.get("lineup")) state.welcomed = true;
   if (!state.welcomed) {
     state.welcomed = true;
     save();
@@ -720,7 +762,8 @@
   var muteBtn = document.getElementById("mute");
   function paintMute() {
     if (!muteBtn) return;
-    muteBtn.textContent = muted ? "Sound off" : "Sound";
+    muteBtn.textContent = muted ? "Off" : "On";
+    muteBtn.setAttribute("aria-label", muted ? "Sound off" : "Sound on");
     muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
   }
   if (muteBtn) {
@@ -733,6 +776,31 @@
     });
   }
   paintMute();
+  var ordersBtn = document.getElementById("orders");
+  if (ordersBtn) ordersBtn.addEventListener("click", function () {
+    var o = state.orders || { list: [], phase: "away" };
+    var html = "<p class=\"rules\">Jabu hoots in with neighbourhood orders. Fill one with what you grew. He waits, then the rank goes quiet until the next run.</p>";
+    if (o.phase !== "here" || !o.list || !o.list.length) html += "<p>The taxi is on the road.</p>";
+    else o.list.forEach(function (job, i) {
+      html += "<article class=\"build\"><h3>" + job.name + "</h3><p>" + job.say + "</p><p class=\"fine\">" + job.notes + " notes" + (job.rare ? " · sometimes a seed" : "") + "</p><button type=\"button\" data-fill=\"" + i + "\">Fill</button></article>";
+    });
+    openModal("Taxi orders", html);
+    modalBody.querySelectorAll("[data-fill]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var got = KHAYA.fillOrder(state, Number(btn.getAttribute("data-fill")), Date.now());
+        act(got);
+        if (got.ok) toast(got.rare ? "Order filled. A seed came with it." : "Order filled.");
+      });
+    });
+  });
+  var eventBtn = document.getElementById("event");
+  if (eventBtn) eventBtn.addEventListener("click", function () {
+    var got = KHAYA.respondEvent(state, Date.now());
+    if (got.say) toast(got.say);
+    if (!got.ok) toast(got.reason);
+    else act(got.notes || got.seeds ? got : { ok: true });
+    paint();
+  });
   canvas.addEventListener("pointerdown", function () { ensureWind(); }, { once: true });
 
   var hudAt = 0;
@@ -748,7 +816,22 @@
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
     }
     if (now - hudAt > 350) {
+      KHAYA.setToday(state, KHAYA.dayKey(new Date()));
       var ticked = KHAYA.tick(state, now);
+      if (ticked.hoot && state.orders) {
+        tone(440, 0.08, "square", 0.04);
+        setTimeout(function () { tone(330, 0.12, "square", 0.04); }, 120);
+        state.orders.hoot = 0;
+      }
+      var live = state.laneEvent && state.laneEvent.current;
+      var eventBtn = document.getElementById("event");
+      if (eventBtn) {
+        if (live) {
+          if (eventBtn.hidden) toast(live.say);
+          eventBtn.hidden = false;
+          eventBtn.textContent = live.say;
+        } else eventBtn.hidden = true;
+      }
       if (ticked.found && ticked.found.length) noteArrivals();
       if (ticked.finished && ticked.finished.length) {
         var i;
@@ -773,7 +856,46 @@
   if ("serviceWorker" in navigator && location.protocol !== "file:" && location.search.indexOf("nosw=1") < 0) {
   navigator.serviceWorker.register("sw.js").catch(function () {});
 }
-DRAW.load(function () { paint(); });
+  if (q.get("demo")) {
+    setTimeout(function () { if (ordersBtn) ordersBtn.click(); }, 800);
+    setTimeout(function () { closeModal(); }, 4800);
+    setTimeout(function () {
+      state.laneEvent = { next: Date.now() - 1, n: 0, current: null };
+      KHAYA.tick(state, Date.now());
+    }, 5400);
+    setTimeout(function () {
+      var banner = document.getElementById("event");
+      if (banner && !banner.hidden) banner.click();
+    }, 8600);
+    setTimeout(function () {
+      var bed = null;
+      var i;
+      for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed" && state.buildings[i].phase === "empty") bed = state.buildings[i];
+      if (!bed) return;
+      state.stats.harvested = 5;
+      KHAYA.sow(state, bed.id, "maize");
+      KHAYA.water(state, bed.id, Date.now() - 20000);
+      act(KHAYA.harvest(state, bed.id, Date.now()));
+    }, 10200);
+    setTimeout(function () { openPlay(); }, 12800);
+    setTimeout(function () {
+      var kick = modalBody.querySelector("[data-game=\"penalty\"]");
+      if (kick) kick.click();
+    }, 14600);
+    setTimeout(function () {
+      var shot = document.getElementById("penKick");
+      if (shot) shot.click();
+    }, 16200);
+  }
+DRAW.load(function () {
+  if (q.get("lineup")) {
+    function drawLine() { DRAW.lineup(canvas); requestAnimationFrame(drawLine); }
+    document.getElementById("boot").hidden = true;
+    drawLine();
+    return;
+  }
+  paint();
+});
 window.__EISH_OK = true;
   var boot = document.getElementById("boot");
   if (boot) boot.hidden = true;

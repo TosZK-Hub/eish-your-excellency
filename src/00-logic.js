@@ -259,8 +259,17 @@ var KHAYA = (function () {
       paid: {},
       tankAcc: 0,
       seenAt: now,
-      nextId: 3,
+      nextId: 5,
       welcomed: false,
+      today: "",
+      combo: 0,
+      lastHarvest: 0,
+      chests: {},
+      chest: null,
+      orders: { phase: "here", at: now, seq: 1, list: rollOrders(1), hoot: 1 },
+      laneEvent: { next: (now || 0) + 8000, n: 0, current: null },
+      stories: {},
+      braai: { key: "", n: 0, claimed: 0 },
       plots: { lane: 1 },
       daily: { last: "", day: 0 },
       collection: {
@@ -278,7 +287,9 @@ var KHAYA = (function () {
       },
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
-        { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 }
+        { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
+        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now },
+        { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
   }
@@ -398,6 +409,7 @@ var KHAYA = (function () {
       return null;
     }
     var xp = (b.pendingXp || 12) + folkBonus(state).buildXp;
+    var before = playerLevel(state);
     b.level = b.pendingLevel;
     b.pendingLevel = 0;
     b.pendingXp = 0;
@@ -405,7 +417,8 @@ var KHAYA = (function () {
     b.buildTotal = 0;
     state.buildXp += xp;
     state.stats.upgraded += 1;
-    return { id: b.id, level: b.level, xp: xp };
+    var chest = playerLevel(state) > before ? offerChest(state) : null;
+    return { id: b.id, level: b.level, xp: xp, chest: chest };
   }
 
   function cropReady(b, now) {
@@ -454,15 +467,27 @@ var KHAYA = (function () {
     if (!cropReady(b, now)) return { ok: false, reason: "Still growing." };
     var def = CROPS[b.crop];
     var name = b.crop;
-    var amount = def.yield;
+    var crit = (state.stats.harvested % 6) === 5;
+    var amount = def.yield * (crit ? 3 : 1);
     state.crops[name] = clamp((state.crops[name] || 0) + amount, 0, STACK_CAP);
     var gained = def.xp + folkBonus(state).farmXp;
+    var before = playerLevel(state);
     state.farmXp += gained;
     state.stats.harvested += 1;
+    if (state.lastHarvest && now - state.lastHarvest < 9000) state.combo = Math.min(5, (state.combo || 0) + 1);
+    else state.combo = 1;
+    state.lastHarvest = now;
+    var bonus = 0;
+    if (state.combo >= 3) bonus = Math.min(3, state.combo - 2);
+    if (bonus) state.notes = clamp(state.notes + bonus, 0, NOTE_CAP);
+    if (crit) state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+    noteBraai(state);
+    var chest = null;
+    if (playerLevel(state) > before) chest = offerChest(state);
     b.crop = null;
     b.phase = "empty";
     b.plantedAt = 0;
-    return { ok: true, crop: name, amount: amount, xp: gained };
+    return { ok: true, crop: name, amount: amount, xp: gained, crit: crit, combo: state.combo, notes: bonus, chest: chest };
   }
 
   function sell(state, crop, n) {
@@ -499,6 +524,9 @@ var KHAYA = (function () {
       }
       if (state.water >= waterCap) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
     }
+    syncTaxi(state, now);
+    var laneEvent = syncEvents(state, now);
+    var shed = laneEvent.current && laneEvent.current.type === "shed" && !laneEvent.current.solar;
     var finished = [];
     for (i = 0; i < state.buildings.length; i++) {
       b = state.buildings[i];
@@ -511,6 +539,7 @@ var KHAYA = (function () {
       }
       var tune = tuneProduce(state, b);
       if (!tune) continue;
+      if (shed) continue;
       b.prodAcc = (b.prodAcc || 0) + used;
       while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap) {
         b.stored = (b.stored || 0) + tune.notes;
@@ -520,7 +549,7 @@ var KHAYA = (function () {
     }
     var found = syncFolk(state);
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded, finished: finished, found: found };
+    return { elapsed: used, discarded: discarded, finished: finished, found: found, event: laneEvent.current, hoot: state.orders && state.orders.hoot };
   }
 
   function decorCount(state) {
@@ -700,9 +729,9 @@ var KHAYA = (function () {
     return { ok: true, day: next, notes: notes, seeds: seeds, water: water };
   }
 
-  function folkReady(state, id) {
+  function storyOpen(state, id) {
     var stats = state.stats || {};
-    if (id === "farmer" || id === "hen") return true;
+    if (id === "farmer" || id === "hen") return false;
     if (id === "doek") return stats.placed > 0 || playerLevel(state) >= 2;
     if (id === "kid") return stats.harvested > 0;
     if (id === "jersey") return stats.upgraded > 0;
@@ -713,6 +742,12 @@ var KHAYA = (function () {
     if (id === "cow") return (stats.expanded || 0) > 0;
     if (id === "goat") return (stats.collected || 0) > 0;
     return false;
+  }
+
+  function folkReady(state, id) {
+    if (id === "farmer" || id === "hen") return true;
+    var rec = state.collection && state.collection[id];
+    return !!(rec && rec.have);
   }
 
   function syncFolk(state) {
@@ -924,7 +959,387 @@ var KHAYA = (function () {
       if (!idMap[s.collection[folkId].home]) s.collection[folkId].home = 0;
       else s.collection[folkId].home = idMap[s.collection[folkId].home];
     }
+    s.combo = clamp(data.combo, 0, 5);
+    s.lastHarvest = clamp(data.lastHarvest, 0, 8.64e15);
+    if (typeof data.today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.today)) s.today = data.today;
+    s.chests = {};
+    if (data.chests && typeof data.chests === "object") {
+      var ck;
+      for (ck in data.chests) {
+        var clv = clamp(ck, 1, 20);
+        if (clv > 1 && data.chests[ck]) s.chests[clv] = 1;
+      }
+    }
+    s.chest = null;
+    if (data.chest && data.chest.level && !s.chests[data.chest.level]) {
+      var chestLv = clamp(data.chest.level, 2, 20);
+      if (!s.chests[chestLv]) s.chest = { level: chestLv };
+    }
+    if (data.stories && typeof data.stories === "object") {
+      var sid;
+      for (sid in STORIES) s.stories[sid] = clamp(data.stories[sid], 0, STORIES[sid].length);
+    }
+    if (data.braai && typeof data.braai === "object") {
+      s.braai = {
+        key: (typeof data.braai.key === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.braai.key)) ? data.braai.key : "",
+        n: clamp(data.braai.n, 0, 8),
+        claimed: data.braai.claimed ? 1 : 0
+      };
+    }
+    if (data.orders && data.orders.phase === "here" && data.orders.list && data.orders.list.length) {
+      s.orders = {
+        phase: "here",
+        at: clamp(data.orders.at, 0, 8.64e15),
+        seq: clamp(data.orders.seq, 0, 100000),
+        hoot: 0,
+        list: []
+      };
+      var oi;
+      for (oi = 0; oi < data.orders.list.length && oi < 3; oi++) {
+        var job = data.orders.list[oi];
+        if (!job || !job.need) continue;
+        s.orders.list.push({
+          name: String(job.name || "Run").slice(0, 40),
+          say: String(job.say || "").slice(0, 80),
+          need: job.need,
+          notes: clamp(job.notes, 0, 36),
+          xp: clamp(job.xp, 0, 8),
+          rare: job.rare ? 1 : 0
+        });
+      }
+      if (!s.orders.list.length) s.orders = { phase: "away", at: s.seenAt, seq: s.orders.seq, list: [], hoot: 0 };
+    }
     return s;
+  }
+
+  var ORDER_STAY = 42000;
+  var ORDER_GAP = 70000;
+  var RUNS = [
+    { name: "Soweto run", say: "6 mielies and 2 morogo for the Soweto run", need: { maize: 6, morogo: 2 } },
+    { name: "Alex rank", say: "4 mielies for the Alex rank", need: { maize: 4 } },
+    { name: "Vetkoek stop", say: "3 morogo and a pumpkin", need: { morogo: 3, pumpkin: 1 } },
+    { name: "Clinic lift", say: "2 aloe for the clinic", need: { aloe: 2 } },
+    { name: "School run", say: "5 mielies for the school run", need: { maize: 5 } }
+  ];
+
+  function rollOrders(seq) {
+    var picks = [seq % RUNS.length, (seq + 2) % RUNS.length];
+    if (seq % 3 === 0) picks.push((seq + 4) % RUNS.length);
+    var list = [];
+    var i, run, notes, k;
+    for (i = 0; i < picks.length; i++) {
+      run = RUNS[picks[i]];
+      notes = 0;
+      for (k in run.need) notes += (CROPS[k] ? CROPS[k].price : 4) * run.need[k];
+      notes = Math.min(36, Math.max(8, Math.floor(notes * 1.5)));
+      list.push({ name: run.name, say: run.say, need: run.need, notes: notes, xp: 6, rare: ((seq + i) % 5) === 0 ? 1 : 0 });
+    }
+    return list;
+  }
+
+  function syncTaxi(state, now) {
+    if (!state.orders) state.orders = { phase: "away", at: now, seq: 0, list: [], hoot: 0 };
+    var o = state.orders;
+    if (o.phase === "here") {
+      if (now >= (o.at || 0) + ORDER_STAY) {
+        o.phase = "away";
+        o.at = now;
+        o.list = [];
+        o.hoot = 0;
+      }
+      return o;
+    }
+    if (now - (o.at || 0) >= ORDER_GAP) {
+      o.seq = (o.seq || 0) + 1;
+      o.phase = "here";
+      o.at = now;
+      o.list = rollOrders(o.seq);
+      o.hoot = 1;
+    }
+    return o;
+  }
+
+  function fillOrder(state, index, now) {
+    syncTaxi(state, now || 0);
+    var o = state.orders;
+    if (!o || o.phase !== "here") return { ok: false, reason: "Jabu is still on the road." };
+    var job = o.list[index];
+    if (!job) return { ok: false, reason: "That order has gone." };
+    var k;
+    for (k in job.need) {
+      if ((state.crops[k] || 0) < job.need[k]) return { ok: false, reason: "Not enough " + (CROPS[k] ? CROPS[k].name.toLowerCase() : "food") + "." };
+    }
+    for (k in job.need) state.crops[k] -= job.need[k];
+    var notes = Math.min(36, job.notes || 0);
+    state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    state.farmXp += Math.min(8, job.xp || 0);
+    var rare = "";
+    if (job.rare) {
+      state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+      rare = "seeds";
+    }
+    o.list.splice(index, 1);
+    if (!o.list.length) {
+      o.phase = "away";
+      o.at = now || 0;
+    }
+    return { ok: true, notes: notes, xp: 6, rare: rare };
+  }
+
+  function waterSown(state, now) {
+    var n = 0;
+    var i, b;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if (b.type === "bed" && b.phase === "sown") {
+        b.phase = "growing";
+        b.plantedAt = now;
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  function syncEvents(state, now) {
+    if (!state.laneEvent) state.laneEvent = { next: now + 8000, n: 0, current: null };
+    var ev = state.laneEvent;
+    if (ev.current && now >= ev.current.until) {
+      if (ev.current.type === "goat" && (ev.current.taps || 0) < 3) {
+        var i, b;
+        for (i = 0; i < state.buildings.length; i++) {
+          b = state.buildings[i];
+          if (b.type === "bed" && b.phase === "growing") { b.plantedAt += 4000; break; }
+        }
+      }
+      ev.current = null;
+      ev.next = now + 90000;
+    }
+    if (!ev.current && now >= (ev.next || 0)) {
+      var kinds = ["storm", "shed", "goat", "gogo", "vendor", "ball"];
+      var kind = kinds[(ev.n || 0) % kinds.length];
+      ev.n = (ev.n || 0) + 1;
+      var until = now + 28000;
+      ev.current = { type: kind, until: until, say: "" };
+      if (kind === "storm") {
+        ev.current.until = now + 9000;
+        ev.current.say = "Highveld storm. The beds are drinking.";
+        ev.current.watered = waterSown(state, now);
+      } else if (kind === "shed") {
+        ev.current.say = "Eish, load-shedding. Tap to switch the solar on.";
+      } else if (kind === "goat") {
+        ev.current.say = "The goat is in the mielies! Tap to chase it.";
+        ev.current.taps = 0;
+      } else if (kind === "gogo") {
+        ev.current.say = "Howzit — Gogo needs 2 mielies, sharp sharp.";
+      } else if (kind === "vendor") {
+        ev.current.say = "Ice-cream bicycle. 2 seeds for 6 notes.";
+      } else {
+        ev.current.say = "A soccer ball rolled in. Kick it!";
+      }
+      ev.next = now + 90000;
+    }
+    return ev;
+  }
+
+  function respondEvent(state, now) {
+    syncEvents(state, now || 0);
+    var cur = state.laneEvent.current;
+    if (!cur) return { ok: false, reason: "The lane is quiet." };
+    if (cur.type === "storm") return { ok: true, say: cur.say };
+    if (cur.type === "shed") {
+      if (!hasType(state, "solar")) return { ok: false, reason: "No solar stand yet. The lights stay off." };
+      cur.solar = 1;
+      state.laneEvent.current = null;
+      state.laneEvent.next = (now || 0) + 90000;
+      return { ok: true, say: "Solar's on. Sharp sharp." };
+    }
+    if (cur.type === "goat") {
+      cur.taps = (cur.taps || 0) + 1;
+      if (cur.taps < 3) return { ok: true, say: "Chase! " + cur.taps + " of 3." };
+      state.notes = clamp(state.notes + 4, 0, NOTE_CAP);
+      state.laneEvent.current = null;
+      return { ok: true, notes: 4, say: "Shoo! The goat is out of the beds." };
+    }
+    if (cur.type === "gogo") {
+      if ((state.crops.maize || 0) < 2) return { ok: false, reason: "Gogo still needs 2 mielies." };
+      state.crops.maize -= 2;
+      state.notes = clamp(state.notes + 8, 0, NOTE_CAP);
+      state.farmXp += 4;
+      state.laneEvent.current = null;
+      return { ok: true, notes: 8, say: "Lekker. Gogo is pleased." };
+    }
+    if (cur.type === "vendor") {
+      if ((state.notes || 0) < 6) return { ok: false, reason: "Not enough notes for the bicycle." };
+      state.notes -= 6;
+      state.seeds = clamp(state.seeds + 2, 0, STACK_CAP);
+      state.laneEvent.current = null;
+      return { ok: true, seeds: 2, say: "Lekker. Two seeds." };
+    }
+    if (cur.type === "ball") {
+      state.notes = clamp(state.notes + 2, 0, NOTE_CAP);
+      state.laneEvent.current = null;
+      return { ok: true, notes: 2, say: "Goal! Two notes." };
+    }
+    return { ok: false, reason: "Nothing to do." };
+  }
+
+  function offerChest(state) {
+    var lv = playerLevel(state);
+    if (lv < 2) return null;
+    if (!state.chests) state.chests = {};
+    if (state.chests[lv]) return null;
+    state.chest = { level: lv };
+    return lv;
+  }
+
+  function claimChest(state) {
+    if (!state.chest || !state.chest.level) return { ok: false, reason: "No chest." };
+    var lv = state.chest.level;
+    if (!state.chests) state.chests = {};
+    if (state.chests[lv]) return { ok: false, reason: "Already opened." };
+    state.chests[lv] = 1;
+    state.chest = null;
+    state.notes = clamp(state.notes + 12, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+    return { ok: true, notes: 12, seeds: 1, level: lv };
+  }
+
+  function weekendKey(key) {
+    var p = String(key || "").split("-");
+    if (p.length !== 3) return "";
+    var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (!isFinite(dt.getTime())) return "";
+    var day = dt.getDay();
+    if (day !== 0 && day !== 6) return "";
+    if (day === 0) dt.setDate(dt.getDate() - 1);
+    return dayKey(dt);
+  }
+
+  function noteBraai(state) {
+    var wk = weekendKey(state.today || "");
+    if (!wk) return;
+    if (!state.braai) state.braai = { key: "", n: 0, claimed: 0 };
+    if (state.braai.key !== wk) {
+      state.braai.key = wk;
+      state.braai.n = 0;
+      state.braai.claimed = 0;
+    }
+    state.braai.n = Math.min(8, (state.braai.n || 0) + 1);
+  }
+
+  function claimBraai(state, key) {
+    var wk = weekendKey(key);
+    if (!wk) return { ok: false, reason: "Braai Day is Saturday and Sunday." };
+    if (!state.braai || state.braai.key !== wk || (state.braai.n || 0) < 4) return { ok: false, reason: "Harvest 4 crops this weekend first." };
+    if (state.braai.claimed) return { ok: false, reason: "Already shared the braai." };
+    state.braai.claimed = 1;
+    state.notes = clamp(state.notes + 16, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+    return { ok: true, notes: 16, seeds: 1 };
+  }
+
+  function setToday(state, key) {
+    if (typeof key === "string" && /^\d{4}-\d{2}-\d{2}$/.test(key)) state.today = key;
+    return state.today || "";
+  }
+
+  var STORIES = {
+    doek: [
+      { say: "Howzit! Two mielies and I'll watch the spaza.", need: { maize: 2 }, notes: 4 },
+      { say: "Eish, put something on the lane so I know you're staying.", need: { stat: "placed", n: 1 } },
+      { say: "Sharp sharp. I'm home.", unlock: 1, notes: 6 }
+    ],
+    kid: [
+      { say: "Howzit! I want to pick with you.", need: { stat: "harvested", n: 1 } },
+      { say: "Lekker. One morogo for the game?", need: { morogo: 1 }, notes: 3 },
+      { say: "Sharp sharp, I'll race you to the goal.", unlock: 1, notes: 4 }
+    ],
+    jersey: [
+      { say: "Eish, that roof needs a proper upgrade.", need: { stat: "upgraded", n: 1 } },
+      { say: "Lekker hands. Pass me a brick story later.", need: { stat: "upgraded", n: 1 } },
+      { say: "Sharp sharp. I'll work from the workshop.", unlock: 1, notes: 6 }
+    ],
+    gogo: [
+      { say: "Howzit, my child. The lane is growing.", need: { maize: 2 }, notes: 4 },
+      { say: "Eish, bring the kettle when the imbawula is lit. For now, just visit.", need: { stat: "harvested", n: 1 } },
+      { say: "Lekker. Gogo is staying.", unlock: 1, notes: 8 }
+    ],
+    basotho: [
+      { say: "Howzit. A Basotho blanket and a quiet stoep.", need: { maize: 1 } },
+      { say: "Lekker soil. One more mielie for the road.", need: { maize: 1 }, notes: 3 },
+      { say: "Sharp sharp. I'll sit by the house.", unlock: 1, notes: 6 }
+    ],
+    taxi: [
+      { say: "Howzit! Hoot if you need a lift.", need: { stat: "placed", n: 1 } },
+      { say: "Eish, the rank is full. Fill one taxi order.", need: { stat: "harvested", n: 1 } },
+      { say: "Sharp sharp. Jabu's on the lane.", unlock: 1, notes: 6 }
+    ],
+    dog: [
+      { say: "A tail at the gate. Finish a game and he'll stay to watch.", need: { stat: "played", n: 1 } },
+      { say: "Lekker. He already knows the yard.", need: { stat: "played", n: 1 } },
+      { say: "Sharp sharp. Biscuit lives here now.", unlock: 1, notes: 2 }
+    ],
+    cow: [
+      { say: "Howzit. Open a new plot and the Nguni will walk in.", need: { stat: "expanded", n: 1 } },
+      { say: "Lekker grass on that side.", need: { stat: "expanded", n: 1 } },
+      { say: "Sharp sharp. She has the kraal in mind.", unlock: 1, notes: 6 }
+    ],
+    goat: [
+      { say: "Eish, that goat follows anyone with notes.", need: { stat: "collected", n: 1 } },
+      { say: "Lekker. Keep the gate in mind.", need: { stat: "collected", n: 1 } },
+      { say: "Sharp sharp. Boer is part of the lane.", unlock: 1, notes: 4 }
+    ]
+  };
+
+  function advanceStory(state, id) {
+    var line = STORIES[id];
+    if (!line) return { ok: false, reason: "No story." };
+    if (!state.stories) state.stories = {};
+    var step = state.stories[id] || 0;
+    if (step >= line.length) return { ok: false, reason: "That story is finished." };
+    if (!storyOpen(state, id)) return { ok: false, reason: "They are not around yet." };
+    var beat = line[step];
+    var crop;
+    if (beat.need) {
+      for (crop in beat.need) {
+        if (crop === "stat") continue;
+        if (!CROPS[crop]) continue;
+        if ((state.crops[crop] || 0) < beat.need[crop]) return { ok: false, reason: "Not enough " + CROPS[crop].name.toLowerCase() + "." };
+      }
+      if (beat.need.stat && (state.stats[beat.need.stat] || 0) < (beat.need.n || 1)) return { ok: false, reason: beat.say };
+      for (crop in beat.need) {
+        if (crop === "stat" || !CROPS[crop]) continue;
+        state.crops[crop] -= beat.need[crop];
+      }
+    }
+    state.stories[id] = step + 1;
+    var notes = Math.min(8, beat.notes || 0);
+    if (notes) state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    var unlock = "";
+    if (beat.unlock) {
+      if (!state.collection[id]) state.collection[id] = { have: 0, home: 0, seen: 0 };
+      state.collection[id].have = 1;
+      state.collection[id].seen = 1;
+      unlock = id;
+    }
+    return { ok: true, step: step + 1, say: beat.say, notes: notes, unlock: unlock };
+  }
+
+  function storyView(state, id) {
+    var line = STORIES[id];
+    if (!line) return null;
+    var step = (state.stories && state.stories[id]) || 0;
+    return { id: id, step: step, done: step >= line.length, open: storyOpen(state, id), say: step < line.length ? line[step].say : "Sharp sharp." };
+  }
+
+  function penaltyPayout(goals) {
+    goals = clamp(goals, 0, 5);
+    return { notes: Math.min(20, goals * 4), seeds: goals >= 4 ? 1 : 0, water: 0 };
+  }
+
+  function diketoPayout(hits) {
+    hits = clamp(hits, 0, 8);
+    return { notes: Math.min(20, hits * 2), seeds: 0, water: hits >= 6 ? 1 : 0 };
   }
 
   return {
@@ -993,7 +1408,21 @@ var KHAYA = (function () {
     unseenFolk: unseenFolk,
     folkBonus: folkBonus,
     decorCount: decorCount,
-    tuneProduce: tuneProduce
+    tuneProduce: tuneProduce,
+    fillOrder: fillOrder,
+    syncTaxi: syncTaxi,
+    respondEvent: respondEvent,
+    syncEvents: syncEvents,
+    claimChest: claimChest,
+    advanceStory: advanceStory,
+    storyView: storyView,
+    storyOpen: storyOpen,
+    claimBraai: claimBraai,
+    setToday: setToday,
+    weekendKey: weekendKey,
+    penaltyPayout: penaltyPayout,
+    diketoPayout: diketoPayout,
+    STORIES: STORIES
   };
 })();
 

@@ -228,8 +228,11 @@ var folk = KHAYA.fresh(1);
 eq("thabo starts known", folk.collection.farmer.have, 1);
 eq("naledi locked", folk.collection.doek.have, 0);
 folk.stats.placed = 1;
-var met = KHAYA.syncFolk(folk);
-eq("naledi arrives", met.indexOf("doek") >= 0, true);
+folk.crops.maize = 2;
+eq("story needs a word", KHAYA.advanceStory(folk, "doek").step, 1);
+eq("story stays", KHAYA.advanceStory(folk, "doek").ok, true);
+var met = KHAYA.advanceStory(folk, "doek");
+eq("naledi arrives", met.unlock, "doek");
 eq("house without spaza", KHAYA.houseFolk(folk, "doek", folk.buildings[0].id).ok, true);
 eq("thabo xp housed", KHAYA.folkBonus(folk).cap >= 1, true);
 folk.collection.kid.have = 1;
@@ -302,6 +305,111 @@ truth("acc clamped", savedShop.prodAcc <= 60000);
 var savedHome = savedProd.buildings.filter(function (b) { return b.type === "home"; })[0];
 eq("build kept", savedHome.buildLeft, 4000);
 eq("pending kept", savedHome.pendingLevel, 2);
+
+var taxi = KHAYA.fresh(1000);
+eq("taxi is here", taxi.orders.phase, "here");
+eq("two or three orders", taxi.orders.list.length >= 2 && taxi.orders.list.length <= 3, true);
+var job = taxi.orders.list[0];
+var purse = taxi.notes;
+var cropName;
+for (cropName in job.need) taxi.crops[cropName] = job.need[cropName];
+var filled = KHAYA.fillOrder(taxi, 0, 1000);
+eq("order filled", filled.ok, true);
+eq("order pay capped", filled.notes <= 36, true);
+eq("order paid", taxi.notes, purse + filled.notes);
+eq("order once", KHAYA.fillOrder(taxi, 0, 1000).ok, false);
+var brokeOrder = KHAYA.fresh(1000);
+eq("order needs the food", KHAYA.fillOrder(brokeOrder, 0, 1000).ok, false);
+brokeOrder.orders.phase = "away";
+brokeOrder.crops.maize = 20;
+eq("no pay while away", KHAYA.fillOrder(brokeOrder, 0, 1000).ok, false);
+var jumped = KHAYA.fresh(0);
+jumped.orders = { phase: "away", at: 0, seq: 1, list: [], hoot: 0 };
+KHAYA.tick(jumped, 10 * 60 * 1000);
+eq("one board after a long gap", jumped.orders.phase === "here" && jumped.orders.seq === 2, true);
+
+var critFarm = KHAYA.fresh(0);
+var critBed = critFarm.buildings[1];
+var c;
+for (c = 0; c < 5; c++) {
+  KHAYA.sow(critFarm, critBed.id, "maize");
+  KHAYA.water(critFarm, critBed.id, c * 20000);
+  KHAYA.harvest(critFarm, critBed.id, c * 20000 + 16000);
+}
+eq("five plain harvests", critFarm.crops.maize, 15);
+KHAYA.sow(critFarm, critBed.id, "maize");
+KHAYA.water(critFarm, critBed.id, 120000);
+var golden = KHAYA.harvest(critFarm, critBed.id, 120000 + 16000);
+eq("sixth is a crit", golden.crit, true);
+eq("crit is triple", golden.amount, 9);
+eq("crit stays in the stack", critFarm.crops.maize <= 99, true);
+var again = null;
+KHAYA.sow(critFarm, critBed.id, "maize");
+KHAYA.water(critFarm, critBed.id, 200000);
+critFarm.combo = 2;
+critFarm.lastHarvest = 216000 - 2000;
+again = KHAYA.harvest(critFarm, critBed.id, 216000);
+eq("combo stacks", again.combo, 3);
+eq("combo pays a little", again.notes, 1);
+
+var storm = KHAYA.fresh(0);
+var sown = storm.buildings[1];
+KHAYA.sow(storm, sown.id, "maize");
+storm.laneEvent = { next: 0, n: 0, current: null };
+KHAYA.tick(storm, 1000);
+eq("storm arrives first", storm.laneEvent.current.type, "storm");
+eq("storm waters", sown.phase, "growing");
+var shed = KHAYA.fresh(0);
+KHAYA.place(shed, "spaza", 5, 1);
+var shedShop = shed.buildings.filter(function (b) { return b.type === "spaza"; })[0];
+shed.laneEvent = { next: 999999, n: 1, current: { type: "shed", until: 50000, say: "out" } };
+shed.seenAt = 0;
+KHAYA.tick(shed, 8000);
+eq("shedding pauses the spaza", shedShop.stored || 0, 0);
+shed.buildXp = 16;
+eq("solar placed", KHAYA.place(shed, "solar", 6, 4).ok, true);
+eq("switch to solar", KHAYA.respondEvent(shed, 8000).ok, true);
+shed.seenAt = 8000;
+KHAYA.tick(shed, 16000);
+eq("spaza runs again", shedShop.stored >= 1, true);
+
+var ball = KHAYA.fresh(0);
+ball.laneEvent = { next: 999999, n: 0, current: { type: "ball", until: 5000, say: "kick" } };
+var kicked = KHAYA.respondEvent(ball, 1000);
+eq("ball pays two", kicked.notes, 2);
+eq("ball once", KHAYA.respondEvent(ball, 1000).ok, false);
+
+var goat = KHAYA.fresh(0);
+goat.laneEvent = { next: 999999, n: 0, current: { type: "goat", until: 9000, taps: 0, say: "shoo" } };
+KHAYA.respondEvent(goat, 1);
+KHAYA.respondEvent(goat, 1);
+var shoo = KHAYA.respondEvent(goat, 1);
+eq("goat pays four", shoo.notes, 4);
+
+eq("penalty cap", KHAYA.penaltyPayout(9).notes, 20);
+eq("diketo cap", KHAYA.diketoPayout(8).notes, 16);
+eq("penalty empty", KHAYA.penaltyPayout(0).notes, 0);
+
+var braai = KHAYA.fresh(1000);
+KHAYA.setToday(braai, "2026-11-09");
+var braaiBed = braai.buildings[1];
+KHAYA.sow(braai, braaiBed.id, "maize");
+KHAYA.water(braai, braaiBed.id, 1000);
+eq("weekday is not braai day", KHAYA.claimBraai(braai, "2026-11-09").ok, false);
+KHAYA.setToday(braai, "2026-11-07");
+var h;
+for (h = 0; h < 4; h++) {
+  KHAYA.sow(braai, braaiBed.id, "maize");
+  KHAYA.water(braai, braaiBed.id, 2000 + h * 20000);
+  KHAYA.harvest(braai, braaiBed.id, 2000 + h * 20000 + 16000);
+}
+var feast = KHAYA.claimBraai(braai, "2026-11-07");
+eq("braai day pays", feast.notes, 16);
+eq("braai once", KHAYA.claimBraai(braai, "2026-11-07").ok, false);
+
+var oldBoard = KHAYA.sanitize({ v: 1, notes: 10, buildings: [{ type: "home", x: 1, y: 2, level: 1 }] });
+truth("old save still loads", !!oldBoard);
+eq("old notes kept", oldBoard.notes, 10);
 
 if (failed) {
   console.error(failed + " failed");

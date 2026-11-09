@@ -259,8 +259,17 @@ var KHAYA = (function () {
       paid: {},
       tankAcc: 0,
       seenAt: now,
-      nextId: 3,
+      nextId: 5,
       welcomed: false,
+      today: "",
+      combo: 0,
+      lastHarvest: 0,
+      chests: {},
+      chest: null,
+      orders: { phase: "here", at: now, seq: 1, list: rollOrders(1), hoot: 1 },
+      laneEvent: { next: (now || 0) + 8000, n: 0, current: null },
+      stories: {},
+      braai: { key: "", n: 0, claimed: 0 },
       plots: { lane: 1 },
       daily: { last: "", day: 0 },
       collection: {
@@ -278,7 +287,9 @@ var KHAYA = (function () {
       },
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
-        { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 }
+        { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
+        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now },
+        { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
   }
@@ -398,6 +409,7 @@ var KHAYA = (function () {
       return null;
     }
     var xp = (b.pendingXp || 12) + folkBonus(state).buildXp;
+    var before = playerLevel(state);
     b.level = b.pendingLevel;
     b.pendingLevel = 0;
     b.pendingXp = 0;
@@ -405,7 +417,8 @@ var KHAYA = (function () {
     b.buildTotal = 0;
     state.buildXp += xp;
     state.stats.upgraded += 1;
-    return { id: b.id, level: b.level, xp: xp };
+    var chest = playerLevel(state) > before ? offerChest(state) : null;
+    return { id: b.id, level: b.level, xp: xp, chest: chest };
   }
 
   function cropReady(b, now) {
@@ -454,15 +467,27 @@ var KHAYA = (function () {
     if (!cropReady(b, now)) return { ok: false, reason: "Still growing." };
     var def = CROPS[b.crop];
     var name = b.crop;
-    var amount = def.yield;
+    var crit = (state.stats.harvested % 6) === 5;
+    var amount = def.yield * (crit ? 3 : 1);
     state.crops[name] = clamp((state.crops[name] || 0) + amount, 0, STACK_CAP);
     var gained = def.xp + folkBonus(state).farmXp;
+    var before = playerLevel(state);
     state.farmXp += gained;
     state.stats.harvested += 1;
+    if (state.lastHarvest && now - state.lastHarvest < 9000) state.combo = Math.min(5, (state.combo || 0) + 1);
+    else state.combo = 1;
+    state.lastHarvest = now;
+    var bonus = 0;
+    if (state.combo >= 3) bonus = Math.min(3, state.combo - 2);
+    if (bonus) state.notes = clamp(state.notes + bonus, 0, NOTE_CAP);
+    if (crit) state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+    noteBraai(state);
+    var chest = null;
+    if (playerLevel(state) > before) chest = offerChest(state);
     b.crop = null;
     b.phase = "empty";
     b.plantedAt = 0;
-    return { ok: true, crop: name, amount: amount, xp: gained };
+    return { ok: true, crop: name, amount: amount, xp: gained, crit: crit, combo: state.combo, notes: bonus, chest: chest };
   }
 
   function sell(state, crop, n) {
@@ -499,6 +524,9 @@ var KHAYA = (function () {
       }
       if (state.water >= waterCap) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
     }
+    syncTaxi(state, now);
+    var laneEvent = syncEvents(state, now);
+    var shed = laneEvent.current && laneEvent.current.type === "shed" && !laneEvent.current.solar;
     var finished = [];
     for (i = 0; i < state.buildings.length; i++) {
       b = state.buildings[i];
@@ -511,6 +539,7 @@ var KHAYA = (function () {
       }
       var tune = tuneProduce(state, b);
       if (!tune) continue;
+      if (shed) continue;
       b.prodAcc = (b.prodAcc || 0) + used;
       while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap) {
         b.stored = (b.stored || 0) + tune.notes;
@@ -520,7 +549,7 @@ var KHAYA = (function () {
     }
     var found = syncFolk(state);
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded, finished: finished, found: found };
+    return { elapsed: used, discarded: discarded, finished: finished, found: found, event: laneEvent.current, hoot: state.orders && state.orders.hoot };
   }
 
   function decorCount(state) {
@@ -700,9 +729,9 @@ var KHAYA = (function () {
     return { ok: true, day: next, notes: notes, seeds: seeds, water: water };
   }
 
-  function folkReady(state, id) {
+  function storyOpen(state, id) {
     var stats = state.stats || {};
-    if (id === "farmer" || id === "hen") return true;
+    if (id === "farmer" || id === "hen") return false;
     if (id === "doek") return stats.placed > 0 || playerLevel(state) >= 2;
     if (id === "kid") return stats.harvested > 0;
     if (id === "jersey") return stats.upgraded > 0;
@@ -713,6 +742,12 @@ var KHAYA = (function () {
     if (id === "cow") return (stats.expanded || 0) > 0;
     if (id === "goat") return (stats.collected || 0) > 0;
     return false;
+  }
+
+  function folkReady(state, id) {
+    if (id === "farmer" || id === "hen") return true;
+    var rec = state.collection && state.collection[id];
+    return !!(rec && rec.have);
   }
 
   function syncFolk(state) {
@@ -924,7 +959,387 @@ var KHAYA = (function () {
       if (!idMap[s.collection[folkId].home]) s.collection[folkId].home = 0;
       else s.collection[folkId].home = idMap[s.collection[folkId].home];
     }
+    s.combo = clamp(data.combo, 0, 5);
+    s.lastHarvest = clamp(data.lastHarvest, 0, 8.64e15);
+    if (typeof data.today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.today)) s.today = data.today;
+    s.chests = {};
+    if (data.chests && typeof data.chests === "object") {
+      var ck;
+      for (ck in data.chests) {
+        var clv = clamp(ck, 1, 20);
+        if (clv > 1 && data.chests[ck]) s.chests[clv] = 1;
+      }
+    }
+    s.chest = null;
+    if (data.chest && data.chest.level && !s.chests[data.chest.level]) {
+      var chestLv = clamp(data.chest.level, 2, 20);
+      if (!s.chests[chestLv]) s.chest = { level: chestLv };
+    }
+    if (data.stories && typeof data.stories === "object") {
+      var sid;
+      for (sid in STORIES) s.stories[sid] = clamp(data.stories[sid], 0, STORIES[sid].length);
+    }
+    if (data.braai && typeof data.braai === "object") {
+      s.braai = {
+        key: (typeof data.braai.key === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.braai.key)) ? data.braai.key : "",
+        n: clamp(data.braai.n, 0, 8),
+        claimed: data.braai.claimed ? 1 : 0
+      };
+    }
+    if (data.orders && data.orders.phase === "here" && data.orders.list && data.orders.list.length) {
+      s.orders = {
+        phase: "here",
+        at: clamp(data.orders.at, 0, 8.64e15),
+        seq: clamp(data.orders.seq, 0, 100000),
+        hoot: 0,
+        list: []
+      };
+      var oi;
+      for (oi = 0; oi < data.orders.list.length && oi < 3; oi++) {
+        var job = data.orders.list[oi];
+        if (!job || !job.need) continue;
+        s.orders.list.push({
+          name: String(job.name || "Run").slice(0, 40),
+          say: String(job.say || "").slice(0, 80),
+          need: job.need,
+          notes: clamp(job.notes, 0, 36),
+          xp: clamp(job.xp, 0, 8),
+          rare: job.rare ? 1 : 0
+        });
+      }
+      if (!s.orders.list.length) s.orders = { phase: "away", at: s.seenAt, seq: s.orders.seq, list: [], hoot: 0 };
+    }
     return s;
+  }
+
+  var ORDER_STAY = 42000;
+  var ORDER_GAP = 70000;
+  var RUNS = [
+    { name: "Soweto run", say: "6 mielies and 2 morogo for the Soweto run", need: { maize: 6, morogo: 2 } },
+    { name: "Alex rank", say: "4 mielies for the Alex rank", need: { maize: 4 } },
+    { name: "Vetkoek stop", say: "3 morogo and a pumpkin", need: { morogo: 3, pumpkin: 1 } },
+    { name: "Clinic lift", say: "2 aloe for the clinic", need: { aloe: 2 } },
+    { name: "School run", say: "5 mielies for the school run", need: { maize: 5 } }
+  ];
+
+  function rollOrders(seq) {
+    var picks = [seq % RUNS.length, (seq + 2) % RUNS.length];
+    if (seq % 3 === 0) picks.push((seq + 4) % RUNS.length);
+    var list = [];
+    var i, run, notes, k;
+    for (i = 0; i < picks.length; i++) {
+      run = RUNS[picks[i]];
+      notes = 0;
+      for (k in run.need) notes += (CROPS[k] ? CROPS[k].price : 4) * run.need[k];
+      notes = Math.min(36, Math.max(8, Math.floor(notes * 1.5)));
+      list.push({ name: run.name, say: run.say, need: run.need, notes: notes, xp: 6, rare: ((seq + i) % 5) === 0 ? 1 : 0 });
+    }
+    return list;
+  }
+
+  function syncTaxi(state, now) {
+    if (!state.orders) state.orders = { phase: "away", at: now, seq: 0, list: [], hoot: 0 };
+    var o = state.orders;
+    if (o.phase === "here") {
+      if (now >= (o.at || 0) + ORDER_STAY) {
+        o.phase = "away";
+        o.at = now;
+        o.list = [];
+        o.hoot = 0;
+      }
+      return o;
+    }
+    if (now - (o.at || 0) >= ORDER_GAP) {
+      o.seq = (o.seq || 0) + 1;
+      o.phase = "here";
+      o.at = now;
+      o.list = rollOrders(o.seq);
+      o.hoot = 1;
+    }
+    return o;
+  }
+
+  function fillOrder(state, index, now) {
+    syncTaxi(state, now || 0);
+    var o = state.orders;
+    if (!o || o.phase !== "here") return { ok: false, reason: "Jabu is still on the road." };
+    var job = o.list[index];
+    if (!job) return { ok: false, reason: "That order has gone." };
+    var k;
+    for (k in job.need) {
+      if ((state.crops[k] || 0) < job.need[k]) return { ok: false, reason: "Not enough " + (CROPS[k] ? CROPS[k].name.toLowerCase() : "food") + "." };
+    }
+    for (k in job.need) state.crops[k] -= job.need[k];
+    var notes = Math.min(36, job.notes || 0);
+    state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    state.farmXp += Math.min(8, job.xp || 0);
+    var rare = "";
+    if (job.rare) {
+      state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+      rare = "seeds";
+    }
+    o.list.splice(index, 1);
+    if (!o.list.length) {
+      o.phase = "away";
+      o.at = now || 0;
+    }
+    return { ok: true, notes: notes, xp: 6, rare: rare };
+  }
+
+  function waterSown(state, now) {
+    var n = 0;
+    var i, b;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if (b.type === "bed" && b.phase === "sown") {
+        b.phase = "growing";
+        b.plantedAt = now;
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  function syncEvents(state, now) {
+    if (!state.laneEvent) state.laneEvent = { next: now + 8000, n: 0, current: null };
+    var ev = state.laneEvent;
+    if (ev.current && now >= ev.current.until) {
+      if (ev.current.type === "goat" && (ev.current.taps || 0) < 3) {
+        var i, b;
+        for (i = 0; i < state.buildings.length; i++) {
+          b = state.buildings[i];
+          if (b.type === "bed" && b.phase === "growing") { b.plantedAt += 4000; break; }
+        }
+      }
+      ev.current = null;
+      ev.next = now + 90000;
+    }
+    if (!ev.current && now >= (ev.next || 0)) {
+      var kinds = ["storm", "shed", "goat", "gogo", "vendor", "ball"];
+      var kind = kinds[(ev.n || 0) % kinds.length];
+      ev.n = (ev.n || 0) + 1;
+      var until = now + 28000;
+      ev.current = { type: kind, until: until, say: "" };
+      if (kind === "storm") {
+        ev.current.until = now + 9000;
+        ev.current.say = "Highveld storm. The beds are drinking.";
+        ev.current.watered = waterSown(state, now);
+      } else if (kind === "shed") {
+        ev.current.say = "Eish, load-shedding. Tap to switch the solar on.";
+      } else if (kind === "goat") {
+        ev.current.say = "The goat is in the mielies! Tap to chase it.";
+        ev.current.taps = 0;
+      } else if (kind === "gogo") {
+        ev.current.say = "Howzit — Gogo needs 2 mielies, sharp sharp.";
+      } else if (kind === "vendor") {
+        ev.current.say = "Ice-cream bicycle. 2 seeds for 6 notes.";
+      } else {
+        ev.current.say = "A soccer ball rolled in. Kick it!";
+      }
+      ev.next = now + 90000;
+    }
+    return ev;
+  }
+
+  function respondEvent(state, now) {
+    syncEvents(state, now || 0);
+    var cur = state.laneEvent.current;
+    if (!cur) return { ok: false, reason: "The lane is quiet." };
+    if (cur.type === "storm") return { ok: true, say: cur.say };
+    if (cur.type === "shed") {
+      if (!hasType(state, "solar")) return { ok: false, reason: "No solar stand yet. The lights stay off." };
+      cur.solar = 1;
+      state.laneEvent.current = null;
+      state.laneEvent.next = (now || 0) + 90000;
+      return { ok: true, say: "Solar's on. Sharp sharp." };
+    }
+    if (cur.type === "goat") {
+      cur.taps = (cur.taps || 0) + 1;
+      if (cur.taps < 3) return { ok: true, say: "Chase! " + cur.taps + " of 3." };
+      state.notes = clamp(state.notes + 4, 0, NOTE_CAP);
+      state.laneEvent.current = null;
+      return { ok: true, notes: 4, say: "Shoo! The goat is out of the beds." };
+    }
+    if (cur.type === "gogo") {
+      if ((state.crops.maize || 0) < 2) return { ok: false, reason: "Gogo still needs 2 mielies." };
+      state.crops.maize -= 2;
+      state.notes = clamp(state.notes + 8, 0, NOTE_CAP);
+      state.farmXp += 4;
+      state.laneEvent.current = null;
+      return { ok: true, notes: 8, say: "Lekker. Gogo is pleased." };
+    }
+    if (cur.type === "vendor") {
+      if ((state.notes || 0) < 6) return { ok: false, reason: "Not enough notes for the bicycle." };
+      state.notes -= 6;
+      state.seeds = clamp(state.seeds + 2, 0, STACK_CAP);
+      state.laneEvent.current = null;
+      return { ok: true, seeds: 2, say: "Lekker. Two seeds." };
+    }
+    if (cur.type === "ball") {
+      state.notes = clamp(state.notes + 2, 0, NOTE_CAP);
+      state.laneEvent.current = null;
+      return { ok: true, notes: 2, say: "Goal! Two notes." };
+    }
+    return { ok: false, reason: "Nothing to do." };
+  }
+
+  function offerChest(state) {
+    var lv = playerLevel(state);
+    if (lv < 2) return null;
+    if (!state.chests) state.chests = {};
+    if (state.chests[lv]) return null;
+    state.chest = { level: lv };
+    return lv;
+  }
+
+  function claimChest(state) {
+    if (!state.chest || !state.chest.level) return { ok: false, reason: "No chest." };
+    var lv = state.chest.level;
+    if (!state.chests) state.chests = {};
+    if (state.chests[lv]) return { ok: false, reason: "Already opened." };
+    state.chests[lv] = 1;
+    state.chest = null;
+    state.notes = clamp(state.notes + 12, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+    return { ok: true, notes: 12, seeds: 1, level: lv };
+  }
+
+  function weekendKey(key) {
+    var p = String(key || "").split("-");
+    if (p.length !== 3) return "";
+    var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (!isFinite(dt.getTime())) return "";
+    var day = dt.getDay();
+    if (day !== 0 && day !== 6) return "";
+    if (day === 0) dt.setDate(dt.getDate() - 1);
+    return dayKey(dt);
+  }
+
+  function noteBraai(state) {
+    var wk = weekendKey(state.today || "");
+    if (!wk) return;
+    if (!state.braai) state.braai = { key: "", n: 0, claimed: 0 };
+    if (state.braai.key !== wk) {
+      state.braai.key = wk;
+      state.braai.n = 0;
+      state.braai.claimed = 0;
+    }
+    state.braai.n = Math.min(8, (state.braai.n || 0) + 1);
+  }
+
+  function claimBraai(state, key) {
+    var wk = weekendKey(key);
+    if (!wk) return { ok: false, reason: "Braai Day is Saturday and Sunday." };
+    if (!state.braai || state.braai.key !== wk || (state.braai.n || 0) < 4) return { ok: false, reason: "Harvest 4 crops this weekend first." };
+    if (state.braai.claimed) return { ok: false, reason: "Already shared the braai." };
+    state.braai.claimed = 1;
+    state.notes = clamp(state.notes + 16, 0, NOTE_CAP);
+    state.seeds = clamp(state.seeds + 1, 0, STACK_CAP);
+    return { ok: true, notes: 16, seeds: 1 };
+  }
+
+  function setToday(state, key) {
+    if (typeof key === "string" && /^\d{4}-\d{2}-\d{2}$/.test(key)) state.today = key;
+    return state.today || "";
+  }
+
+  var STORIES = {
+    doek: [
+      { say: "Howzit! Two mielies and I'll watch the spaza.", need: { maize: 2 }, notes: 4 },
+      { say: "Eish, put something on the lane so I know you're staying.", need: { stat: "placed", n: 1 } },
+      { say: "Sharp sharp. I'm home.", unlock: 1, notes: 6 }
+    ],
+    kid: [
+      { say: "Howzit! I want to pick with you.", need: { stat: "harvested", n: 1 } },
+      { say: "Lekker. One morogo for the game?", need: { morogo: 1 }, notes: 3 },
+      { say: "Sharp sharp, I'll race you to the goal.", unlock: 1, notes: 4 }
+    ],
+    jersey: [
+      { say: "Eish, that roof needs a proper upgrade.", need: { stat: "upgraded", n: 1 } },
+      { say: "Lekker hands. Pass me a brick story later.", need: { stat: "upgraded", n: 1 } },
+      { say: "Sharp sharp. I'll work from the workshop.", unlock: 1, notes: 6 }
+    ],
+    gogo: [
+      { say: "Howzit, my child. The lane is growing.", need: { maize: 2 }, notes: 4 },
+      { say: "Eish, bring the kettle when the imbawula is lit. For now, just visit.", need: { stat: "harvested", n: 1 } },
+      { say: "Lekker. Gogo is staying.", unlock: 1, notes: 8 }
+    ],
+    basotho: [
+      { say: "Howzit. A Basotho blanket and a quiet stoep.", need: { maize: 1 } },
+      { say: "Lekker soil. One more mielie for the road.", need: { maize: 1 }, notes: 3 },
+      { say: "Sharp sharp. I'll sit by the house.", unlock: 1, notes: 6 }
+    ],
+    taxi: [
+      { say: "Howzit! Hoot if you need a lift.", need: { stat: "placed", n: 1 } },
+      { say: "Eish, the rank is full. Fill one taxi order.", need: { stat: "harvested", n: 1 } },
+      { say: "Sharp sharp. Jabu's on the lane.", unlock: 1, notes: 6 }
+    ],
+    dog: [
+      { say: "A tail at the gate. Finish a game and he'll stay to watch.", need: { stat: "played", n: 1 } },
+      { say: "Lekker. He already knows the yard.", need: { stat: "played", n: 1 } },
+      { say: "Sharp sharp. Biscuit lives here now.", unlock: 1, notes: 2 }
+    ],
+    cow: [
+      { say: "Howzit. Open a new plot and the Nguni will walk in.", need: { stat: "expanded", n: 1 } },
+      { say: "Lekker grass on that side.", need: { stat: "expanded", n: 1 } },
+      { say: "Sharp sharp. She has the kraal in mind.", unlock: 1, notes: 6 }
+    ],
+    goat: [
+      { say: "Eish, that goat follows anyone with notes.", need: { stat: "collected", n: 1 } },
+      { say: "Lekker. Keep the gate in mind.", need: { stat: "collected", n: 1 } },
+      { say: "Sharp sharp. Boer is part of the lane.", unlock: 1, notes: 4 }
+    ]
+  };
+
+  function advanceStory(state, id) {
+    var line = STORIES[id];
+    if (!line) return { ok: false, reason: "No story." };
+    if (!state.stories) state.stories = {};
+    var step = state.stories[id] || 0;
+    if (step >= line.length) return { ok: false, reason: "That story is finished." };
+    if (!storyOpen(state, id)) return { ok: false, reason: "They are not around yet." };
+    var beat = line[step];
+    var crop;
+    if (beat.need) {
+      for (crop in beat.need) {
+        if (crop === "stat") continue;
+        if (!CROPS[crop]) continue;
+        if ((state.crops[crop] || 0) < beat.need[crop]) return { ok: false, reason: "Not enough " + CROPS[crop].name.toLowerCase() + "." };
+      }
+      if (beat.need.stat && (state.stats[beat.need.stat] || 0) < (beat.need.n || 1)) return { ok: false, reason: beat.say };
+      for (crop in beat.need) {
+        if (crop === "stat" || !CROPS[crop]) continue;
+        state.crops[crop] -= beat.need[crop];
+      }
+    }
+    state.stories[id] = step + 1;
+    var notes = Math.min(8, beat.notes || 0);
+    if (notes) state.notes = clamp(state.notes + notes, 0, NOTE_CAP);
+    var unlock = "";
+    if (beat.unlock) {
+      if (!state.collection[id]) state.collection[id] = { have: 0, home: 0, seen: 0 };
+      state.collection[id].have = 1;
+      state.collection[id].seen = 1;
+      unlock = id;
+    }
+    return { ok: true, step: step + 1, say: beat.say, notes: notes, unlock: unlock };
+  }
+
+  function storyView(state, id) {
+    var line = STORIES[id];
+    if (!line) return null;
+    var step = (state.stories && state.stories[id]) || 0;
+    return { id: id, step: step, done: step >= line.length, open: storyOpen(state, id), say: step < line.length ? line[step].say : "Sharp sharp." };
+  }
+
+  function penaltyPayout(goals) {
+    goals = clamp(goals, 0, 5);
+    return { notes: Math.min(20, goals * 4), seeds: goals >= 4 ? 1 : 0, water: 0 };
+  }
+
+  function diketoPayout(hits) {
+    hits = clamp(hits, 0, 8);
+    return { notes: Math.min(20, hits * 2), seeds: 0, water: hits >= 6 ? 1 : 0 };
   }
 
   return {
@@ -993,78 +1408,119 @@ var KHAYA = (function () {
     unseenFolk: unseenFolk,
     folkBonus: folkBonus,
     decorCount: decorCount,
-    tuneProduce: tuneProduce
+    tuneProduce: tuneProduce,
+    fillOrder: fillOrder,
+    syncTaxi: syncTaxi,
+    respondEvent: respondEvent,
+    syncEvents: syncEvents,
+    claimChest: claimChest,
+    advanceStory: advanceStory,
+    storyView: storyView,
+    storyOpen: storyOpen,
+    claimBraai: claimBraai,
+    setToday: setToday,
+    weekendKey: weekendKey,
+    penaltyPayout: penaltyPayout,
+    diketoPayout: diketoPayout,
+    STORIES: STORIES
   };
 })();
 
 if (typeof module !== "undefined" && module.exports) module.exports = KHAYA;
-// Illustrated Khaya Lane art. Sizes are in the sprite's own pixels.
-// One ground tile is 256px wide and 128px tall. Sprites are anchored at their feet.
+// Illustrated Khaya Lane art.
+//
+// World scale. One tile is 256 source pixels wide (128 tall).
+// Drawn size = source pixels × (tileWidth / 256) × scale.
+// home_l1 is the ruler. Scale 1.08 makes that shack about 1.7 tiles wide,
+// inside the 1.5–2 tile house band. Door-to-roof is about 0.9 of its bitmap,
+// and every person, animal and prop below is a fraction of that door.
+// A person is 60% of the door. A hen is a shin (ankle to knee). A dog stands
+// at the knee. A cow reaches a person's shoulder. Props sit at waist height.
+// Trees are 1.15–1.5× the full house, jacaranda tallest. The taxi is 1.2 tiles long.
 var LOOK = {
   root: "assets/sprites/gen/",
   ext: ".webp",
+  world: { tile: 256, house: "home_l1", houseScale: 1.08, houseTiles: 1.7, doorFraction: 0.9, person: 0.6 },
   buildings: {
-    home: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [1.05, 0.38], scale: 1.12, levels: ["home_l1", "home_l2", "home_l3"] },
+    home: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [1.05, 0.38], scale: 1.08, yard: 1, levels: ["home_l1", "home_l2", "home_l3"] },
     bed: { anchor: [0.5, 0.58], offset: [0, 0], shadow: [0.72, 0.28], scale: 1, file: "bed_empty" },
-    spaza: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.95, 0.36], scale: 0.78, levels: ["spaza", "spaza"] },
-    tank: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.5, 0.2], scale: 1, file: "rain_tank" },
-    workshop: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.9, 0.34], scale: 0.82, file: "workshop" },
-    solar: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.62, 0.24], scale: 1, file: "solar_stand" },
-    aloe_clump: { anchor: [0.5, 0.7], offset: [0, 0], shadow: [0.36, 0.16], scale: 1, file: "aloe" },
+    spaza: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.95, 0.36], scale: 0.9, yard: 1, levels: ["spaza", "spaza"] },
+    tank: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.5, 0.2], scale: 0.85, file: "rain_tank" },
+    workshop: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.9, 0.34], scale: 0.9, yard: 1, file: "workshop" },
+    solar: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.62, 0.24], scale: 0.82, file: "solar_stand" },
+    aloe_clump: { anchor: [0.5, 0.7], offset: [0, 0], shadow: [0.36, 0.16], scale: 0.47, file: "aloe" },
     palisade: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.5, 0.2], scale: 0.7, file: "soccer_goal" },
-    braai: { anchor: [0.5, 0.68], offset: [0, 0], shadow: [0.42, 0.18], scale: 1, file: "braai_drum", smoke: "braai" },
-    potjie: { anchor: [0.5, 0.7], offset: [0, 0], shadow: [0.36, 0.16], scale: 1, file: "potjie", smoke: "steam" },
-    imbawula: { anchor: [0.5, 0.72], offset: [0, 0], shadow: [0.28, 0.14], scale: 1, file: "imbawula", smoke: "coal" },
-    barrow: { anchor: [0.5, 0.68], offset: [0, 0], shadow: [0.4, 0.16], scale: 1, file: "wheelbarrow" },
-    mielie: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.46, 0.18], scale: 1, file: "mielie_cart", smoke: "braai" },
-    wash: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.55, 0.2], scale: 0.9, file: "washing_line" },
-    coop: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.6, 0.22], scale: 1, file: "chicken_coop" },
-    patch: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [0.62, 0.24], scale: 1, file: "pumpkin_patch" },
-    kraal: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [1.05, 0.38], scale: 1, file: "kraal" }
+    braai: { anchor: [0.5, 0.68], offset: [0, 0], shadow: [0.42, 0.18], scale: 0.36, file: "braai_drum", smoke: "braai" },
+    potjie: { anchor: [0.5, 0.7], offset: [0, 0], shadow: [0.36, 0.16], scale: 0.5, file: "potjie", smoke: "steam" },
+    imbawula: { anchor: [0.5, 0.72], offset: [0, 0], shadow: [0.28, 0.14], scale: 0.5, file: "imbawula", smoke: "coal" },
+    barrow: { anchor: [0.5, 0.68], offset: [0, 0], shadow: [0.4, 0.16], scale: 0.5, file: "wheelbarrow" },
+    mielie: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.46, 0.18], scale: 0.48, file: "mielie_cart", smoke: "braai" },
+    wash: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.55, 0.2], scale: 0.72, file: "washing_line" },
+    coop: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.6, 0.22], scale: 0.85, file: "chicken_coop" },
+    patch: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [0.62, 0.24], scale: 0.9, file: "pumpkin_patch" },
+    kraal: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [1.05, 0.38], scale: 1, yard: 1, file: "kraal" }
   },
   actors: {
-    farmer: { file: "char_farmer", scale: 0.72, shadow: [0.34, 0.14] },
-    doek: { file: "char_woman_doek", scale: 0.72, shadow: [0.32, 0.13] },
-    basotho: { file: "char_basotho_elder", scale: 0.72, shadow: [0.32, 0.13] },
-    gogo: { file: "char_gogo", scale: 0.7, shadow: [0.32, 0.13] },
-    kid: { file: "char_kid", scale: 0.7, shadow: [0.26, 0.11] },
-    jersey: { file: "char_man_jersey", scale: 0.72, shadow: [0.32, 0.13] },
-    taxi: { file: "char_taxi_driver", scale: 0.72, shadow: [0.34, 0.14] },
-    hen: { file: "animal_hen", scale: 1.35, shadow: [0.22, 0.1] },
-    dog: { file: "animal_dog", scale: 1.25, shadow: [0.28, 0.12] },
-    cow: { file: "animal_cow", scale: 1, shadow: [0.4, 0.16] },
-    goat: { file: "animal_goat", scale: 1.05, shadow: [0.3, 0.12] }
+    farmer: { file: "char_farmer", scale: 0.71, shadow: [0.28, 0.12] },
+    doek: { file: "char_woman_doek", scale: 0.71, shadow: [0.28, 0.12] },
+    basotho: { file: "char_basotho_elder", scale: 0.71, shadow: [0.28, 0.12] },
+    gogo: { file: "char_gogo", scale: 0.71, shadow: [0.28, 0.12] },
+    kid: { file: "char_kid", scale: 0.68, shadow: [0.22, 0.1] },
+    jersey: { file: "char_man_jersey", scale: 0.71, shadow: [0.28, 0.12] },
+    taxi: { file: "char_taxi_driver", scale: 0.71, shadow: [0.28, 0.12] },
+    hen: { file: "animal_hen", scale: 0.42, shadow: [0.16, 0.08] },
+    dog: { file: "animal_dog", scale: 0.42, shadow: [0.2, 0.09] },
+    cow: { file: "animal_cow", scale: 0.88, shadow: [0.36, 0.14] },
+    goat: { file: "animal_goat", scale: 0.7, shadow: [0.24, 0.1] }
   },
+  treeScale: { tree_jacaranda: 1.17, tree_acacia: 0.96, tree_marula: 1.03 },
   trees: ["tree_jacaranda", "tree_acacia", "tree_marula"],
   neighbours: ["neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"],
+  // Trees line the road and the plot edges. One jacaranda frames the house.
   dress: [
-    { file: "taxi", x: 1.55, y: 6.55, scale: 1 },
-    { file: "soccer_goal", x: 10.4, y: 3.4, scale: 1 },
-    { file: "tree_marula", x: 12.2, y: 1.3, scale: 1 },
-    { file: "tree_acacia", x: 13.4, y: 5.6, scale: 1 },
-    { file: "tree_jacaranda", x: 5.2, y: 10.4, scale: 1 },
-    { file: "aloe", x: 2.3, y: 1.15, scale: 1 },
-    { file: "neighbour_mural", x: 9.4, y: 6.4, scale: 0.82 },
-    { file: "neighbour_facebrick", x: 3.2, y: 11.3, scale: 0.82 }
+    { file: "taxi", x: 1.35, y: 6.35, scale: 0.85 },
+    { file: "washing_line", x: 3.15, y: 1.25, scale: 0.72 },
+    { file: "wheelbarrow", x: 3.35, y: 4.15, scale: 0.5 },
+    { file: "soccer_goal", x: 10.7, y: 2.4, scale: 0.85 },
+    { file: "tree_acacia", x: 3.25, y: 0.75, scale: 0.96 },
+    { file: "tree_jacaranda", x: 0.45, y: 5.15, scale: 1.17 },
+    { file: "tree_marula", x: 5.35, y: 6.85, scale: 1.03 },
+    { file: "tree_acacia", x: 11.15, y: 0.85, scale: 0.96 },
+    { file: "tree_acacia", x: 12.75, y: 4.15, scale: 0.92 },
+    { file: "tree_marula", x: 11.2, y: 6.7, scale: 1.0 },
+    { file: "tree_acacia", x: 1.2, y: 9.55, scale: 0.96 },
+    { file: "tree_marula", x: 6.55, y: 8.35, scale: 1.0 },
+    { file: "aloe", x: 2.4, y: 1.15, scale: 0.47 },
+    { file: "neighbour_mural", x: 9.6, y: 6.55, scale: 0.78 },
+    { file: "neighbour_facebrick", x: 2.5, y: 11.45, scale: 0.78 }
   ],
+  treeAt: {
+    "0,0": "tree_acacia",
+    "7,0": "tree_marula",
+    "15,0": "tree_acacia",
+    "7,8": "tree_acacia",
+    "15,10": "tree_marula"
+  },
   cast: [
-    { id: "farmer", route: [[6, 3], [6, 4], [5, 4], [5, 3]], speed: 9000 },
-    { id: "doek", route: [[6, 1], [6, 2], [5, 2], [5, 1]], speed: 11000 },
-    { id: "jersey", route: [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6]], speed: 8000 },
-    { id: "gogo", route: [[1, 5], [2, 5], [2, 4], [1, 4]], speed: 13000 },
+    { id: "farmer", route: [[2, 4], [3, 5], [2, 5], [1, 5]], speed: 9000 },
+    { id: "doek", route: [[7, 3], [7, 4], [7, 2], [6, 1]], speed: 11000 },
+    { id: "jersey", route: [[4, 5], [3, 6], [2, 6], [1, 6]], speed: 8000 },
+    { id: "gogo", route: [[1, 4], [1, 5], [2, 5], [2, 4]], speed: 13000 },
     { id: "kid", near: "home" },
-    { id: "basotho", route: [[2, 3], [3, 3], [3, 4], [2, 4]], speed: 15000 },
+    { id: "basotho", route: [[2, 4], [3, 4], [3, 5], [2, 5]], speed: 15000 },
     { id: "taxi", route: [[1, 6], [2, 6], [2, 5], [1, 5]], speed: 10000 },
-    { id: "hen", spot: [5.5, 4.5], wobble: 0.35 },
-    { id: "dog", spot: [2.5, 4.3], wobble: 0.28 },
-    { id: "cow", spot: [7.3, 5.4], wobble: 0.12 },
-    { id: "goat", spot: [3.4, 5.5], wobble: 0.22 }
+    { id: "hen", spot: [2.35, 4.55], wobble: 0.22 },
+    { id: "dog", spot: [3.6, 5.4], wobble: 0.2 },
+    { id: "cow", spot: [7.4, 5.5], wobble: 0.08 },
+    { id: "goat", spot: [6.6, 3.3], wobble: 0.16 }
   ],
+  lineup: ["home_l1", "taxi", "tree_jacaranda", "tree_acacia", "aloe", "char_farmer", "char_kid", "animal_hen", "animal_dog", "animal_cow", "braai_drum", "potjie", "wheelbarrow"],
   first: [
     "tile_grass", "tile_dirt", "home_l1", "home_l2", "home_l3", "bed_empty",
     "maize_sown", "maize_growing", "maize_ready", "spaza", "workshop", "rain_tank", "solar_stand",
     "char_farmer", "animal_hen", "animal_dog",
     "tree_jacaranda", "tree_acacia", "tree_marula",
+    "washing_line", "wheelbarrow", "taxi",
     "neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"
   ]
 };
@@ -1253,8 +1709,8 @@ var DRAW = (function () {
     for (n = 0; n < LOOK.neighbours.length; n++) {
       blitFoot(ctx, img[LOOK.neighbours[n]], w * spots[n], hy + 18, o.tw * 0.72, 0.9);
     }
-    blitFoot(ctx, img.tree_jacaranda, w * 0.88, hy + 36, o.tw * 0.7, 1);
-    blitFoot(ctx, img.tree_acacia, w * 0.26, hy + 42, o.tw * 0.7, 1);
+    blitFoot(ctx, img.tree_jacaranda, w * 0.9, hy + 28, o.tw * 0.7, LOOK.treeScale.tree_jacaranda || 1);
+    blitFoot(ctx, img.tree_acacia, w * 0.22, hy + 36, o.tw * 0.7, LOOK.treeScale.tree_acacia || 1);
   }
 
   function blitFoot(ctx, image, footX, footY, tw, scale) {
@@ -1274,11 +1730,10 @@ var DRAW = (function () {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
     var open = !state || KHAYA.plotOpen(state, x, y);
-    var tile = kind === "path" ? img.tile_dirt : img.tile_grass;
-    if (tile) {
-      var midCell = north(x + 0.5, y + 0.5, o);
-      ctx.drawImage(tile, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
-    } else {
+    var midCell = north(x + 0.5, y + 0.5, o);
+    if (img.tile_grass) ctx.drawImage(img.tile_grass, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    if (kind === "path" && img.tile_dirt) ctx.drawImage(img.tile_dirt, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    if (!img.tile_grass && !(kind === "path" && img.tile_dirt)) {
       var fill = kind === "path" ? "#c47a45" : "#c6a84a";
       poly(ctx, [c.n, c.e, c.s, c.w], fill);
     }
@@ -1288,7 +1743,7 @@ var DRAW = (function () {
       poly(ctx, [c.n, c.e, c.s, c.w], "#3a2416");
       ctx.restore();
     }
-    if (tile) return;
+    if (img.tile_grass) return;
     var p = mid(c.n, c.s, 0.55);
     ctx.save();
     if (kind === "path") {
@@ -1360,6 +1815,26 @@ var DRAW = (function () {
     ctx.restore();
   }
 
+  function peg(ctx, x, y, text) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = "#6b4524";
+    ctx.fillRect(-2, 0, 4, 16);
+    ctx.beginPath();
+    ctx.fillStyle = "#f3d7a2";
+    ctx.strokeStyle = "#6b4524";
+    ctx.lineWidth = 2;
+    ctx.rect(-20, -26, 40, 20);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#3a2416";
+    ctx.font = "700 13px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 0, -16);
+    ctx.restore();
+  }
+
   function shadowAt(ctx, x, y, rx, ry) {
     ctx.save();
     ctx.fillStyle = "rgba(72, 44, 18, 0.30)";
@@ -1386,6 +1861,14 @@ var DRAW = (function () {
       sy = 1 - Math.sin(q * Math.PI) * 0.12;
     }
     var sh = spot.spec.shadow || [0.6, 0.22];
+    if (spot.spec.yard) {
+      ctx.save();
+      ctx.fillStyle = "rgba(176, 112, 64, 0.28)";
+      ctx.beginPath();
+      ctx.ellipse(spot.x, spot.y + o.th * 0.06, o.tw * sh[0] * 0.42, o.th * sh[1] * 0.85, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     shadowAt(ctx, spot.x, spot.y + o.th * 0.08, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.3);
     ctx.save();
     ctx.translate(spot.x, spot.y);
@@ -1519,7 +2002,7 @@ var DRAW = (function () {
             for (bi = 0; bi < state.buildings.length; bi++) {
               if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
             }
-            if (bed) { x = bed.x + 0.15; y = bed.y + 1.05; pose = "water"; }
+            if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
           }
           if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
           if (entry.id === "doek") {
@@ -1605,11 +2088,12 @@ var DRAW = (function () {
       y = cells[i].y;
       if (KHAYA.terrainAt(x, y) !== "tree") continue;
       (function (tx, ty) {
-        var file = LOOK.trees[hash(tx, ty) % LOOK.trees.length];
+        var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
         var n = north(tx + 0.5, ty + 0.5, o);
+        var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
         queue.push({ y: n.y, draw: function () {
-          shadowAt(ctx, n.x, n.y, o.tw * 0.42, o.th * 0.28);
-          blitFoot(ctx, img[file], n.x, n.y, o.tw, 1);
+          shadowAt(ctx, n.x, n.y, o.tw * 0.34, o.th * 0.2);
+          blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
         } });
       })(x, y);
     }
@@ -1644,14 +2128,49 @@ var DRAW = (function () {
     for (di = 0; di < LOOK.dress.length; di++) {
       (function (piece) {
         var n = north(piece.x, piece.y, o);
+        if (piece.file === "taxi") return;
         queue.push({ y: n.y, draw: function () {
           shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.2);
           blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
-          if (piece.file === "taxi") puff(ctx, n.x + o.tw * 0.05, n.y - o.th * 0.35, now, "steam");
         } });
       })(LOOK.dress[di]);
     }
     queueActors(queue, state, o, now, ctx);
+    (function () {
+      var orders = state.orders || {};
+      var spot = { x: 1.35, y: 6.35 };
+      var since = now - (orders.at || now);
+      if (orders.phase === "here" && since < 2800) spot = { x: -1.4 + (1.35 + 1.4) * (since / 2800), y: 6.35 };
+      else if (orders.phase === "away" && since < 2600) spot = { x: 1.35 + (since / 2600) * 5, y: 6.35 };
+      var n = north(spot.x, spot.y, o);
+      queue.push({ y: n.y, draw: function () {
+        shadowAt(ctx, n.x, n.y, o.tw * 0.46, o.th * 0.22);
+        blitFoot(ctx, img.taxi, n.x, n.y, o.tw, 0.85);
+        if (orders.phase === "here" && since < 3200) puff(ctx, n.x + o.tw * 0.12, n.y - o.th * 0.2, now, "steam");
+      } });
+      var ev = state.laneEvent && state.laneEvent.current;
+      if (ev && ev.type === "goat") {
+        var gx = 5.2 + Math.sin(now / 180) * 0.8;
+        var gy = 4.2 + Math.cos(now / 220) * 0.35;
+        var gn = north(gx, gy, o);
+        queue.push({ y: gn.y, draw: function () {
+          blitFoot(ctx, img.animal_goat, gn.x, gn.y, o.tw, LOOK.actors.goat.scale);
+        } });
+      }
+      if (ev && ev.type === "ball") {
+        var bn = north(4.2, 5.6, o);
+        queue.push({ y: bn.y, draw: function () {
+          ctx.save();
+          ctx.fillStyle = "#f4f1ea";
+          ctx.beginPath();
+          ctx.arc(bn.x, bn.y - 8 - Math.abs(Math.sin(now / 160)) * 10, 7, 0, 7);
+          ctx.fill();
+          ctx.strokeStyle = "#243028";
+          ctx.stroke();
+          ctx.restore();
+        } });
+      }
+    })();
     queue.sort(function (a, b) { return a.y - b.y; });
     for (i = 0; i < queue.length; i++) queue[i].draw();
     var pid;
@@ -1659,16 +2178,33 @@ var DRAW = (function () {
       if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
       var plot = KHAYA.PLOTS[pid];
       var lock = north(plot.x + plot.w / 2, plot.y + plot.h / 2, o);
+      peg(ctx, lock.x, lock.y, String(plot.notes));
+    }
+    var live = state.laneEvent && state.laneEvent.current;
+    if (live && live.type === "storm") {
       ctx.save();
-      ctx.fillStyle = "#243028";
-      ctx.beginPath();
-      ctx.arc(lock.x, lock.y, 14, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = "#f6efe2";
-      ctx.font = "700 14px Fredoka, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(plot.notes, lock.x, lock.y);
+      ctx.fillStyle = "rgba(40, 70, 110, 0.18)";
+      ctx.fillRect(0, 0, w, h);
+      var drop;
+      for (drop = 0; drop < 40; drop++) {
+        var rx = (drop * 97 + now * 0.4) % w;
+        var ry = (drop * 53 + now * 0.8) % h;
+        ctx.strokeStyle = "rgba(220, 230, 240, 0.45)";
+        ctx.beginPath();
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - 3, ry + 10);
+        ctx.stroke();
+      }
+      if (Math.floor(now / 700) % 5 === 0) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.restore();
+    }
+    if (live && live.type === "shed" && !live.solar) {
+      ctx.save();
+      ctx.fillStyle = "rgba(20, 16, 12, 0.28)";
+      ctx.fillRect(0, 0, w, h);
       ctx.restore();
     }
     if (view.ghost) {
@@ -1688,7 +2224,49 @@ var DRAW = (function () {
     return o;
   }
 
-  return { load: load, render: render, layout: layout, clampCamera: clampCamera, ready: function () { return ready; } };
+  function lineup(canvas) {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#c6d98a";
+    ctx.fillRect(0, 0, w, h);
+    var row = LOOK.lineup || [];
+    var i;
+    var gap = w / (row.length + 1);
+    var groundY = h * 0.72;
+    ctx.fillStyle = "#3a2416";
+    ctx.font = "600 12px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    for (i = 0; i < row.length; i++) {
+      var file = row[i];
+      var scale = 1;
+      if (file === "home_l1") scale = LOOK.buildings.home.scale;
+      else if (file === "taxi") scale = 0.85;
+      else if (LOOK.treeScale[file]) scale = LOOK.treeScale[file];
+      else if (file === "aloe") scale = LOOK.buildings.aloe_clump.scale;
+      else if (file === "char_farmer") scale = LOOK.actors.farmer.scale;
+      else if (file === "char_kid") scale = LOOK.actors.kid.scale;
+      else if (file === "animal_hen") scale = LOOK.actors.hen.scale;
+      else if (file === "animal_dog") scale = LOOK.actors.dog.scale;
+      else if (file === "animal_cow") scale = LOOK.actors.cow.scale;
+      else if (file === "braai_drum") scale = LOOK.buildings.braai.scale;
+      else if (file === "potjie") scale = LOOK.buildings.potjie.scale;
+      else if (file === "wheelbarrow") scale = LOOK.buildings.barrow.scale;
+      var x = gap * (i + 1);
+      shadowAt(ctx, x, groundY, 28, 10);
+      blitFoot(ctx, img[file], x, groundY, 72, scale);
+      ctx.fillStyle = "#3a2416";
+      ctx.fillText(file.replace("char_", "").replace("animal_", "").replace("tree_", ""), x, h * 0.9);
+    }
+    ctx.font = "700 16px Fredoka, sans-serif";
+    ctx.fillText("House ~1.7 tiles · taxi 1.2 · people 60% of the door · hen shin · dog knee · cow shoulder", w / 2, 28);
+  }
+
+  return { load: load, render: render, lineup: lineup, layout: layout, clampCamera: clampCamera, ready: function () { return ready; } };
 })();
 // Crate Day and the spaza counter. Skill games, capped pay, one collect each.
 var PLAY = (function () {
@@ -1801,7 +2379,95 @@ var PLAY = (function () {
     return function stop() { round.over = true; };
   }
 
-  return { crateStart: crateStart, marketStart: marketStart };
+  function penaltyStart(body, done) {
+    var round = { i: 0, goals: 0, over: false, token: "penalty-" + Date.now() };
+    var clock = 0;
+    body.innerHTML = "<p class=\"rules\">Five penalties. Tap while the marker is in the posts. The keeper dives to one side. No fee.</p><div class=\"meter\"><span id=\"penBar\"></span></div><p id=\"penShow\" class=\"slip\">Kick 1 of 5</p><button type=\"button\" class=\"hot\" id=\"penKick\">Kick</button>";
+    var bar = body.querySelector("#penBar");
+    var show = body.querySelector("#penShow");
+    var marker = 0;
+    function finish() {
+      if (round.over) return;
+      round.over = true;
+      done(round.token, KHAYA.penaltyPayout(round.goals), "You scored " + round.goals + " of 5.");
+    }
+    body.querySelector("#penKick").addEventListener("click", function () {
+      if (round.over) return;
+      var dive = round.i % 2 === 0 ? 0.2 : 0.8;
+      var aimed = marker > 0.38 && marker < 0.62;
+      var sameSide = Math.abs(marker - dive) < 0.22;
+      if (aimed || !sameSide) round.goals += 1;
+      round.i += 1;
+      show.textContent = round.goals + " goals · kick " + Math.min(5, round.i + 1) + " of 5";
+      if (round.i >= 5) finish();
+    });
+    function frame(t) {
+      if (round.over) return;
+      clock = t;
+      marker = (Math.sin(t / 280) + 1) / 2;
+      bar.style.transform = "scaleX(" + marker + ")";
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return function stop() { round.over = true; };
+  }
+
+  function diketoStart(body, done) {
+    var round = { i: 0, hits: 0, over: false, token: "diketo-" + Date.now(), lit: 0 };
+    body.innerHTML = "<p class=\"rules\">Diketo. Eight stones. Tap the one that lights. A late tap misses. No fee.</p><div class=\"crates\" id=\"stones\"></div><p id=\"diketoScore\" class=\"fine\">0 hits</p>";
+    var box = body.querySelector("#stones");
+    var score = body.querySelector("#diketoScore");
+    var s;
+    for (s = 0; s < 8; s++) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = String(s + 1);
+      b.setAttribute("data-stone", String(s));
+      box.appendChild(b);
+    }
+    function finish() {
+      if (round.over) return;
+      round.over = true;
+      done(round.token, KHAYA.diketoPayout(round.hits), "You caught " + round.hits + " of 8 stones.");
+    }
+    function light(n) {
+      round.lit = n;
+      box.querySelectorAll("button").forEach(function (btn, idx) {
+        btn.style.background = idx === n ? "#e2a53a" : "";
+      });
+    }
+    light(0);
+    var started = 0;
+    box.querySelectorAll("button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (round.over) return;
+        if (Number(btn.getAttribute("data-stone")) === round.lit) round.hits += 1;
+        round.i += 1;
+        score.textContent = round.hits + " hits · " + round.i + " / 8";
+        if (round.i >= 8) finish();
+        else light(round.i);
+      });
+    });
+    function frame(t) {
+      if (round.over) return;
+      if (!started) started = t;
+      if (t - started > 1400) {
+        started = t;
+        if (round.i < 8) {
+          round.i += 1;
+          if (round.i >= 8) finish();
+          else light(round.i);
+          score.textContent = round.hits + " hits · " + round.i + " / 8";
+        }
+      }
+      if (!round.over) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return function stop() { round.over = true; };
+  }
+
+  return { crateStart: crateStart, marketStart: marketStart, penaltyStart: penaltyStart, diketoStart: diketoStart };
 })();
 // Khaya Lane. Tap the lane, grow food, build, and play.
 (function () {
@@ -1824,7 +2490,7 @@ var PLAY = (function () {
   if (tag) tag.textContent = q.get("build") ? "build " + q.get("build") : "";
 
   var now0 = Date.now();
-  var state = load() || KHAYA.fresh(now0);
+  var state = q.get("fresh") ? KHAYA.fresh(now0) : (load() || KHAYA.fresh(now0));
   KHAYA.tick(state, now0);
   var selectedId = null;
   var ghost = null;
@@ -1835,7 +2501,7 @@ var PLAY = (function () {
   var muted = localStorage.getItem("eish-khaya-mute") === "1";
   var drag = null;
   var laneLevel = KHAYA.playerLevel(state);
-  var cam = { x: 0, y: 0, z: 1, vx: 0, vy: 0 };
+  var cam = { x: 0, y: 0, z: q.get("zoom") ? Number(q.get("zoom")) || 1 : 1, vx: 0, vy: 0 };
   var pointers = {};
   var pinch = 0;
   var squash = {};
@@ -1859,7 +2525,7 @@ var PLAY = (function () {
     toastEl.textContent = text;
     toastEl.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 1600);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2400);
   }
 
   function audio() {
@@ -1981,6 +2647,11 @@ var PLAY = (function () {
     }).join("");
     var info = KHAYA.nextStep(KHAYA.playerXp(state), KHAYA.PLAYER_STEPS);
     var lv = KHAYA.playerLevel(state);
+    var ordersBtn = document.getElementById("orders");
+    if (ordersBtn) {
+      var list = state.orders && state.orders.phase === "here" ? state.orders.list : [];
+      ordersBtn.textContent = list && list.length ? "Orders " + list.length : "Orders";
+    }
     if (levelEl) levelEl.textContent = String(lv);
     if (xpFill) {
       var span = Math.max(1, info.next - info.prev);
@@ -2142,11 +2813,13 @@ var PLAY = (function () {
       chime("place");
     }
     if (result.amount) {
-      chime("harvest");
+      chime(result.crit ? "place" : "harvest");
       if (focus) {
         var p = cellPoint(focus);
-        floats.push({ x: p.x, y: p.y, t: Date.now(), text: "+" + result.amount + " " + result.crop, color: "#2f6d4f" });
+        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
       }
+      if (result.crit) toast("A golden mielie. Triple harvest.");
+      if (result.combo >= 3) toast("Combo " + result.combo + ". +" + (result.notes || 0) + " notes.");
     } else if (result.notes) {
       chime("harvest");
       toast("+" + result.notes + " notes");
@@ -2159,6 +2832,7 @@ var PLAY = (function () {
     } else if (result.xp) {
       chime("tap");
     }
+    if (result.chest) toast("Level " + result.chest + " chest is waiting in the lane book.");
     noteArrivals();
     celebrate();
     save();
@@ -2231,12 +2905,16 @@ var PLAY = (function () {
   }
 
   function openPlay() {
-    openModal("Play", "<p class=\"rules\">Two games on the lane. They pay notes and supplies once when you finish. Leaving early pays nothing. There is no fee and nothing to wager.</p><article class=\"build\"><h3>Crate Day</h3><p>Sort the harvest into the right crate before the bar runs out.</p><button type=\"button\" data-game=\"crate\">Play Crate Day</button></article><article class=\"build\"><h3>Spaza counter</h3><p>Match the customer’s slip, then hand it over.</p><button type=\"button\" data-game=\"market\">Open the counter</button></article>");
+    openModal("Play", "<p class=\"rules\">Games on the lane. They pay notes once when you finish. Leaving early pays nothing. There is no fee and nothing to wager.</p><article class=\"build\"><h3>Crate Day</h3><p>Sort the harvest into the right crate before the bar runs out.</p><button type=\"button\" data-game=\"crate\">Play Crate Day</button></article><article class=\"build\"><h3>Spaza counter</h3><p>Match the customer’s slip, then hand it over.</p><button type=\"button\" data-game=\"market\">Open the counter</button></article><article class=\"build\"><h3>Penalty</h3><p>Five kicks. Time the bar. The keeper dives.</p><button type=\"button\" data-game=\"penalty\">Take the kicks</button></article><article class=\"build\"><h3>Diketo</h3><p>Tap the stone while it is lit. Eight stones.</p><button type=\"button\" data-game=\"diketo\">Play diketo</button></article>");
     modalBody.querySelectorAll("[data-game]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var kind = btn.getAttribute("data-game");
-        modalTitle.textContent = kind === "crate" ? "Crate Day" : "Spaza counter";
-        stopGame = kind === "crate" ? PLAY.crateStart(modalBody, finishGame) : PLAY.marketStart(modalBody, finishGame);
+        var titles = { crate: "Crate Day", market: "Spaza counter", penalty: "Penalty", diketo: "Diketo" };
+        modalTitle.textContent = titles[kind] || "Play";
+        if (kind === "crate") stopGame = PLAY.crateStart(modalBody, finishGame);
+        else if (kind === "market") stopGame = PLAY.marketStart(modalBody, finishGame);
+        else if (kind === "penalty") stopGame = PLAY.penaltyStart(modalBody, finishGame);
+        else stopGame = PLAY.diketoStart(modalBody, finishGame);
       });
     });
   }
@@ -2266,7 +2944,9 @@ var PLAY = (function () {
       spec = KHAYA.FOLK[id];
       rec = state.collection[id] || { have: 0 };
       if (rec.have) KHAYA.seeFolk(state, id);
-      html += "<article class=\"folk" + (rec.have ? "" : " locked") + "\"><b>" + (rec.have ? spec.name : "???") + "</b><p class=\"fine\">" + (rec.have ? spec.blurb : "Not met yet.") + "</p>";
+      var tale = KHAYA.storyView(state, id);
+      html += "<article class=\"folk" + (rec.have ? "" : " locked") + "\"><b>" + (rec.have ? spec.name : (tale && tale.open ? spec.name : "???")) + "</b><p class=\"fine\">" + (rec.have ? spec.blurb : (tale && tale.open ? tale.say : "Not met yet.")) + "</p>";
+      if (tale && tale.open && !tale.done) html += "<button type=\"button\" data-story=\"" + id + "\">Reply</button>";
       if (rec.have) {
         homes = "";
         for (hi = 0; hi < state.buildings.length; hi++) {
@@ -2300,7 +2980,17 @@ var PLAY = (function () {
     var list = KHAYA.tasks(state).map(function (t) {
       return "<li>" + (t.done ? "Done · " : "") + t.text + "</li>";
     }).join("");
-    var head = dailyBlock() + bookBlock();
+    var braai = "";
+    var today = KHAYA.dayKey(new Date());
+    if (KHAYA.weekendKey(today)) {
+      var progress = state.braai && state.braai.key === KHAYA.weekendKey(today) ? state.braai.n : 0;
+      braai = "<h3>Braai Day</h3><p class=\"fine\">Harvest 4 crops this weekend. " + Math.min(4, progress) + " of 4.</p>";
+      if (state.chest) braai += "<button type=\"button\" data-chest>Open the level " + state.chest.level + " chest</button>";
+      braai += "<button type=\"button\" data-braai>Share the braai</button>";
+    } else if (state.chest) {
+      braai = "<button type=\"button\" data-chest>Open the level " + state.chest.level + " chest</button>";
+    }
+    var head = dailyBlock() + braai + bookBlock();
     save();
     var sell = "";
     Object.keys(KHAYA.CROPS).forEach(function (k) {
@@ -2319,6 +3009,24 @@ var PLAY = (function () {
         act(KHAYA.houseFolk(state, btn.getAttribute("data-house"), Number(btn.getAttribute("data-bid"))));
         if (!modal.hidden) openMore();
       });
+    });
+    modalBody.querySelectorAll("[data-story]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var told = KHAYA.advanceStory(state, btn.getAttribute("data-story"));
+        act(told.ok ? told : { ok: false, reason: told.reason });
+        if (told.say) toast(told.say);
+        if (!modal.hidden) openMore();
+      });
+    });
+    var chestBtn = modalBody.querySelector("[data-chest]");
+    if (chestBtn) chestBtn.addEventListener("click", function () {
+      act(KHAYA.claimChest(state));
+      if (!modal.hidden) openMore();
+    });
+    var braaiBtn = modalBody.querySelector("[data-braai]");
+    if (braaiBtn) braaiBtn.addEventListener("click", function () {
+      act(KHAYA.claimBraai(state, KHAYA.dayKey(new Date())));
+      if (!modal.hidden) openMore();
     });
     modalBody.querySelectorAll("[data-unhouse]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -2515,7 +3223,7 @@ var PLAY = (function () {
     }
   });
 
-  if (q.get("go") === "1") state.welcomed = true;
+  if (q.get("go") === "1" || q.get("lineup")) state.welcomed = true;
   if (!state.welcomed) {
     state.welcomed = true;
     save();
@@ -2525,7 +3233,8 @@ var PLAY = (function () {
   var muteBtn = document.getElementById("mute");
   function paintMute() {
     if (!muteBtn) return;
-    muteBtn.textContent = muted ? "Sound off" : "Sound";
+    muteBtn.textContent = muted ? "Off" : "On";
+    muteBtn.setAttribute("aria-label", muted ? "Sound off" : "Sound on");
     muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
   }
   if (muteBtn) {
@@ -2538,6 +3247,31 @@ var PLAY = (function () {
     });
   }
   paintMute();
+  var ordersBtn = document.getElementById("orders");
+  if (ordersBtn) ordersBtn.addEventListener("click", function () {
+    var o = state.orders || { list: [], phase: "away" };
+    var html = "<p class=\"rules\">Jabu hoots in with neighbourhood orders. Fill one with what you grew. He waits, then the rank goes quiet until the next run.</p>";
+    if (o.phase !== "here" || !o.list || !o.list.length) html += "<p>The taxi is on the road.</p>";
+    else o.list.forEach(function (job, i) {
+      html += "<article class=\"build\"><h3>" + job.name + "</h3><p>" + job.say + "</p><p class=\"fine\">" + job.notes + " notes" + (job.rare ? " · sometimes a seed" : "") + "</p><button type=\"button\" data-fill=\"" + i + "\">Fill</button></article>";
+    });
+    openModal("Taxi orders", html);
+    modalBody.querySelectorAll("[data-fill]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var got = KHAYA.fillOrder(state, Number(btn.getAttribute("data-fill")), Date.now());
+        act(got);
+        if (got.ok) toast(got.rare ? "Order filled. A seed came with it." : "Order filled.");
+      });
+    });
+  });
+  var eventBtn = document.getElementById("event");
+  if (eventBtn) eventBtn.addEventListener("click", function () {
+    var got = KHAYA.respondEvent(state, Date.now());
+    if (got.say) toast(got.say);
+    if (!got.ok) toast(got.reason);
+    else act(got.notes || got.seeds ? got : { ok: true });
+    paint();
+  });
   canvas.addEventListener("pointerdown", function () { ensureWind(); }, { once: true });
 
   var hudAt = 0;
@@ -2553,7 +3287,22 @@ var PLAY = (function () {
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
     }
     if (now - hudAt > 350) {
+      KHAYA.setToday(state, KHAYA.dayKey(new Date()));
       var ticked = KHAYA.tick(state, now);
+      if (ticked.hoot && state.orders) {
+        tone(440, 0.08, "square", 0.04);
+        setTimeout(function () { tone(330, 0.12, "square", 0.04); }, 120);
+        state.orders.hoot = 0;
+      }
+      var live = state.laneEvent && state.laneEvent.current;
+      var eventBtn = document.getElementById("event");
+      if (eventBtn) {
+        if (live) {
+          if (eventBtn.hidden) toast(live.say);
+          eventBtn.hidden = false;
+          eventBtn.textContent = live.say;
+        } else eventBtn.hidden = true;
+      }
       if (ticked.found && ticked.found.length) noteArrivals();
       if (ticked.finished && ticked.finished.length) {
         var i;
@@ -2578,7 +3327,46 @@ var PLAY = (function () {
   if ("serviceWorker" in navigator && location.protocol !== "file:" && location.search.indexOf("nosw=1") < 0) {
   navigator.serviceWorker.register("sw.js").catch(function () {});
 }
-DRAW.load(function () { paint(); });
+  if (q.get("demo")) {
+    setTimeout(function () { if (ordersBtn) ordersBtn.click(); }, 800);
+    setTimeout(function () { closeModal(); }, 4800);
+    setTimeout(function () {
+      state.laneEvent = { next: Date.now() - 1, n: 0, current: null };
+      KHAYA.tick(state, Date.now());
+    }, 5400);
+    setTimeout(function () {
+      var banner = document.getElementById("event");
+      if (banner && !banner.hidden) banner.click();
+    }, 8600);
+    setTimeout(function () {
+      var bed = null;
+      var i;
+      for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed" && state.buildings[i].phase === "empty") bed = state.buildings[i];
+      if (!bed) return;
+      state.stats.harvested = 5;
+      KHAYA.sow(state, bed.id, "maize");
+      KHAYA.water(state, bed.id, Date.now() - 20000);
+      act(KHAYA.harvest(state, bed.id, Date.now()));
+    }, 10200);
+    setTimeout(function () { openPlay(); }, 12800);
+    setTimeout(function () {
+      var kick = modalBody.querySelector("[data-game=\"penalty\"]");
+      if (kick) kick.click();
+    }, 14600);
+    setTimeout(function () {
+      var shot = document.getElementById("penKick");
+      if (shot) shot.click();
+    }, 16200);
+  }
+DRAW.load(function () {
+  if (q.get("lineup")) {
+    function drawLine() { DRAW.lineup(canvas); requestAnimationFrame(drawLine); }
+    document.getElementById("boot").hidden = true;
+    drawLine();
+    return;
+  }
+  paint();
+});
 window.__EISH_OK = true;
   var boot = document.getElementById("boot");
   if (boot) boot.hidden = true;

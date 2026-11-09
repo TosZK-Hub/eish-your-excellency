@@ -109,5 +109,93 @@ var PLAY = (function () {
     return function stop() { round.over = true; };
   }
 
-  return { crateStart: crateStart, marketStart: marketStart };
+  function penaltyStart(body, done) {
+    var round = { i: 0, goals: 0, over: false, token: "penalty-" + Date.now() };
+    var clock = 0;
+    body.innerHTML = "<p class=\"rules\">Five penalties. Tap while the marker is in the posts. The keeper dives to one side. No fee.</p><div class=\"meter\"><span id=\"penBar\"></span></div><p id=\"penShow\" class=\"slip\">Kick 1 of 5</p><button type=\"button\" class=\"hot\" id=\"penKick\">Kick</button>";
+    var bar = body.querySelector("#penBar");
+    var show = body.querySelector("#penShow");
+    var marker = 0;
+    function finish() {
+      if (round.over) return;
+      round.over = true;
+      done(round.token, KHAYA.penaltyPayout(round.goals), "You scored " + round.goals + " of 5.");
+    }
+    body.querySelector("#penKick").addEventListener("click", function () {
+      if (round.over) return;
+      var dive = round.i % 2 === 0 ? 0.2 : 0.8;
+      var aimed = marker > 0.38 && marker < 0.62;
+      var sameSide = Math.abs(marker - dive) < 0.22;
+      if (aimed || !sameSide) round.goals += 1;
+      round.i += 1;
+      show.textContent = round.goals + " goals · kick " + Math.min(5, round.i + 1) + " of 5";
+      if (round.i >= 5) finish();
+    });
+    function frame(t) {
+      if (round.over) return;
+      clock = t;
+      marker = (Math.sin(t / 280) + 1) / 2;
+      bar.style.transform = "scaleX(" + marker + ")";
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return function stop() { round.over = true; };
+  }
+
+  function diketoStart(body, done) {
+    var round = { i: 0, hits: 0, over: false, token: "diketo-" + Date.now(), lit: 0 };
+    body.innerHTML = "<p class=\"rules\">Diketo. Eight stones. Tap the one that lights. A late tap misses. No fee.</p><div class=\"crates\" id=\"stones\"></div><p id=\"diketoScore\" class=\"fine\">0 hits</p>";
+    var box = body.querySelector("#stones");
+    var score = body.querySelector("#diketoScore");
+    var s;
+    for (s = 0; s < 8; s++) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = String(s + 1);
+      b.setAttribute("data-stone", String(s));
+      box.appendChild(b);
+    }
+    function finish() {
+      if (round.over) return;
+      round.over = true;
+      done(round.token, KHAYA.diketoPayout(round.hits), "You caught " + round.hits + " of 8 stones.");
+    }
+    function light(n) {
+      round.lit = n;
+      box.querySelectorAll("button").forEach(function (btn, idx) {
+        btn.style.background = idx === n ? "#e2a53a" : "";
+      });
+    }
+    light(0);
+    var started = 0;
+    box.querySelectorAll("button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (round.over) return;
+        if (Number(btn.getAttribute("data-stone")) === round.lit) round.hits += 1;
+        round.i += 1;
+        score.textContent = round.hits + " hits · " + round.i + " / 8";
+        if (round.i >= 8) finish();
+        else light(round.i);
+      });
+    });
+    function frame(t) {
+      if (round.over) return;
+      if (!started) started = t;
+      if (t - started > 1400) {
+        started = t;
+        if (round.i < 8) {
+          round.i += 1;
+          if (round.i >= 8) finish();
+          else light(round.i);
+          score.textContent = round.hits + " hits · " + round.i + " / 8";
+        }
+      }
+      if (!round.over) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return function stop() { round.over = true; };
+  }
+
+  return { crateStart: crateStart, marketStart: marketStart, penaltyStart: penaltyStart, diketoStart: diketoStart };
 })();
