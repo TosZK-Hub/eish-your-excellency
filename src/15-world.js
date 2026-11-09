@@ -274,9 +274,8 @@
     VIEW.mobile = Math.min(w, h) < 760;
     var ratio = Math.min(dpr || 1, VIEW.mobile ? 1.35 : 1.75);
     renderer.setPixelRatio(ratio);
-    renderer.setSize(w, h, false);
-    camera.aspect = w / Math.max(1, h);
-    camera.fov = VIEW.mobile ? 64 : 56;
+    renderer.setSize(Math.max(1, w), Math.max(1, h), false);
+    camera.aspect = Math.max(1, w) / Math.max(1, h);
     camera.updateProjectionMatrix();
     var shadow = VIEW.mobile ? 1024 : 2048;
     if (sun && sun.shadow.mapSize.x !== shadow) {
@@ -409,20 +408,30 @@
     else if (e.kind !== "coin") slot.object.position.y = 0;
   }
 
+  function verticalFov(hfovDeg, aspect) {
+    var h = hfovDeg * Math.PI / 180;
+    var v = 2 * Math.atan(Math.tan(h / 2) / Math.max(0.25, aspect));
+    return Math.max(30, Math.min(108, v * 180 / Math.PI));
+  }
+
   function frameCamera(app, px) {
-    var wide = !VIEW.mobile && camera.aspect > 1.15;
+    var wide = camera.aspect > 1.15;
     var title = app.screen === "title" || app.screen === "how";
+    var hfov = title ? (wide ? 46 : 42) : (wide ? 66 : 62);
     if (title) {
-      // In front of the face, a little to screen-right, so both eyes and the whole body read.
       camera.position.set(0.62, 1.02, 3.25);
       camera.lookAt(-0.02, 0.86, 0);
-      camera.fov = wide ? 32 : 30;
     } else {
-      var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.025;
-      camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.62, wide ? 4.6 : 4.05);
-      camera.lookAt(px * 0.45, 0.98 + sway, -6.2);
-      camera.fov = wide ? 52 : 58;
+      var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.02;
+      if (camera.aspect < 0.85) {
+        camera.position.set(px * 0.22 + 0.12, 1.42, 3.05);
+        camera.lookAt(px * 0.35, 0.78 + sway, -3.6);
+      } else {
+        camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.7, wide ? 4.6 : 4.2);
+        camera.lookAt(px * 0.45, 0.98 + sway, -6.2);
+      }
     }
+    camera.fov = verticalFov(hfov, camera.aspect);
     camera.updateProjectionMatrix();
   }
 
@@ -446,6 +455,7 @@
           phase: sim.phase / 6,
           air: sim.air / (root.EISH.JUMP_DUR || 0.58),
           t: app.time,
+          dt: app.dt || 0.016,
           blink: false
         });
         runner.object.position.set(sim.x, sim.y, 0);
@@ -456,7 +466,7 @@
     } else {
       travel = app.menuT || 0;
       var blink = !app.reduced && Math.sin(app.time * 0.7) > 0.96;
-      runner.animate({ mode: "idle", phase: 0, t: app.time, blink: blink });
+      runner.animate({ mode: "idle", phase: 0, t: app.time, dt: app.dt || 0.016, blink: blink });
       runner.object.position.set(-0.12, 0, 0);
       runner.object.rotation.y = Math.PI + 0.32;
       frameCamera(app, 0);
@@ -481,10 +491,26 @@
     return { banner: banner };
   }
 
+  function metrics() {
+    if (!renderer) return null;
+    var canvas = renderer.domElement;
+    var bw = canvas.width, bh = canvas.height;
+    return {
+      css: [canvas.clientWidth, canvas.clientHeight],
+      buf: [bw, bh],
+      cssAspect: canvas.clientHeight ? canvas.clientWidth / canvas.clientHeight : 0,
+      bufAspect: bh ? (bw / bh) : 0,
+      cameraAspect: camera ? camera.aspect : 0,
+      fov: camera ? camera.fov : 0,
+      hfov: camera ? (2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect) * 180 / Math.PI) : 0
+    };
+  }
+
   root.WORLD = {
     init: init,
     resize: resize,
     frame: frame,
+    metrics: metrics,
     failReason: function () { return failReason; }
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -900,104 +900,109 @@
       sole.castShadow = true;
       var stripe = add(ankle, geoBox(0.05, 0.02, 0.08), kick, 0, -0.02, -0.08);
       stripe.castShadow = false;
-      return { thigh: hipJ, shin: shin };
+      return { thigh: hipJ, shin: shin, ankle: ankle };
     }
     var lL = leg(-1);
     var lR = leg(1);
 
+    function ease(t) { return t * t * (3 - 2 * t); }
+    function sample(keys, t) {
+      t = ((t % 1) + 1) % 1;
+      var i, n = keys.length;
+      for (i = 0; i < n; i++) {
+        var a = keys[i], b = keys[(i + 1) % n];
+        var end = b.p <= a.p ? b.p + 1 : b.p;
+        var cur = t < a.p ? t + 1 : t;
+        if (cur >= a.p && cur <= end + 0.0001) {
+          var span = end - a.p || 1;
+          return a.v + (b.v - a.v) * ease(Math.max(0, Math.min(1, (cur - a.p) / span)));
+        }
+      }
+      return keys[0].v;
+    }
+    var THIGH = [
+      { p: 0.00, v: 0.55 }, { p: 0.16, v: 0.12 }, { p: 0.38, v: -0.68 },
+      { p: 0.55, v: -0.18 }, { p: 0.74, v: 0.98 }, { p: 1.00, v: 0.55 }
+    ];
+    var KNEE = [
+      { p: 0.00, v: -0.18 }, { p: 0.16, v: -0.62 }, { p: 0.36, v: -0.16 },
+      { p: 0.52, v: -1.25 }, { p: 0.72, v: -0.85 }, { p: 0.90, v: -0.28 }, { p: 1.00, v: -0.18 }
+    ];
+    var smoothed = null;
+
     function apply(info) {
       var phase = info.phase || 0;
-      var s = Math.cos(phase * Math.PI * 2);
-      var bob = Math.abs(Math.sin(phase * Math.PI * 2)) * 0.05 * c.bob;
+      var dt = info.dt || 0.016;
       var mode = info.mode || "run";
-      var thighL = 0.95 * s;
-      var thighR = -0.95 * s;
-      var kneeL = -0.4 - 0.85 * Math.max(0, s);
-      var kneeR = -0.4 - 0.85 * Math.max(0, -s);
-      var armL = -1.05 * s * c.arm;
-      var armR = 1.05 * s * c.arm;
-      var foreL = -0.55;
-      var foreR = -0.55;
-      var lean = c.lean;
-      var hipY = 0.92 - bob;
-      var hipTwist = -0.12 * s;
-      var spineTwist = 0.14 * s;
-      headP.rotation.x = 0.08;
-      headP.rotation.y = -0.08 * s;
+      var cycle = phase;
+      var thighL, thighR, kneeL, kneeR, armL, armR, foreL, foreR, lean, hipY, hipTwist, spineTwist, roll, headX, headY, footFlat;
       if (mode === "jump") {
         var k = Math.sin(Math.min(1, info.air || 0) * Math.PI);
-        thighL = 1.05 * k;
-        thighR = 1.1 * k;
-        kneeL = -1.25 * k;
-        kneeR = -1.3 * k;
-        armL = -1.15 * k;
-        armR = -1.05 * k;
-        foreL = -0.3;
-        foreR = -0.35;
-        lean = 0.05;
-        hipY = 0.92;
-        hipTwist = 0;
-        spineTwist = 0;
-        headP.rotation.x = -0.1 * k;
+        thighL = 1.15 * k; thighR = 1.2 * k;
+        kneeL = -1.35 * k; kneeR = -1.4 * k;
+        armL = -1.25 * k; armR = -1.15 * k;
+        foreL = -0.45; foreR = -0.5;
+        lean = 0.02; hipY = 0.9; hipTwist = 0; spineTwist = 0; roll = 0;
+        headX = -0.15 * k; headY = 0; footFlat = 0.35;
       } else if (mode === "slide") {
-        thighL = 1.15;
-        kneeL = -0.35;
-        thighR = 0.15;
-        kneeR = -1.35;
-        armL = 0.35;
-        armR = 0.2;
-        foreL = -0.2;
-        foreR = -1.4;
-        lean = -0.55;
-        hipY = 0.62;
-        hipTwist = 0;
-        spineTwist = 0;
-        headP.rotation.x = 0.35;
-        headP.rotation.y = 0.2;
+        thighL = 1.25; kneeL = -0.45; thighR = 0.05; kneeR = -1.25;
+        armL = 0.45; armR = 0.15; foreL = -0.25; foreR = -1.15;
+        lean = -0.62; hipY = 0.58; hipTwist = 0; spineTwist = 0; roll = 0.08;
+        headX = 0.28; headY = 0.15; footFlat = 0.7;
       } else if (mode === "hit") {
-        thighL = 0.25;
-        thighR = -0.45;
-        kneeL = -0.2;
-        kneeR = -0.3;
-        armL = -1.3;
-        armR = -0.8;
-        foreL = -0.4;
-        foreR = -0.5;
-        lean = -0.25;
-        hipY = 0.9;
-        headP.rotation.x = -0.2;
+        thighL = 0.2; thighR = -0.4; kneeL = -0.25; kneeR = -0.35;
+        armL = -1.35; armR = -0.85; foreL = -0.45; foreR = -0.55;
+        lean = -0.28; hipY = 0.88; hipTwist = 0; spineTwist = 0; roll = 0;
+        headX = -0.25; headY = 0; footFlat = 0.8;
       } else if (mode === "idle") {
         var w = Math.sin((info.t || 0) * 1.6);
-        thighL = 0.06;
-        thighR = -0.02;
-        kneeL = -0.18;
-        kneeR = -0.12;
-        armL = 0.12 + w * 0.05;
-        armR = -0.08 + w * 0.04;
-        foreL = -0.35;
-        foreR = -0.4;
-        lean = 0.06;
-        hipY = 0.92 + Math.sin((info.t || 0) * 1.6) * 0.012;
-        hipTwist = w * 0.03;
-        spineTwist = -w * 0.03;
-        headP.rotation.y = 0.12;
-        headP.rotation.x = -0.06;
-        bob = 0;
+        thighL = 0.05; thighR = -0.02; kneeL = -0.16; kneeR = -0.1;
+        armL = 0.1 + w * 0.04; armR = -0.06; foreL = -0.32; foreR = -0.38;
+        lean = 0.05; hipY = 0.92 + w * 0.01; hipTwist = w * 0.02; spineTwist = -w * 0.02; roll = 0;
+        headX = -0.05; headY = 0.12; footFlat = 1;
+      } else {
+        thighL = sample(THIGH, cycle);
+        thighR = sample(THIGH, cycle + 0.5);
+        kneeL = sample(KNEE, cycle);
+        kneeR = sample(KNEE, cycle + 0.5);
+        armL = -sample(THIGH, cycle) * 1.05 * c.arm;
+        armR = -sample(THIGH, cycle + 0.5) * 1.05 * c.arm;
+        foreL = -0.28 - 0.75 * Math.max(0, -armL);
+        foreR = -0.28 - 0.75 * Math.max(0, -armR);
+        var weight = Math.cos(cycle * Math.PI * 2);
+        lean = c.lean + 0.05 * weight;
+        hipY = 0.9 - 0.045 * Math.cos(cycle * Math.PI * 4) * c.bob;
+        hipTwist = -0.1 * weight;
+        spineTwist = 0.16 * weight;
+        roll = 0.07 * weight;
+        headX = 0.06; headY = -0.06 * weight;
+        footFlat = 1;
       }
-      hips.position.y = hipY;
-      hips.rotation.y = hipTwist;
-      hips.rotation.x = lean;
-      torso.rotation.y = spineTwist;
-      lL.thigh.rotation.x = thighL;
-      lR.thigh.rotation.x = thighR;
-      lL.shin.rotation.x = kneeL;
-      lR.shin.rotation.x = kneeR;
-      aL.upper.rotation.x = armL;
-      aR.upper.rotation.x = armR;
-      aL.upper.rotation.z = 0.18;
-      aR.upper.rotation.z = -0.16;
-      aL.fore.rotation.x = foreL;
-      aR.fore.rotation.x = foreR;
+      if (!smoothed) smoothed = { thighL: thighL, thighR: thighR, kneeL: kneeL, kneeR: kneeR, armL: armL, armR: armR, foreL: foreL, foreR: foreR, lean: lean, hipY: hipY, hipTwist: hipTwist, spineTwist: spineTwist, roll: roll, headX: headX, headY: headY };
+      var blend = 1 - Math.exp(-22 * dt);
+      var key;
+      var next = { thighL: thighL, thighR: thighR, kneeL: kneeL, kneeR: kneeR, armL: armL, armR: armR, foreL: foreL, foreR: foreR, lean: lean, hipY: hipY, hipTwist: hipTwist, spineTwist: spineTwist, roll: roll, headX: headX, headY: headY };
+      for (key in next) smoothed[key] = smoothed[key] + (next[key] - smoothed[key]) * blend;
+      hips.position.y = smoothed.hipY;
+      hips.position.x = smoothed.roll * 0.04;
+      hips.rotation.y = smoothed.hipTwist;
+      hips.rotation.x = smoothed.lean;
+      hips.rotation.z = smoothed.roll;
+      torso.rotation.y = smoothed.spineTwist;
+      lL.thigh.rotation.x = smoothed.thighL;
+      lR.thigh.rotation.x = smoothed.thighR;
+      lL.shin.rotation.x = smoothed.kneeL;
+      lR.shin.rotation.x = smoothed.kneeR;
+      aL.upper.rotation.x = smoothed.armL;
+      aR.upper.rotation.x = smoothed.armR;
+      aL.upper.rotation.z = 0.08;
+      aR.upper.rotation.z = -0.07;
+      aL.fore.rotation.x = smoothed.foreL;
+      aR.fore.rotation.x = smoothed.foreR;
+      lL.ankle.rotation.x = -(smoothed.thighL + smoothed.kneeL) * 0.85 * footFlat + Math.max(0, -smoothed.thighL) * 0.35;
+      lR.ankle.rotation.x = -(smoothed.thighR + smoothed.kneeR) * 0.85 * footFlat + Math.max(0, -smoothed.thighR) * 0.35;
+      headP.rotation.x = smoothed.headX;
+      headP.rotation.y = smoothed.headY;
       var blink = info.blink ? 0.12 : 1;
       eyeL.white.scale.y = blink;
       eyeR.white.scale.y = blink;
@@ -1494,9 +1499,8 @@
     VIEW.mobile = Math.min(w, h) < 760;
     var ratio = Math.min(dpr || 1, VIEW.mobile ? 1.35 : 1.75);
     renderer.setPixelRatio(ratio);
-    renderer.setSize(w, h, false);
-    camera.aspect = w / Math.max(1, h);
-    camera.fov = VIEW.mobile ? 64 : 56;
+    renderer.setSize(Math.max(1, w), Math.max(1, h), false);
+    camera.aspect = Math.max(1, w) / Math.max(1, h);
     camera.updateProjectionMatrix();
     var shadow = VIEW.mobile ? 1024 : 2048;
     if (sun && sun.shadow.mapSize.x !== shadow) {
@@ -1629,20 +1633,30 @@
     else if (e.kind !== "coin") slot.object.position.y = 0;
   }
 
+  function verticalFov(hfovDeg, aspect) {
+    var h = hfovDeg * Math.PI / 180;
+    var v = 2 * Math.atan(Math.tan(h / 2) / Math.max(0.25, aspect));
+    return Math.max(30, Math.min(108, v * 180 / Math.PI));
+  }
+
   function frameCamera(app, px) {
-    var wide = !VIEW.mobile && camera.aspect > 1.15;
+    var wide = camera.aspect > 1.15;
     var title = app.screen === "title" || app.screen === "how";
+    var hfov = title ? (wide ? 46 : 42) : (wide ? 66 : 62);
     if (title) {
-      // In front of the face, a little to screen-right, so both eyes and the whole body read.
       camera.position.set(0.62, 1.02, 3.25);
       camera.lookAt(-0.02, 0.86, 0);
-      camera.fov = wide ? 32 : 30;
     } else {
-      var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.025;
-      camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.62, wide ? 4.6 : 4.05);
-      camera.lookAt(px * 0.45, 0.98 + sway, -6.2);
-      camera.fov = wide ? 52 : 58;
+      var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.02;
+      if (camera.aspect < 0.85) {
+        camera.position.set(px * 0.22 + 0.12, 1.42, 3.05);
+        camera.lookAt(px * 0.35, 0.78 + sway, -3.6);
+      } else {
+        camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.7, wide ? 4.6 : 4.2);
+        camera.lookAt(px * 0.45, 0.98 + sway, -6.2);
+      }
     }
+    camera.fov = verticalFov(hfov, camera.aspect);
     camera.updateProjectionMatrix();
   }
 
@@ -1666,6 +1680,7 @@
           phase: sim.phase / 6,
           air: sim.air / (root.EISH.JUMP_DUR || 0.58),
           t: app.time,
+          dt: app.dt || 0.016,
           blink: false
         });
         runner.object.position.set(sim.x, sim.y, 0);
@@ -1676,7 +1691,7 @@
     } else {
       travel = app.menuT || 0;
       var blink = !app.reduced && Math.sin(app.time * 0.7) > 0.96;
-      runner.animate({ mode: "idle", phase: 0, t: app.time, blink: blink });
+      runner.animate({ mode: "idle", phase: 0, t: app.time, dt: app.dt || 0.016, blink: blink });
       runner.object.position.set(-0.12, 0, 0);
       runner.object.rotation.y = Math.PI + 0.32;
       frameCamera(app, 0);
@@ -1701,10 +1716,26 @@
     return { banner: banner };
   }
 
+  function metrics() {
+    if (!renderer) return null;
+    var canvas = renderer.domElement;
+    var bw = canvas.width, bh = canvas.height;
+    return {
+      css: [canvas.clientWidth, canvas.clientHeight],
+      buf: [bw, bh],
+      cssAspect: canvas.clientHeight ? canvas.clientWidth / canvas.clientHeight : 0,
+      bufAspect: bh ? (bw / bh) : 0,
+      cameraAspect: camera ? camera.aspect : 0,
+      fov: camera ? camera.fov : 0,
+      hfov: camera ? (2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect) * 180 / Math.PI) : 0
+    };
+  }
+
   root.WORLD = {
     init: init,
     resize: resize,
     frame: frame,
+    metrics: metrics,
     failReason: function () { return failReason; }
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
@@ -2047,6 +2078,7 @@
     var dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
     last = now;
     app.time += dt;
+    app.dt = dt;
     if (app.screen === "title" || app.screen === "how") app.menuT += dt * (app.reduced ? 1.5 : 7);
     if (app.screen === "play" && app.sim) {
       EISH.step(app.sim, dt, takeInput());
@@ -2115,7 +2147,9 @@
     else live.textContent = app.screen;
   }, 1000);
 
+  if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(view);
   root.__EISH = app;
+  root.__metrics = function () { return WORLD.metrics(); };
   requestAnimationFrame(loop);
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("sw.js").catch(function () {});

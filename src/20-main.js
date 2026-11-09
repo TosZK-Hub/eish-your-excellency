@@ -337,6 +337,7 @@
     var dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
     last = now;
     app.time += dt;
+    app.dt = dt;
     if (app.screen === "title" || app.screen === "how") app.menuT += dt * (app.reduced ? 1.5 : 7);
     if (app.screen === "play" && app.sim) {
       EISH.step(app.sim, dt, takeInput());
@@ -405,7 +406,9 @@
     else live.textContent = app.screen;
   }, 1000);
 
+  if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(view);
   root.__EISH = app;
+  root.__metrics = function () { return WORLD.metrics(); };
   requestAnimationFrame(loop);
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("sw.js").catch(function () {});
