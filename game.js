@@ -1534,9 +1534,13 @@ var LOOK = {
 if (typeof module !== "undefined" && module.exports) module.exports = LOOK;
 // Khaya Lane scene. Sprites are original Blender renders. The veld, sky and UI motion are drawn here.
 var DRAW = (function () {
-  var SPRITE = 3.6;
   var img = {};
   var ready = false;
+  var contact = typeof WeakMap === "function" ? new WeakMap() : null;
+  var plate = null;
+  var plateKey = "";
+  var markGround = false;
+  var groundMarks = [];
 
   function catalogFiles() {
     var list = [];
@@ -1563,11 +1567,15 @@ var DRAW = (function () {
     names.forEach(function (n) {
       var el = new Image();
       el.onload = el.onerror = function () {
-        if (el.naturalWidth) img[n] = el;
+        if (el.naturalWidth) {
+          img[n] = el;
+          measureContact(el);
+        }
         left -= 1;
         if (left === 0 && done) done();
       };
       el.src = LOOK.root + n + LOOK.ext;
+      if (el.decode) el.decode().catch(function () {});
     });
   }
 
@@ -1594,6 +1602,12 @@ var DRAW = (function () {
   }
 
   function mid(a, b, t) { return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
+
+  function easeOut(t) { return 1 - (1 - t) * (1 - t); }
+
+  function easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
 
   function layout(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
@@ -1720,12 +1734,38 @@ var DRAW = (function () {
     blitFoot(ctx, img.tree_acacia, w * 0.06, hy + 22, o.tw * 0.42, LOOK.treeScale.tree_acacia || 1);
   }
 
+  function measureContact(image) {
+    if (!contact || !image.naturalWidth) return;
+    var w = image.naturalWidth;
+    var h = image.naturalHeight;
+    var c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    var g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(image, 0, 0);
+    var data = g.getImageData(0, 0, w, h).data;
+    var y, x, count, found = h - 1;
+    for (y = h - 1; y >= 0; y--) {
+      count = 0;
+      for (x = 0; x < w; x++) {
+        if (data[(y * w + x) * 4 + 3] > 48) {
+          count += 1;
+          if (count >= 3) { found = y; y = -1; break; }
+        }
+      }
+    }
+    contact.set(image, found);
+  }
+
   function blitFoot(ctx, image, footX, footY, tw, scale) {
     if (!image || !image.naturalWidth) return;
     var px = (tw / 256) * (scale || 1);
     var dw = image.naturalWidth * px;
     var dh = image.naturalHeight * px;
-    ctx.drawImage(image, footX - dw / 2, footY - dh, dw, dh);
+    var row = contact && contact.get(image);
+    if (row === undefined || row === null) row = image.naturalHeight - 1;
+    ctx.drawImage(image, footX - dw / 2, footY - (row + 1) * px, dw, dh);
+    if (markGround) groundMarks.push(footX, footY);
   }
 
   function hash(x, y) {
@@ -1842,14 +1882,10 @@ var DRAW = (function () {
     ctx.restore();
   }
 
-  function shadowAt(ctx, x, y, rx, ry) {
-    ctx.save();
-    ctx.fillStyle = "rgba(72, 44, 18, 0.30)";
-    ctx.beginPath();
-    ctx.ellipse(x, y, Math.max(4, rx), Math.max(3, ry), 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
+  function shadowAt() {}
+
+  var grewFile = {};
+  var grewAt = {};
 
   function drawSprite(ctx, name, b, o, now, pop, squash) {
     var spot = placePoint(b, o);
@@ -1857,28 +1893,28 @@ var DRAW = (function () {
     var sc = scale;
     var sx = 1;
     var sy = 1;
-    if (pop && now - pop < 560) {
-      var u = (now - pop) / 560;
-      sc = scale * (0.25 + u * 0.85);
-      if (u > 0.72) sc = scale * (1 + Math.sin((u - 0.72) / 0.28 * Math.PI) * 0.08);
-    }
     if (squash && now - squash < 220) {
       var q = (now - squash) / 220;
       sx = 1 + Math.sin(q * Math.PI) * 0.14;
       sy = 1 - Math.sin(q * Math.PI) * 0.12;
     }
-    var sh = spot.spec.shadow || [0.6, 0.22];
-    if (spot.spec.yard) {
-      ctx.save();
-      ctx.fillStyle = "rgba(176, 112, 64, 0.28)";
-      ctx.beginPath();
-      ctx.ellipse(spot.x, spot.y + o.th * 0.06, o.tw * sh[0] * 0.42, o.th * sh[1] * 0.85, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+    if (b && b.id) {
+      if (grewFile[b.id] && grewFile[b.id] !== name) grewAt[b.id] = now;
+      grewFile[b.id] = name;
+      if (grewAt[b.id] && now - grewAt[b.id] < 280) sc *= 1 + Math.sin((now - grewAt[b.id]) / 280 * Math.PI) * 0.1;
     }
-    shadowAt(ctx, spot.x, spot.y + o.th * 0.08, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.3);
+    var drop = 0;
+    if (pop && now - pop < 640) {
+      var u = (now - pop) / 640;
+      var fall = u < 0.72 ? 1 - easeOut(u / 0.72) : 0;
+      drop = fall * o.th * 1.1;
+      var land = u > 0.72 ? Math.sin((u - 0.72) / 0.28 * Math.PI) : 0;
+      sx *= 1 + land * 0.1;
+      sy *= 1 - land * 0.12;
+      sc = scale * (0.92 + Math.min(1, u / 0.3) * 0.08);
+    }
     ctx.save();
-    ctx.translate(spot.x, spot.y);
+    ctx.translate(spot.x, spot.y - drop);
     ctx.scale(sx, sy);
     ctx.translate(-spot.x, -spot.y);
     blitFoot(ctx, img[name], spot.x, spot.y, o.tw, sc);
@@ -1957,10 +1993,16 @@ var DRAW = (function () {
     var a = Math.floor(f) % route.length;
     var b = (a + 1) % route.length;
     var k = f - Math.floor(f);
+    var step = k * 2;
+    var half = step < 1 ? 0 : 1;
+    var local = step - half;
+    var eased = local < 0.5 ? 2 * local * local : 1 - Math.pow(-2 * local + 2, 2) / 2;
+    var along = (half + eased) / 2;
     return {
-      x: route[a][0] + (route[b][0] - route[a][0]) * k,
-      y: route[a][1] + (route[b][1] - route[a][1]) * k,
-      dir: facing(route[b][0] - route[a][0], route[b][1] - route[a][1])
+      x: route[a][0] + (route[b][0] - route[a][0]) * along,
+      y: route[a][1] + (route[b][1] - route[a][1]) * along,
+      dir: facing(route[b][0] - route[a][0], route[b][1] - route[a][1]),
+      plant: k
     };
   }
 
@@ -2062,15 +2104,22 @@ var DRAW = (function () {
         var housed = spot.housed;
         var n = north(x, y, o);
         var moving = pose === "walk" && !housed;
-        var phase = now / 170 + x;
-        var bob = moving ? Math.sin(phase) * o.th * 0.08 : Math.sin(now / 700 + y) * o.th * 0.02;
-        var stretch = moving ? 1 + Math.sin(phase) * 0.045 : 1;
-        var squashY = moving ? 1 - Math.sin(phase) * 0.04 : 1;
+        var plant = 0;
+        if (moving && entry.route) {
+          var walkU = (now / (entry.speed || 9000)) % 1;
+          plant = (walkU * entry.route.length) % 1;
+        }
+        var stepWave = Math.sin(plant * Math.PI * 4 - Math.PI / 2);
+        var bob = moving ? stepWave * o.th * 0.045 : Math.sin(now / 900 + y) * o.th * 0.012;
+        var stretch = moving ? 1 + Math.max(0, stepWave) * 0.04 : 1;
+        var squashY = moving ? 1 - Math.max(0, -stepWave) * 0.07 : 1;
+        if (entry.id === "hen") {
+          var peck = (now / 1100 + y) % 1;
+          if (peck > 0.78) { squashY = 0.82; bob += o.th * 0.04; }
+        }
         var lean = moving ? (dir === 1 || dir === 0 ? -0.08 : 0.08) : 0;
         var flip = dir === 1 || dir === 0 ? -1 : 1;
         queue.push({ y: n.y, draw: function () {
-          var sh = spec.shadow || [0.3, 0.12];
-          shadowAt(ctx, n.x, n.y, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.1);
           ctx.save();
           ctx.translate(n.x, n.y + bob);
           ctx.rotate(lean);
@@ -2108,34 +2157,58 @@ var DRAW = (function () {
     }
   }
 
+  function plotsKey(state) {
+    var s = "";
+    var id;
+    var plots = (state && state.plots) || {};
+    for (id in KHAYA.PLOTS) s += plots[id] ? "1" : "0";
+    return s;
+  }
+
+  function ensurePlate(o, state, dpr) {
+    var key = (img.tile_grass ? "g" : "0") + dpr + ":" + Math.round(o.tw * 4) + "x" + Math.round(o.th * 4) + ":" + plotsKey(state);
+    if (plate && plateKey === key) return plate;
+    var cols = KHAYA.COLS;
+    var rows = KHAYA.ROWS;
+    var pad = Math.ceil(Math.max(o.tw, o.th) * 1.5);
+    var bw = Math.ceil((cols + rows) * o.tw / 2 + pad * 2);
+    var bh = Math.ceil((cols + rows) * o.th / 2 + pad * 2);
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.ceil(bw * dpr));
+    c.height = Math.max(1, Math.ceil(bh * dpr));
+    var g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var local = { tw: o.tw, th: o.th, ox: pad + rows * o.tw / 2, oy: pad };
+    var x, y;
+    for (y = 0; y < rows; y++) for (x = 0; x < cols; x++) ground(g, x, y, local, state);
+    plate = { canvas: c, ox: local.ox, oy: local.oy, w: bw, h: bh };
+    plateKey = key;
+    return plate;
+  }
+
   function render(canvas, state, view, now) {
-    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var dprCap = canvas.clientWidth < 560 ? 1 : 1.5;
+    var dpr = Math.min(dprCap, window.devicePixelRatio || 1);
     var w = canvas.clientWidth;
     var h = canvas.clientHeight;
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
     }
-    var ctx = canvas.getContext("2d");
+    var ctx = canvas.getContext("2d", { alpha: false });
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     var o = layout(w, h, view && view.cam);
+    markGround = !!(view && view.ground);
+    groundMarks.length = 0;
     sky(ctx, w, h, now);
     land(ctx, w, h, o);
-    var cells = [];
-    var x, y;
-    for (y = 0; y < KHAYA.ROWS; y++) for (x = 0; x < KHAYA.COLS; x++) cells.push({ x: x, y: y, k: x + y });
-    cells.sort(function (a, b) { return a.k - b.k; });
-    var i;
-    for (i = 0; i < cells.length; i++) {
-      x = cells[i].x;
-      y = cells[i].y;
-      ground(ctx, x, y, o, state);
-    }
+    var plated = ensurePlate(o, state, dpr);
+    var origin = north(0, 0, o);
+    ctx.drawImage(plated.canvas, origin.x - plated.ox, origin.y - plated.oy, plated.w, plated.h);
     var queue = [];
     var feet = importantFeet(state, o, now);
-    for (i = 0; i < cells.length; i++) {
-      x = cells[i].x;
-      y = cells[i].y;
+    var x, y, i;
+    for (y = 0; y < KHAYA.ROWS; y++) for (x = 0; x < KHAYA.COLS; x++) {
       if (KHAYA.terrainAt(x, y) !== "tree") continue;
       if (LOOK.treeSkip && LOOK.treeSkip[x + "," + y]) continue;
       (function (tx, ty) {
@@ -2147,7 +2220,9 @@ var DRAW = (function () {
         queue.push({ y: n.y, draw: function () {
           ctx.save();
           if (fade) ctx.globalAlpha = 0.38;
-          shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.16);
+          ctx.translate(n.x, n.y);
+          ctx.rotate(Math.sin(now / 1400 + tx) * 0.018);
+          ctx.translate(-n.x, -n.y);
           blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
           ctx.restore();
         } });
@@ -2170,7 +2245,10 @@ var DRAW = (function () {
           var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
           ctx.restore();
           var job = KHAYA.buildView(building);
-          if (job && !dragging) barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
+          if (job && !dragging) {
+            barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
+            puff(ctx, drawn.x + o.tw * 0.1, drawn.y - o.th * 0.35, now, "steam");
+          }
           var prod = KHAYA.produceView(building, state);
           if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
           if (dragging) {
@@ -2187,10 +2265,15 @@ var DRAW = (function () {
         if (piece.file === "taxi") return;
         var tree = piece.file.indexOf("tree_") === 0;
         var fade = tree && treeCovers(n, piece.file, piece.scale || 1, o, feet);
+        var sway = tree || piece.file === "washing_line";
         queue.push({ y: n.y, draw: function () {
           ctx.save();
           if (fade) ctx.globalAlpha = 0.38;
-          shadowAt(ctx, n.x, n.y, o.tw * (tree ? 0.22 : 0.28), o.th * 0.16);
+          if (sway) {
+            ctx.translate(n.x, n.y);
+            ctx.rotate(Math.sin(now / (tree ? 1400 : 700) + piece.x) * (tree ? 0.018 : 0.04));
+            ctx.translate(-n.x, -n.y);
+          }
           blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
           ctx.restore();
         } });
@@ -2201,13 +2284,21 @@ var DRAW = (function () {
       var orders = state.orders || {};
       var spot = { x: 1.35, y: 6.35 };
       var since = now - (orders.at || now);
-      if (orders.phase === "here" && since < 2800) spot = { x: -1.4 + (1.35 + 1.4) * (since / 2800), y: 6.35 };
-      else if (orders.phase === "away" && since < 2600) spot = { x: 1.35 + (since / 2600) * 5, y: 6.35 };
-      var n = north(spot.x, spot.y, o);
+      var drive = 0;
+      if (orders.phase === "here" && since < 2800) {
+        drive = easeInOut(Math.min(1, since / 2800));
+        spot = { x: -1.4 + (1.35 + 1.4) * drive, y: 6.35 };
+      } else if (orders.phase === "away" && since < 2600) {
+        drive = easeInOut(Math.min(1, since / 2600));
+        spot = { x: 1.35 + drive * 5, y: 6.35 };
+      }
+      var movingTaxi = (orders.phase === "here" && since < 2800) || (orders.phase === "away" && since < 2600);
+      var bounce = movingTaxi ? Math.sin(since / 90) * 0.035 * (1 - Math.min(1, since / 2600)) : 0;
+      if (!movingTaxi && orders.phase === "here" && since < 3400) bounce = Math.sin((since - 2800) / 600 * Math.PI) * 0.03;
+      var n = north(spot.x, spot.y + bounce, o);
       queue.push({ y: n.y, draw: function () {
-        shadowAt(ctx, n.x, n.y, o.tw * 0.46, o.th * 0.22);
         blitFoot(ctx, img.taxi, n.x, n.y, o.tw, 0.85);
-        if (orders.phase === "here" && since < 3200) puff(ctx, n.x + o.tw * 0.12, n.y - o.th * 0.2, now, "steam");
+        if (movingTaxi) puff(ctx, n.x - o.tw * 0.18, n.y - o.th * 0.15, now, "steam");
       } });
       var ev = state.laneEvent && state.laneEvent.current;
       if (ev && ev.type === "goat") {
@@ -2282,6 +2373,19 @@ var DRAW = (function () {
     }
     if (view.selected) ring(ctx, view.selected.x, view.selected.y, view.selected.w, view.selected.h, o, "#f2c14e");
     if (view.floats) floats(ctx, view.floats, now);
+    if (markGround) {
+      ctx.save();
+      ctx.strokeStyle = "#ff2d55";
+      ctx.lineWidth = 2;
+      var mi;
+      for (mi = 0; mi < groundMarks.length; mi += 2) {
+        ctx.beginPath();
+        ctx.moveTo(groundMarks[mi] - 10, groundMarks[mi + 1]);
+        ctx.lineTo(groundMarks[mi] + 10, groundMarks[mi + 1]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     return o;
   }
 
@@ -2443,7 +2547,7 @@ var PLAY = (function () {
   function penaltyStart(body, done) {
     var round = { i: 0, goals: 0, over: false, token: "penalty-" + Date.now() };
     var clock = 0;
-    body.innerHTML = "<p class=\"rules\">Five penalties. Tap while the marker is in the posts. The keeper dives to one side. No fee.</p><div class=\"meter\"><span id=\"penBar\"></span></div><p id=\"penShow\" class=\"slip\">Kick 1 of 5</p><button type=\"button\" class=\"hot\" id=\"penKick\">Kick</button>";
+    body.innerHTML = "<p class=\"rules\">Five penalties. Tap while the marker is in the posts. The keeper dives to one side. No fee.</p><div class=\"meter\"><span id=\"penBar\"></span></div><p id=\"penKeep\" class=\"fine\">Keeper waiting</p><p id=\"penShow\" class=\"slip\">Kick 1 of 5</p><button type=\"button\" class=\"hot\" id=\"penKick\">Kick</button>";
     var bar = body.querySelector("#penBar");
     var show = body.querySelector("#penShow");
     var marker = 0;
@@ -2457,6 +2561,8 @@ var PLAY = (function () {
       var dive = round.i % 2 === 0 ? 0.2 : 0.8;
       var aimed = marker > 0.38 && marker < 0.62;
       var sameSide = Math.abs(marker - dive) < 0.22;
+      var keep = body.querySelector("#penKeep");
+      if (keep) keep.textContent = dive < 0.5 ? "Keeper dives left" : "Keeper dives right";
       if (aimed || !sameSide) round.goals += 1;
       round.i += 1;
       show.textContent = round.goals + " goals · kick " + Math.min(5, round.i + 1) + " of 5";
@@ -2495,7 +2601,9 @@ var PLAY = (function () {
     function light(n) {
       round.lit = n;
       box.querySelectorAll("button").forEach(function (btn, idx) {
+        btn.style.transition = "transform .12s ease, background .12s ease";
         btn.style.background = idx === n ? "#e2a53a" : "";
+        btn.style.transform = idx === n ? "scale(1.12)" : "scale(1)";
       });
     }
     light(0);
@@ -2585,6 +2693,9 @@ var PLAY = (function () {
   function toast(text) {
     toastEl.textContent = text;
     toastEl.hidden = false;
+    toastEl.classList.remove("in");
+    void toastEl.offsetWidth;
+    toastEl.classList.add("in");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2400);
   }
@@ -2667,14 +2778,22 @@ var PLAY = (function () {
     return selectedId ? KHAYA.buildingById(state, selectedId) : null;
   }
 
+  var closeTimer = 0;
   function closeModal() {
     if (stopGame) { stopGame(); stopGame = null; }
-    modal.hidden = true;
-    sheet.setAttribute("aria-hidden", "true");
+    sheet.classList.add("shut");
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(function () {
+      modal.hidden = true;
+      sheet.classList.remove("shut");
+      sheet.setAttribute("aria-hidden", "true");
+    }, 160);
   }
 
   function openModal(title, html) {
     if (stopGame) { stopGame(); stopGame = null; }
+    clearTimeout(closeTimer);
+    sheet.classList.remove("shut");
     modalTitle.textContent = title;
     modalBody.innerHTML = html;
     modal.hidden = false;
@@ -2692,7 +2811,16 @@ var PLAY = (function () {
     return bits.join(" · ");
   }
 
+  var hudSig = "";
   function paintHud() {
+    var cropSig = "";
+    var ck;
+    for (ck in state.crops) if (state.crops[ck]) cropSig += ck + state.crops[ck];
+    var ordersN = state.orders && state.orders.phase === "here" && state.orders.list ? state.orders.list.length : 0;
+    var st = state.stats || {};
+    var sig = state.notes + "|" + state.seeds + "|" + state.water + "|" + state.timber + "|" + state.bricks + "|" + cropSig + "|" + KHAYA.playerXp(state) + "|" + ordersN + "|" + (st.harvested || 0) + "|" + (st.placed || 0);
+    if (sig === hudSig) return;
+    hudSig = sig;
     notesEl.innerHTML = icon("coin") + "<b>" + state.notes + "</b>";
     var bits = [
       ["seed", state.seeds],
@@ -2853,7 +2981,7 @@ var PLAY = (function () {
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, Date.now());
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, Date.now());
   }
 
   function act(result) {
@@ -2879,8 +3007,9 @@ var PLAY = (function () {
         var p = cellPoint(focus);
         floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
       }
-      if (result.crit) toast("A golden mielie. Triple harvest.");
-      if (result.combo >= 3) toast("Combo " + result.combo + ". +" + (result.notes || 0) + " notes.");
+      if (result.crit && result.combo >= 3) toast("Golden mielie, combo " + result.combo + ".");
+      else if (result.crit) toast("A golden mielie. Triple harvest.");
+      else if (result.combo >= 3) toast("Combo " + result.combo + ". +" + (result.notes || 0) + " notes.");
     } else if (result.notes) {
       chime("harvest");
       toast("+" + result.notes + " notes");
@@ -3172,7 +3301,6 @@ var PLAY = (function () {
         DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
       }
       pinch = dist;
-      paint();
       return;
     }
     if (!drag || ev.pointerId !== drag.pointer) return;
@@ -3186,7 +3314,6 @@ var PLAY = (function () {
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
-      paint();
       return;
     }
     var cell = cellFrom(ev);
@@ -3197,7 +3324,6 @@ var PLAY = (function () {
       drag.cx = cell.x;
       drag.cy = cell.y;
     }
-    paint();
   });
 
   function endDrag(ev) {
@@ -3242,7 +3368,6 @@ var PLAY = (function () {
     ev.preventDefault();
     cam.z *= ev.deltaY > 0 ? 0.92 : 1.08;
     DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
-    paint();
   }, { passive: false });
 
   card.addEventListener("click", function (ev) {
@@ -3336,8 +3461,35 @@ var PLAY = (function () {
   canvas.addEventListener("pointerdown", function () { ensureWind(); }, { once: true });
 
   var hudAt = 0;
+  var bench = q.get("bench") === "1";
+  var benchStart = 0;
+  var benchLast = 0;
+  var benchDts = [];
   function frame() {
     var now = Date.now();
+    if (bench) {
+      if (!benchStart) benchStart = now;
+      if (benchLast) benchDts.push(now - benchLast);
+      benchLast = now;
+      var sweep = (now - benchStart) / 2800;
+      if (sweep < 1) {
+        cam.x = Math.sin(sweep * Math.PI * 2) * 70;
+        cam.y = Math.cos(sweep * Math.PI * 2) * 36;
+      } else if (!window.__FPS && benchDts.length > 40) {
+        var sum = 0;
+        var worst = 0;
+        var bi;
+        for (bi = 0; bi < benchDts.length; bi++) {
+          sum += benchDts[bi];
+          if (benchDts[bi] > worst) worst = benchDts[bi];
+        }
+        window.__FPS = {
+          frames: benchDts.length,
+          avg: Math.round(1000 / (sum / benchDts.length)),
+          worstMs: Math.round(worst)
+        };
+      }
+    }
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
@@ -3359,7 +3511,6 @@ var PLAY = (function () {
       var eventBtn = document.getElementById("event");
       if (eventBtn) {
         if (live) {
-          if (eventBtn.hidden) toast(live.say);
           eventBtn.hidden = false;
           eventBtn.textContent = live.say;
         } else eventBtn.hidden = true;
@@ -3380,7 +3531,12 @@ var PLAY = (function () {
     }
     floats = floats.filter(function (f) { return now - f.t < 1000; });
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, now);
+    var fi = 0;
+    var fn = floats.length;
+    for (fi = 0; fi < fn; fi++) {
+      if (now - floats[fi].t >= 1000) { floats.splice(fi, 1); fi -= 1; fn -= 1; }
+    }
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

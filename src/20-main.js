@@ -53,6 +53,9 @@
   function toast(text) {
     toastEl.textContent = text;
     toastEl.hidden = false;
+    toastEl.classList.remove("in");
+    void toastEl.offsetWidth;
+    toastEl.classList.add("in");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2400);
   }
@@ -135,14 +138,22 @@
     return selectedId ? KHAYA.buildingById(state, selectedId) : null;
   }
 
+  var closeTimer = 0;
   function closeModal() {
     if (stopGame) { stopGame(); stopGame = null; }
-    modal.hidden = true;
-    sheet.setAttribute("aria-hidden", "true");
+    sheet.classList.add("shut");
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(function () {
+      modal.hidden = true;
+      sheet.classList.remove("shut");
+      sheet.setAttribute("aria-hidden", "true");
+    }, 160);
   }
 
   function openModal(title, html) {
     if (stopGame) { stopGame(); stopGame = null; }
+    clearTimeout(closeTimer);
+    sheet.classList.remove("shut");
     modalTitle.textContent = title;
     modalBody.innerHTML = html;
     modal.hidden = false;
@@ -160,7 +171,16 @@
     return bits.join(" · ");
   }
 
+  var hudSig = "";
   function paintHud() {
+    var cropSig = "";
+    var ck;
+    for (ck in state.crops) if (state.crops[ck]) cropSig += ck + state.crops[ck];
+    var ordersN = state.orders && state.orders.phase === "here" && state.orders.list ? state.orders.list.length : 0;
+    var st = state.stats || {};
+    var sig = state.notes + "|" + state.seeds + "|" + state.water + "|" + state.timber + "|" + state.bricks + "|" + cropSig + "|" + KHAYA.playerXp(state) + "|" + ordersN + "|" + (st.harvested || 0) + "|" + (st.placed || 0);
+    if (sig === hudSig) return;
+    hudSig = sig;
     notesEl.innerHTML = icon("coin") + "<b>" + state.notes + "</b>";
     var bits = [
       ["seed", state.seeds],
@@ -321,7 +341,7 @@
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, Date.now());
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, Date.now());
   }
 
   function act(result) {
@@ -347,8 +367,9 @@
         var p = cellPoint(focus);
         floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
       }
-      if (result.crit) toast("A golden mielie. Triple harvest.");
-      if (result.combo >= 3) toast("Combo " + result.combo + ". +" + (result.notes || 0) + " notes.");
+      if (result.crit && result.combo >= 3) toast("Golden mielie, combo " + result.combo + ".");
+      else if (result.crit) toast("A golden mielie. Triple harvest.");
+      else if (result.combo >= 3) toast("Combo " + result.combo + ". +" + (result.notes || 0) + " notes.");
     } else if (result.notes) {
       chime("harvest");
       toast("+" + result.notes + " notes");
@@ -640,7 +661,6 @@
         DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
       }
       pinch = dist;
-      paint();
       return;
     }
     if (!drag || ev.pointerId !== drag.pointer) return;
@@ -654,7 +674,6 @@
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
-      paint();
       return;
     }
     var cell = cellFrom(ev);
@@ -665,7 +684,6 @@
       drag.cx = cell.x;
       drag.cy = cell.y;
     }
-    paint();
   });
 
   function endDrag(ev) {
@@ -710,7 +728,6 @@
     ev.preventDefault();
     cam.z *= ev.deltaY > 0 ? 0.92 : 1.08;
     DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
-    paint();
   }, { passive: false });
 
   card.addEventListener("click", function (ev) {
@@ -804,8 +821,35 @@
   canvas.addEventListener("pointerdown", function () { ensureWind(); }, { once: true });
 
   var hudAt = 0;
+  var bench = q.get("bench") === "1";
+  var benchStart = 0;
+  var benchLast = 0;
+  var benchDts = [];
   function frame() {
     var now = Date.now();
+    if (bench) {
+      if (!benchStart) benchStart = now;
+      if (benchLast) benchDts.push(now - benchLast);
+      benchLast = now;
+      var sweep = (now - benchStart) / 2800;
+      if (sweep < 1) {
+        cam.x = Math.sin(sweep * Math.PI * 2) * 70;
+        cam.y = Math.cos(sweep * Math.PI * 2) * 36;
+      } else if (!window.__FPS && benchDts.length > 40) {
+        var sum = 0;
+        var worst = 0;
+        var bi;
+        for (bi = 0; bi < benchDts.length; bi++) {
+          sum += benchDts[bi];
+          if (benchDts[bi] > worst) worst = benchDts[bi];
+        }
+        window.__FPS = {
+          frames: benchDts.length,
+          avg: Math.round(1000 / (sum / benchDts.length)),
+          worstMs: Math.round(worst)
+        };
+      }
+    }
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
@@ -827,7 +871,6 @@
       var eventBtn = document.getElementById("event");
       if (eventBtn) {
         if (live) {
-          if (eventBtn.hidden) toast(live.say);
           eventBtn.hidden = false;
           eventBtn.textContent = live.say;
         } else eventBtn.hidden = true;
@@ -848,7 +891,12 @@
     }
     floats = floats.filter(function (f) { return now - f.t < 1000; });
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash }, now);
+    var fi = 0;
+    var fn = floats.length;
+    for (fi = 0; fi < fn; fi++) {
+      if (now - floats[fi].t >= 1000) { floats.splice(fi, 1); fi -= 1; fn -= 1; }
+    }
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

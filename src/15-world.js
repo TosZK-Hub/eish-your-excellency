@@ -112,7 +112,7 @@ var PLAY = (function () {
   function penaltyStart(body, done) {
     var round = { i: 0, goals: 0, over: false, token: "penalty-" + Date.now() };
     var clock = 0;
-    body.innerHTML = "<p class=\"rules\">Five penalties. Tap while the marker is in the posts. The keeper dives to one side. No fee.</p><div class=\"meter\"><span id=\"penBar\"></span></div><p id=\"penShow\" class=\"slip\">Kick 1 of 5</p><button type=\"button\" class=\"hot\" id=\"penKick\">Kick</button>";
+    body.innerHTML = "<p class=\"rules\">Five penalties. Tap while the marker is in the posts. The keeper dives to one side. No fee.</p><div class=\"meter\"><span id=\"penBar\"></span></div><p id=\"penKeep\" class=\"fine\">Keeper waiting</p><p id=\"penShow\" class=\"slip\">Kick 1 of 5</p><button type=\"button\" class=\"hot\" id=\"penKick\">Kick</button>";
     var bar = body.querySelector("#penBar");
     var show = body.querySelector("#penShow");
     var marker = 0;
@@ -126,6 +126,8 @@ var PLAY = (function () {
       var dive = round.i % 2 === 0 ? 0.2 : 0.8;
       var aimed = marker > 0.38 && marker < 0.62;
       var sameSide = Math.abs(marker - dive) < 0.22;
+      var keep = body.querySelector("#penKeep");
+      if (keep) keep.textContent = dive < 0.5 ? "Keeper dives left" : "Keeper dives right";
       if (aimed || !sameSide) round.goals += 1;
       round.i += 1;
       show.textContent = round.goals + " goals · kick " + Math.min(5, round.i + 1) + " of 5";
@@ -164,7 +166,9 @@ var PLAY = (function () {
     function light(n) {
       round.lit = n;
       box.querySelectorAll("button").forEach(function (btn, idx) {
+        btn.style.transition = "transform .12s ease, background .12s ease";
         btn.style.background = idx === n ? "#e2a53a" : "";
+        btn.style.transform = idx === n ? "scale(1.12)" : "scale(1)";
       });
     }
     light(0);

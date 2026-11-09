@@ -53,6 +53,8 @@ header {
   background: #fff6e4; color: #3a2416; border: 3px solid #6b4524;
   border-radius: 14px; min-height: 42px; padding: 8px 12px; font-weight: 650;
   box-shadow: 0 4px 0 #6b4524; text-align: left;
+  white-space: normal; line-height: 1.25; font-size: 14px;
+  animation: eventIn .32s cubic-bezier(.2, .8, .2, 1);
 }
 .stage { position: relative; }
 .level b {
@@ -122,6 +124,7 @@ button:disabled { opacity: .45; transform: none; }
   transition: transform .28s cubic-bezier(.2, .8, .2, 1), opacity .28s ease;
 }
 .modal:not([hidden]) .sheet { transform: none; opacity: 1; }
+.sheet.shut { transform: translateY(28px); opacity: 0; transition-duration: .16s; }
 .badge {
   display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px;
   padding: 0 5px; border-radius: 99px; background: #e25b3a; color: #fffaf3;
@@ -170,10 +173,13 @@ button:disabled { opacity: .45; transform: none; }
 .slip { font-size: 22px; font-weight: 700; }
 .unlocks { padding-left: 18px; }
 .toast {
-  position: fixed; left: 50%; top: 88px; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: 210px; transform: translateX(-50%);
   background: #243028; color: #fffaf3; padding: 10px 16px; border-radius: 999px; z-index: 25;
-  font-weight: 650; box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  font-weight: 650; box-shadow: 0 6px 16px rgba(0,0,0,.18); max-width: min(92vw, 420px); text-align: center;
 }
+.toast.in { animation: toastIn .28s cubic-bezier(.2, .8, .2, 1); }
+@keyframes toastIn { from { transform: translateX(-50%) translateY(8px); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
+@keyframes eventIn { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (max-width: 520px) {
   .meter.xp { display: none; }
   .level { flex: 0 0 auto; min-width: 0; max-width: none; }
