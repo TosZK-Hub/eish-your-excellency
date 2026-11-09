@@ -1,42 +1,12 @@
-# EISH! Ways to Go
-Rapid-fire, cute and silly South African microgame chaos. Twelve one-thumb microgames, 3 lives, speed rises every round, boss rounds every 10th. Every fail is a cartoon "way to go" sticker for your album. Free, offline (service worker), fictional.
+# EISH! Khaya Lane
 
-Play (production, previous build): https://toszk-hub.github.io/eish-your-excellency/
+A small South African neighbourhood you farm and build on this device. Sow, water, harvest, place a spaza and other lane buildings, and drag them into a new spot. Pan and pinch to look around. Locked yards open with notes and lane level. The spaza, workshop, and solar stand store notes you tap to collect, and pots and palisades speed that a little. A seven-day gift, a collection book of neighbours and animals, and two skill games pay into the same notes. No raids, no accounts, no real-money shop.
 
-Debug: `?mg=<id>&sp=1.8&seed=3` plays one microgame; `?mg=survival` / `?mg=daily` start runs; `?death=<id>` shows a death; `&bot=1` lets the built-in bot play; `&fair=1` turns that bot off so an outside driver can play from the public picture only.
-Active IDs: salt, quantum, wors, door, pothole, candle, braai, vuvu, fence, carseat, mozzie, lights.
+The earlier endless-runner builds stay in git history. They are not the game this page plays.
 
-Build: `./build.sh` concatenates `src/00-core.js`, `src/10-stage.js`, `src/20-games.js` and `src/90-meta.js` into `game.js`. Illustrations are packed with `tools/packart.py`.
+```sh
+./build.sh
+node tools/sim-runner.js
+```
 
-## v2 — illustrated overhaul
-Painted sets, gouache cast (calm / happy / panic), and twelve gestures that are not the same tap. Salt stays the easy one: hold the shaker, let go inside the green. Saved `ewg_*` progress is kept. Stickers from the retired games stay in the album under "Kept from earlier sets". See `docs/OVERHAUL.md`.
-
-## v0.4 - Sticker Collage vertical slice
-- All 6 cast members are rigged sticker cut-outs (`art/<who>-calm|panic.webp`): head/body parts, die-cut white border, baked drop shadow, pop-in, wobble, paper squash, 12 fps stop-motion timing, calm/panic expression swap. Canvas beans remain as fallback.
-- Re-skinned: Rescue the Wors (`?mg=wors`) and Taxi Rank Crossing (`?mg=quantum`, now 4 lanes) with layered photo-texture backgrounds, tape and marker accents, plus their deaths.
-- Menu/UI: kraft-paper background, cut-out title letters, sticker buttons, original beadwork/Ndebele-inspired pattern bands.
-- Art is ~550 KB WebP, cached offline by the service worker (`ewg-v5`). Packed as base64 tars in `art/pack*.b64` and unpacked by the Pages workflow at deploy time.
-
-
-## v0.5 — slice quality pass
-- Characters rebuilt as one vector sticker-puppet rig (shared skeleton, separate limbs, die-cut outline, ink line, halftone shade) with eased pose blending, squash/stretch and 12 fps stop-motion stepping. `?sheet=1` shows the model sheet.
-- Vector props (wors, dog, fictional minibus taxi), calmer backgrounds with clear focal areas.
-- Juice: paper-tear transitions, impact frames, confetti, speed lines, shake, sticker HUD, bead-band timer.
-- Debug: `?death=dog|flat` jumps to a death screen.
-- Fonts: Luckiest Guy and Permanent Marker (both Apache License 2.0), ASCII-subset WOFF in `art/`.
-
-## v0.6 — performance pass
-- Rig groups (head, torso, hands, shoes, props), dog, taxi and wors pre-rendered into an LRU ImageBitmap sprite cache; limbs stay live.
-- Backgrounds on a separate canvas layer redrawn only on change; HUD timer strip, bead pattern, text strips and captions cached.
-- Shadows merged into sprites (no per-frame shadow passes); halftone baked into sprites.
-- Canvas backing capped at DPR 2 with adaptive quality (drops when frame EMA > 20 ms, persisted in localStorage `ewg_q`).
-- Menu animation redraws only on 12 fps frame changes. Cache bumped to ewg-v7.
-
-## v1.0 — full game
-- All 16 original microgames ported to the sticker rig with polished death vignettes; Taxi Rank death redrawn; difficulty rebalanced (salt stays easy); varied verbs (CATCH, SWAT, DIP, DUCK, ROCK, SHAKE, HOLD...).
-- 6 new microgames: Candle (hold through gusts), Vuvuzela (rhythm), Robot Hawker (swipe offers away), Taxi Door (drag against the spring), Fan the Braai (draw circles), Spaza Queue (tap the list in order).
-- Meta: 3-card onboarding, game-over screen with new-sticker reveal, sticker album with replayable death vignettes, cosmetic hats wardrobe, daily seeded set with streak, settings (sound, music, vibration, reduced motion), haptics, more SFX and music variants.
-- Share card (1080x1350 PNG via Web Share, download fallback).
-- PNG icons 48-512 plus maskable 192/512, manifest polish, splash; cache `ewg-v8`.
-- Android: offline WebView debug APK built from `android/` (see `docs/PLAY_STORE.md`).
-- QA: bot wins every game at speeds 1.0/1.8/2.6/3.1, no console errors, ≥45 fps on every screen under 6x CPU throttle.
+Open `index.html` over a local static server. Progress is saved in the browser under `eish-khaya-1`.
