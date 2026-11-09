@@ -29,6 +29,13 @@ var KHAYA = (function () {
 
   var FARM_STEPS = [0, 24, 70, 140];
   var BUILD_STEPS = [0, 16, 48, 100];
+  var PLAYER_STEPS = [0, 18, 48, 100, 180];
+  var UPGRADE_MS = 16000;
+  var PRODUCE = {
+    spaza: { every: 8000, notes: 1, cap: 12 },
+    workshop: { every: 12000, notes: 1, cap: 8 },
+    solar: { every: 10000, notes: 1, cap: 8 }
+  };
 
   var BUILDINGS = {
     home: {
@@ -85,6 +92,8 @@ var KHAYA = (function () {
 
   function farmLevel(state) { return levelFor(state.farmXp, FARM_STEPS); }
   function buildLevel(state) { return levelFor(state.buildXp, BUILD_STEPS); }
+  function playerXp(state) { return (state.farmXp || 0) + (state.buildXp || 0); }
+  function playerLevel(state) { return levelFor(playerXp(state), PLAYER_STEPS); }
 
   function nextStep(xp, steps) {
     var i;
@@ -162,7 +171,7 @@ var KHAYA = (function () {
       crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
       farmXp: 0,
       buildXp: 0,
-      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0 },
+      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0 },
       paid: {},
       tankAcc: 0,
       seenAt: now,
@@ -262,6 +271,7 @@ var KHAYA = (function () {
   function canUpgrade(state, id) {
     var b = buildingById(state, id);
     if (!b) return { ok: false, reason: "Nothing selected." };
+    if ((b.buildLeft || 0) > 0) return { ok: false, reason: "Still building." };
     var def = BUILDINGS[b.type];
     var raw = def && def.upgrades ? def.upgrades[b.level] : null;
     if (!raw) return { ok: false, reason: def.name + " is fully built." };
@@ -275,12 +285,32 @@ var KHAYA = (function () {
     var check = canUpgrade(state, id);
     if (!check.ok) return check;
     var b = buildingById(state, id);
+    if ((b.buildLeft || 0) > 0) return { ok: false, reason: "Still building." };
     var raw = BUILDINGS[b.type].upgrades[b.level];
     pay(state, upgradeCost(state, b));
-    b.level += 1;
-    state.buildXp += raw.xp || 12;
+    b.buildLeft = UPGRADE_MS;
+    b.buildTotal = UPGRADE_MS;
+    b.pendingLevel = b.level + 1;
+    b.pendingXp = raw.xp || 12;
+    return { ok: true, building: true, left: UPGRADE_MS };
+  }
+
+  function finishBuild(state, b) {
+    if (!b.pendingLevel || b.pendingLevel <= b.level) {
+      b.pendingLevel = 0;
+      b.pendingXp = 0;
+      b.buildLeft = 0;
+      return null;
+    }
+    var xp = b.pendingXp || 12;
+    b.level = b.pendingLevel;
+    b.pendingLevel = 0;
+    b.pendingXp = 0;
+    b.buildLeft = 0;
+    b.buildTotal = 0;
+    state.buildXp += xp;
     state.stats.upgraded += 1;
-    return { ok: true, level: b.level, xp: raw.xp || 12 };
+    return { id: b.id, level: b.level, xp: xp };
   }
 
   function cropReady(b, now) {
@@ -371,8 +401,90 @@ var KHAYA = (function () {
       }
       if (state.water >= WATER_CAP) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
     }
+    var finished = [];
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if ((b.buildLeft || 0) > 0) {
+        b.buildLeft -= used;
+        if (b.buildLeft <= 0) {
+          var done = finishBuild(state, b);
+          if (done) finished.push(done);
+        }
+      }
+      var spec = PRODUCE[b.type];
+      if (!spec) continue;
+      var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+      b.prodAcc = (b.prodAcc || 0) + used;
+      while (b.prodAcc >= spec.every && (b.stored || 0) < cap) {
+        b.stored = (b.stored || 0) + spec.notes;
+        b.prodAcc -= spec.every;
+      }
+      if ((b.stored || 0) >= cap) b.prodAcc = Math.min(b.prodAcc, spec.every);
+    }
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded };
+    return { elapsed: used, discarded: discarded, finished: finished };
+  }
+
+  function produceView(b) {
+    if (!b) return null;
+    var spec = PRODUCE[b.type];
+    if (!spec) return null;
+    var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+    var stored = b.stored || 0;
+    var acc = b.prodAcc || 0;
+    return {
+      stored: stored,
+      cap: cap,
+      progress: stored >= cap ? 1 : Math.min(1, acc / spec.every),
+      left: stored >= cap ? 0 : Math.max(0, spec.every - acc),
+      ready: stored > 0
+    };
+  }
+
+  function buildView(b) {
+    if (!b || !(b.buildLeft > 0)) return null;
+    var total = b.buildTotal || UPGRADE_MS;
+    var left = b.buildLeft;
+    return { left: left, progress: Math.max(0, Math.min(1, 1 - left / total)) };
+  }
+
+  function collect(state, id) {
+    var b = buildingById(state, id);
+    if (!b) return { ok: false, reason: "Nothing there." };
+    if (!PRODUCE[b.type]) return { ok: false, reason: "That does not hold notes." };
+    var n = b.stored || 0;
+    if (n < 1) return { ok: false, reason: "Nothing to collect yet." };
+    b.stored = 0;
+    state.notes = clamp(state.notes + n, 0, NOTE_CAP);
+    state.stats.collected = (state.stats.collected || 0) + 1;
+    return { ok: true, notes: n, collected: true };
+  }
+
+  function canMove(state, id, x, y) {
+    var b = buildingById(state, id);
+    if (!b) return { ok: false, reason: "Nothing selected." };
+    if (b.x === x && b.y === y) return { ok: true, same: true };
+    var dx, dy, land, block;
+    for (dy = 0; dy < b.h; dy++) {
+      for (dx = 0; dx < b.w; dx++) {
+        land = terrainAt(x + dx, y + dy);
+        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
+        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
+        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+        block = occupied(state, x + dx, y + dy, id);
+        if (block) return { ok: false, reason: "Something is already there." };
+      }
+    }
+    return { ok: true };
+  }
+
+  function move(state, id, x, y) {
+    var check = canMove(state, id, x, y);
+    if (!check.ok) return check;
+    var b = buildingById(state, id);
+    b.x = x;
+    b.y = y;
+    return { ok: true, moved: !check.same, same: !!check.same };
   }
 
   function cratePayout(correct) {
@@ -409,6 +521,7 @@ var KHAYA = (function () {
       { id: "water", done: state.stats.watered > 0, text: "Water the bed" },
       { id: "harvest", done: state.stats.harvested > 0, text: "Harvest when the crop is ready" },
       { id: "place", done: state.stats.placed > 0, text: "Place a spaza, tank, or workshop" },
+      { id: "collect", done: (state.stats.collected || 0) > 0, text: "Collect notes from the spaza" },
       { id: "upgrade", done: state.stats.upgraded > 0, text: "Upgrade your home" },
       { id: "play", done: state.stats.played > 0, text: "Finish a lane mini-game" }
     ];
@@ -475,8 +588,19 @@ var KHAYA = (function () {
         y: clamp(raw.y, 0, ROWS - 1),
         w: def.w,
         h: def.h,
-        level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1)
+        level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1),
+        stored: clamp(raw.stored, 0, 30),
+        prodAcc: clamp(raw.prodAcc, 0, 60000),
+        buildLeft: clamp(raw.buildLeft, 0, 120000),
+        buildTotal: clamp(raw.buildTotal, 0, 120000),
+        pendingLevel: clamp(raw.pendingLevel, 0, def.upgrades ? def.upgrades.length : 1),
+        pendingXp: clamp(raw.pendingXp, 0, 100)
       };
+      if (b.pendingLevel <= b.level) {
+        b.pendingLevel = 0;
+        b.pendingXp = 0;
+        if (!(raw.buildLeft > 0)) b.buildLeft = 0;
+      }
       ok = true;
       for (dy = 0; dy < b.h && ok; dy++) {
         for (dx = 0; dx < b.w; dx++) {
@@ -519,11 +643,15 @@ var KHAYA = (function () {
     BUILDINGS: BUILDINGS,
     FARM_STEPS: FARM_STEPS,
     BUILD_STEPS: BUILD_STEPS,
+    PLAYER_STEPS: PLAYER_STEPS,
+    UPGRADE_MS: UPGRADE_MS,
     ELAPSE_CAP: ELAPSE_CAP,
     fresh: fresh,
     sanitize: sanitize,
     farmLevel: farmLevel,
     buildLevel: buildLevel,
+    playerXp: playerXp,
+    playerLevel: playerLevel,
     nextStep: nextStep,
     terrainAt: terrainAt,
     occupied: occupied,
@@ -536,6 +664,11 @@ var KHAYA = (function () {
     place: place,
     canUpgrade: canUpgrade,
     upgrade: upgrade,
+    collect: collect,
+    canMove: canMove,
+    move: move,
+    produceView: produceView,
+    buildView: buildView,
     upgradeCost: upgradeCost,
     placeCost: placeCost,
     sow: sow,
@@ -566,7 +699,8 @@ var DRAW = (function () {
     "bed_maize_mid", "bed_maize_ready", "bed_spinach_mid", "bed_spinach_ready",
     "bed_tomato_mid", "bed_tomato_ready", "bed_aloe_mid", "bed_aloe_ready",
     "tank", "workshop", "solar", "jacaranda", "acacia", "aloeplant", "fence",
-    "person0", "person1", "person2", "person3", "hen0", "hen1", "dog0", "dog1", "neighbour"
+    "person0", "person1", "person2", "person3", "hen0", "hen1", "dog0", "dog1",
+    "neighbour", "neighbour2", "neighbour3"
   ];
   var PATH = [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [4, 5], [4, 4], [4, 3]];
 
@@ -684,10 +818,15 @@ var DRAW = (function () {
     ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
     ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
     ctx.fill();
+    var houses = [img.neighbour, img.neighbour2 || img.neighbour, img.neighbour3 || img.neighbour];
+    var spots = [0.14, 0.4, 0.68];
     var n;
-    for (n = 0; n < 3; n++) {
-      blit(ctx, img.neighbour, w * (0.18 + n * 0.28), hy + 6, o.tw * 1.15);
+    for (n = 0; n < houses.length; n++) {
+      if (!houses[n]) continue;
+      blit(ctx, houses[n], w * spots[n], hy + 8, o.tw, 0.62);
     }
+    blit(ctx, img.jacaranda, w * 0.86, hy + 28, o.tw, 0.7);
+    blit(ctx, img.acacia, w * 0.28, hy + 34, o.tw, 0.62);
   }
 
   function blit(ctx, image, cx, cy, tw, scale) {
@@ -771,6 +910,52 @@ var DRAW = (function () {
     ctx.restore();
   }
 
+  function barOver(ctx, x, y, w, progress, color) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,250,243,.92)";
+    ctx.strokeStyle = "#6b4524";
+    ctx.lineWidth = 2;
+    roundRect(ctx, x - w / 2, y, w, 8, 4);
+    ctx.fill();
+    ctx.stroke();
+    var fillW = Math.max(0, (w - 4) * progress);
+    if (fillW > 1) {
+      ctx.fillStyle = color;
+      roundRect(ctx, x - w / 2 + 2, y + 2, fillW, 4, 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function coinBadge(ctx, x, y, now) {
+    var bob = Math.sin(now / 180) * 3;
+    ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.fillStyle = "#f2c14e";
+    ctx.strokeStyle = "#7a5410";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#7a5410";
+    ctx.font = "700 12px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("N", 0, 1);
+    ctx.restore();
+  }
+
   function ring(ctx, x, y, w, h, o, color) {
     var c = corners(x, y, w, h, o);
     ctx.beginPath();
@@ -829,11 +1014,14 @@ var DRAW = (function () {
       ctx.font = "700 18px Fredoka, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(f.text, f.x, f.y - a * 42);
+      var bits = f.coins || 6;
       var k;
-      for (k = 0; k < 6; k++) {
-        var ang = k / 6 * Math.PI * 2 + f.t;
+      for (k = 0; k < bits; k++) {
+        var ang = k / bits * Math.PI * 2 + f.t;
+        var rad = f.coins ? 4.2 : 3.2;
         ctx.beginPath();
-        ctx.arc(f.x + Math.cos(ang) * a * 26, f.y - 10 + Math.sin(ang) * a * 16, 3.2 * (1 - a), 0, 7);
+        ctx.fillStyle = f.coins ? "#f2c14e" : (f.color || "#243028");
+        ctx.arc(f.x + Math.cos(ang) * a * 34, f.y - 12 + Math.sin(ang) * a * 20, rad * (1 - a * 0.4), 0, 7);
         ctx.fill();
       }
       ctx.restore();
@@ -876,7 +1064,27 @@ var DRAW = (function () {
     items.sort(function (a, b) { return a.k - b.k; });
     for (i = 0; i < items.length; i++) {
       var building = items[i].b;
-      drawSprite(ctx, spriteName(building, now), building, o, now, view.born && view.born[building.id]);
+      var dragging = view.drag && view.drag.id === building.id;
+      var drawAt = building;
+      if (dragging) {
+        drawAt = {
+          type: building.type, x: view.drag.x, y: view.drag.y,
+          w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt
+        };
+      }
+      ctx.save();
+      if (dragging) ctx.globalAlpha = 0.85;
+      drawSprite(ctx, spriteName(drawAt, now), drawAt, o, now, view.born && view.born[building.id]);
+      ctx.restore();
+      var anchor = centerOf(drawAt, o);
+      var job = KHAYA.buildView(building);
+      if (job && !dragging) barOver(ctx, anchor.x, anchor.y - o.th * 1.1, o.tw * 0.7, job.progress, "#7eb6e0");
+      var prod = KHAYA.produceView(building);
+      if (prod && prod.ready && !dragging) coinBadge(ctx, anchor.x, anchor.y - o.th * 1.35, now);
+      if (dragging) {
+        var ok = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
+        ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, ok ? "#f2c14e" : "#d64545");
+      }
     }
     life(ctx, o, now);
     if (view.ghost) {
@@ -1020,7 +1228,9 @@ var PLAY = (function () {
   var modalTitle = document.getElementById("modalTitle");
   var modalBody = document.getElementById("modalBody");
   var card = document.getElementById("card");
-  var taskEl = document.getElementById("task");
+  var goalEl = document.getElementById("goals");
+  var levelEl = document.getElementById("lv");
+  var xpFill = document.getElementById("xpfill");
   var resEl = document.getElementById("res");
   var notesEl = document.getElementById("notes");
   var toastEl = document.getElementById("toast");
@@ -1039,6 +1249,8 @@ var PLAY = (function () {
   var born = {};
   var floats = [];
   var muted = localStorage.getItem("eish-khaya-mute") === "1";
+  var drag = null;
+  var laneLevel = KHAYA.playerLevel(state);
   var actx = null;
   var wind = null;
 
@@ -1176,8 +1388,37 @@ var PLAY = (function () {
     resEl.innerHTML = bits.map(function (b) {
       return "<span title=\"" + b[0] + "\">" + icon(b[0]) + "<b>" + b[1] + "</b></span>";
     }).join("");
-    var task = KHAYA.currentTask(state);
-    taskEl.textContent = task.done ? task.text : "Next: " + task.text;
+    var info = KHAYA.nextStep(KHAYA.playerXp(state), KHAYA.PLAYER_STEPS);
+    var lv = KHAYA.playerLevel(state);
+    if (levelEl) levelEl.textContent = String(lv);
+    if (xpFill) {
+      var span = Math.max(1, info.next - info.prev);
+      var pct = info.max ? 1 : (KHAYA.playerXp(state) - info.prev) / span;
+      xpFill.style.transform = "scaleX(" + pct + ")";
+    }
+    if (goalEl) {
+      var open = KHAYA.tasks(state).filter(function (t) { return !t.done; }).slice(0, 3);
+      if (!open.length) open = [{ done: true, text: "The lane is underway. Keep growing it." }];
+      goalEl.innerHTML = open.map(function (t) {
+        return "<li" + (t.done ? " class=\"done\"" : "") + ">" + t.text + "</li>";
+      }).join("");
+    }
+  }
+
+  function celebrate() {
+    var after = KHAYA.playerLevel(state);
+    if (after > laneLevel) {
+      toast("Level " + after);
+      chime("place");
+      floats.push({
+        x: canvas.clientWidth / 2,
+        y: 72,
+        t: Date.now(),
+        text: "Level " + after,
+        color: "#c4841a",
+        coins: 8
+      });
+    }
   }
 
   function paintCard() {
@@ -1215,13 +1456,25 @@ var PLAY = (function () {
       }
     } else {
       html += "<p>" + spec.blurb + "</p>";
-      var up = KHAYA.canUpgrade(state, b.id);
-      var price = KHAYA.upgradeCost(state, b);
-      if (price) {
-        html += "<p class=\"fine\">" + costLine(price) + "</p>";
-        html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
-        if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
-      } else html += "<p class=\"fine\">Fully built.</p>";
+      var job = KHAYA.buildView(b);
+      if (job) {
+        html += "<p>Building · " + Math.ceil(job.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + job.progress + ")\"></span></div>";
+      }
+      var prod = KHAYA.produceView(b);
+      if (prod) {
+        html += "<p>" + (prod.ready ? prod.stored + " notes ready" : "Next note in " + Math.ceil(prod.left / 1000) + "s") + "</p>";
+        html += "<div class=\"meter\"><span style=\"transform:scaleX(" + prod.progress + ")\"></span></div>";
+        if (prod.ready) html += "<button type=\"button\" class=\"hot\" data-do=\"collect\">Collect</button>";
+      }
+      if (!job) {
+        var up = KHAYA.canUpgrade(state, b.id);
+        var price = KHAYA.upgradeCost(state, b);
+        if (price) {
+          html += "<p class=\"fine\">" + costLine(price) + "</p>";
+          html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
+          if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
+        } else html += "<p class=\"fine\">Fully built.</p>";
+      }
     }
     card.innerHTML = html;
   }
@@ -1237,7 +1490,8 @@ var PLAY = (function () {
     paintCard();
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats }, Date.now());
+    var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, Date.now());
   }
 
   function act(result) {
@@ -1248,6 +1502,7 @@ var PLAY = (function () {
       return;
     }
     var focus = selected() || (result.id ? KHAYA.buildingById(state, result.id) : null);
+    if (result.building) chime("place");
     if (result.id) {
       born[result.id] = Date.now();
       chime("place");
@@ -1265,9 +1520,14 @@ var PLAY = (function () {
     } else if (result.notes) {
       chime("harvest");
       toast("+" + result.notes + " notes");
+      if (result.collected && focus) {
+        var coin = cellPoint(focus);
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, result.notes) });
+      }
     } else if (result.xp) {
       chime("tap");
     }
+    celebrate();
     save();
     paint();
   }
@@ -1379,15 +1639,54 @@ var PLAY = (function () {
     });
   }
 
-  canvas.addEventListener("pointerdown", function (ev) {
-    if (!modal.hidden) return;
+  function cellFrom(ev) {
     var rect = canvas.getBoundingClientRect();
     var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
-    var cell = KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+    return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+  }
+
+  canvas.addEventListener("pointerdown", function (ev) {
+    if (!modal.hidden) return;
+    var cell = cellFrom(ev);
     if (ghost) {
       ghost.x = cell.x;
       ghost.y = cell.y;
-      var placed = KHAYA.place(state, ghost.type, cell.x, cell.y);
+      drag = { ghost: true, px: ev.clientX, py: ev.clientY, moved: false, pointer: ev.pointerId };
+      try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+      paint();
+      return;
+    }
+    var hit = KHAYA.occupied(state, cell.x, cell.y);
+    if (!hit) {
+      selectedId = null;
+      paint();
+      return;
+    }
+    drag = { id: hit.id, px: ev.clientX, py: ev.clientY, moved: false, cx: hit.x, cy: hit.y, pointer: ev.pointerId };
+    try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+  });
+
+  canvas.addEventListener("pointermove", function (ev) {
+    if (!drag || ev.pointerId !== drag.pointer) return;
+    if (Math.hypot(ev.clientX - drag.px, ev.clientY - drag.py) > 12) drag.moved = true;
+    if (!drag.moved) return;
+    var cell = cellFrom(ev);
+    if (drag.ghost) {
+      ghost.x = cell.x;
+      ghost.y = cell.y;
+    } else {
+      drag.cx = cell.x;
+      drag.cy = cell.y;
+    }
+    paint();
+  });
+
+  function endDrag(ev) {
+    if (!drag || (ev && ev.pointerId !== drag.pointer)) return;
+    var item = drag;
+    drag = null;
+    if (item.ghost) {
+      var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
         ghost = null;
         selectedId = placed.id;
@@ -1395,10 +1694,19 @@ var PLAY = (function () {
       act(placed);
       return;
     }
-    var hit = KHAYA.occupied(state, cell.x, cell.y);
-    selectedId = hit ? hit.id : null;
-    paint();
-  });
+    if (!item.moved) {
+      var b = KHAYA.buildingById(state, item.id);
+      selectedId = item.id;
+      if (b && (b.stored || 0) > 0) act(KHAYA.collect(state, b.id));
+      else paint();
+      return;
+    }
+    selectedId = item.id;
+    act(KHAYA.move(state, item.id, item.cx, item.cy));
+  }
+
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", function (ev) { drag = null; paint(); });
 
   card.addEventListener("click", function (ev) {
     var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
@@ -1407,6 +1715,7 @@ var PLAY = (function () {
     if (todo === "water") act(KHAYA.water(state, selectedId, Date.now()));
     if (todo === "harvest") act(KHAYA.harvest(state, selectedId, Date.now()));
     if (todo === "upgrade") act(KHAYA.upgrade(state, selectedId));
+    if (todo === "collect") act(KHAYA.collect(state, selectedId));
   });
 
   document.getElementById("dock").addEventListener("click", function (ev) {
@@ -1441,7 +1750,7 @@ var PLAY = (function () {
   if (!state.welcomed) {
     state.welcomed = true;
     save();
-    openModal("Welcome to Khaya Lane", "<p class=\"rules\">This is your lane. Sow a bed, water it, and harvest. Place a spaza to sell the crop, upgrade the home, and try Crate Day or the spaza counter when you want. Notes, seeds, and timber stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
+    openModal("Welcome to Khaya Lane", "<p class=\"rules\">Sow a bed, water it, and harvest. The spaza earns notes while you are away — tap the coin to collect. Drag a building to move it. Upgrade the home when you can. Notes stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
   }
 
   var muteBtn = document.getElementById("mute");
@@ -1466,13 +1775,23 @@ var PLAY = (function () {
   function frame() {
     var now = Date.now();
     if (now - hudAt > 350) {
-      KHAYA.tick(state, now);
+      var ticked = KHAYA.tick(state, now);
+      if (ticked.finished && ticked.finished.length) {
+        var i;
+        for (i = 0; i < ticked.finished.length; i++) born[ticked.finished[i].id] = now;
+        chime("place");
+        celebrate();
+        save();
+        paintCard();
+      }
       paintHud();
-      if (selected() && selected().type === "bed") paintCard();
+      var sel = selected();
+      if (sel && (sel.type === "bed" || sel.buildLeft || KHAYA.produceView(sel))) paintCard();
       hudAt = now;
     }
     floats = floats.filter(function (f) { return now - f.t < 1000; });
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats }, now);
+    var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

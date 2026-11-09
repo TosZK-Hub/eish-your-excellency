@@ -59,8 +59,18 @@ eq("oversell", KHAYA.sell(s, "maize", 5).ok, false);
 eq("stock safe", s.crops.maize, 1);
 
 var home = s.buildings.filter(function (b) { return b.type === "home"; })[0];
+var notesBeforeUpgrade = s.notes;
 eq("upgrade home", KHAYA.upgrade(s, home.id).ok, true);
+eq("home waits", home.level, 1);
+eq("upgrade paid", s.notes, notesBeforeUpgrade - 24);
+eq("no overlap upgrade", KHAYA.upgrade(s, home.id).ok, false);
+eq("notes held while building", s.notes, notesBeforeUpgrade - 24);
+var built = KHAYA.tick(s, s.seenAt + KHAYA.UPGRADE_MS);
 eq("home level", home.level, 2);
+eq("one finish", built.finished.length, 1);
+var xpAfterBuild = s.buildXp;
+KHAYA.tick(s, s.seenAt + 5000);
+eq("xp once", s.buildXp, xpAfterBuild);
 eq("upgrade cap", (function () {
   KHAYA.upgrade(s, home.id);
   var third = KHAYA.upgrade(s, home.id);
@@ -153,6 +163,62 @@ for (var y = 0; y < 8; y++) {
 }
 
 eq("tasks start", KHAYA.currentTask(KHAYA.fresh(1)).id, "sow");
+var guided = KHAYA.fresh(1);
+guided.stats.sown = 1;
+guided.stats.watered = 1;
+guided.stats.harvested = 1;
+guided.stats.placed = 1;
+eq("collect goal", KHAYA.currentTask(guided).id, "collect");
+eq("player starts at 1", KHAYA.playerLevel(KHAYA.fresh(1)), 1);
+var ranked = KHAYA.fresh(1);
+ranked.farmXp = 18;
+eq("player level 2", KHAYA.playerLevel(ranked), 2);
+
+var prod = KHAYA.fresh(0);
+eq("place for production", KHAYA.place(prod, "spaza", 5, 1).ok, true);
+var shop = prod.buildings.filter(function (b) { return b.type === "spaza"; })[0];
+eq("stored starts empty", shop.stored || 0, 0);
+KHAYA.tick(prod, 8000);
+eq("one note ready", shop.stored, 1);
+var got = KHAYA.collect(prod, shop.id);
+eq("collect notes", got.notes, 1);
+eq("notes after collect", prod.notes, 43);
+eq("collect twice", KHAYA.collect(prod, shop.id).ok, false);
+eq("stored cleared", shop.stored, 0);
+shop.prodAcc = 0;
+prod.seenAt = 0;
+KHAYA.tick(prod, 15 * 60 * 1000);
+eq("production cap", shop.stored, 12);
+var cappedNotes = prod.notes;
+eq("cap collect", KHAYA.collect(prod, shop.id).notes, 12);
+eq("no mint past cap", prod.notes, cappedNotes + 12);
+eq("bed does not mint", KHAYA.collect(prod, prod.buildings[1].id).ok, false);
+
+var mv = KHAYA.fresh(1);
+var plot = mv.buildings.filter(function (b) { return b.type === "bed"; })[0];
+var purse = mv.notes;
+eq("path refuses a drag", KHAYA.move(mv, plot.id, 4, 2).ok, false);
+eq("tree refuses a drag", KHAYA.move(mv, plot.id, 0, 0).ok, false);
+eq("free drag", KHAYA.move(mv, plot.id, 5, 1).ok, true);
+eq("bed moved", plot.x, 5);
+eq("drag is free", mv.notes, purse);
+eq("cannot cover the home", KHAYA.move(mv, plot.id, 1, 2).ok, false);
+eq("bed stayed", plot.x, 5);
+
+var savedProd = KHAYA.sanitize({
+  v: 1,
+  notes: 10,
+  buildings: [
+    { type: "spaza", x: 5, y: 1, level: 1, stored: -4, prodAcc: 999999 },
+    { type: "home", x: 1, y: 2, level: 1, buildLeft: 4000, pendingLevel: 2, pendingXp: 14, buildTotal: 16000 }
+  ]
+});
+var savedShop = savedProd.buildings.filter(function (b) { return b.type === "spaza"; })[0];
+eq("stored clamped", savedShop.stored, 0);
+truth("acc clamped", savedShop.prodAcc <= 60000);
+var savedHome = savedProd.buildings.filter(function (b) { return b.type === "home"; })[0];
+eq("build kept", savedHome.buildLeft, 4000);
+eq("pending kept", savedHome.pendingLevel, 2);
 
 if (failed) {
   console.error(failed + " failed");

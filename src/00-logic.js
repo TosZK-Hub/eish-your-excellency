@@ -29,6 +29,13 @@ var KHAYA = (function () {
 
   var FARM_STEPS = [0, 24, 70, 140];
   var BUILD_STEPS = [0, 16, 48, 100];
+  var PLAYER_STEPS = [0, 18, 48, 100, 180];
+  var UPGRADE_MS = 16000;
+  var PRODUCE = {
+    spaza: { every: 8000, notes: 1, cap: 12 },
+    workshop: { every: 12000, notes: 1, cap: 8 },
+    solar: { every: 10000, notes: 1, cap: 8 }
+  };
 
   var BUILDINGS = {
     home: {
@@ -85,6 +92,8 @@ var KHAYA = (function () {
 
   function farmLevel(state) { return levelFor(state.farmXp, FARM_STEPS); }
   function buildLevel(state) { return levelFor(state.buildXp, BUILD_STEPS); }
+  function playerXp(state) { return (state.farmXp || 0) + (state.buildXp || 0); }
+  function playerLevel(state) { return levelFor(playerXp(state), PLAYER_STEPS); }
 
   function nextStep(xp, steps) {
     var i;
@@ -162,7 +171,7 @@ var KHAYA = (function () {
       crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
       farmXp: 0,
       buildXp: 0,
-      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0 },
+      stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0 },
       paid: {},
       tankAcc: 0,
       seenAt: now,
@@ -262,6 +271,7 @@ var KHAYA = (function () {
   function canUpgrade(state, id) {
     var b = buildingById(state, id);
     if (!b) return { ok: false, reason: "Nothing selected." };
+    if ((b.buildLeft || 0) > 0) return { ok: false, reason: "Still building." };
     var def = BUILDINGS[b.type];
     var raw = def && def.upgrades ? def.upgrades[b.level] : null;
     if (!raw) return { ok: false, reason: def.name + " is fully built." };
@@ -275,12 +285,32 @@ var KHAYA = (function () {
     var check = canUpgrade(state, id);
     if (!check.ok) return check;
     var b = buildingById(state, id);
+    if ((b.buildLeft || 0) > 0) return { ok: false, reason: "Still building." };
     var raw = BUILDINGS[b.type].upgrades[b.level];
     pay(state, upgradeCost(state, b));
-    b.level += 1;
-    state.buildXp += raw.xp || 12;
+    b.buildLeft = UPGRADE_MS;
+    b.buildTotal = UPGRADE_MS;
+    b.pendingLevel = b.level + 1;
+    b.pendingXp = raw.xp || 12;
+    return { ok: true, building: true, left: UPGRADE_MS };
+  }
+
+  function finishBuild(state, b) {
+    if (!b.pendingLevel || b.pendingLevel <= b.level) {
+      b.pendingLevel = 0;
+      b.pendingXp = 0;
+      b.buildLeft = 0;
+      return null;
+    }
+    var xp = b.pendingXp || 12;
+    b.level = b.pendingLevel;
+    b.pendingLevel = 0;
+    b.pendingXp = 0;
+    b.buildLeft = 0;
+    b.buildTotal = 0;
+    state.buildXp += xp;
     state.stats.upgraded += 1;
-    return { ok: true, level: b.level, xp: raw.xp || 12 };
+    return { id: b.id, level: b.level, xp: xp };
   }
 
   function cropReady(b, now) {
@@ -371,8 +401,90 @@ var KHAYA = (function () {
       }
       if (state.water >= WATER_CAP) state.tankAcc = Math.min(state.tankAcc, TANK_MS);
     }
+    var finished = [];
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if ((b.buildLeft || 0) > 0) {
+        b.buildLeft -= used;
+        if (b.buildLeft <= 0) {
+          var done = finishBuild(state, b);
+          if (done) finished.push(done);
+        }
+      }
+      var spec = PRODUCE[b.type];
+      if (!spec) continue;
+      var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+      b.prodAcc = (b.prodAcc || 0) + used;
+      while (b.prodAcc >= spec.every && (b.stored || 0) < cap) {
+        b.stored = (b.stored || 0) + spec.notes;
+        b.prodAcc -= spec.every;
+      }
+      if ((b.stored || 0) >= cap) b.prodAcc = Math.min(b.prodAcc, spec.every);
+    }
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded };
+    return { elapsed: used, discarded: discarded, finished: finished };
+  }
+
+  function produceView(b) {
+    if (!b) return null;
+    var spec = PRODUCE[b.type];
+    if (!spec) return null;
+    var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4;
+    var stored = b.stored || 0;
+    var acc = b.prodAcc || 0;
+    return {
+      stored: stored,
+      cap: cap,
+      progress: stored >= cap ? 1 : Math.min(1, acc / spec.every),
+      left: stored >= cap ? 0 : Math.max(0, spec.every - acc),
+      ready: stored > 0
+    };
+  }
+
+  function buildView(b) {
+    if (!b || !(b.buildLeft > 0)) return null;
+    var total = b.buildTotal || UPGRADE_MS;
+    var left = b.buildLeft;
+    return { left: left, progress: Math.max(0, Math.min(1, 1 - left / total)) };
+  }
+
+  function collect(state, id) {
+    var b = buildingById(state, id);
+    if (!b) return { ok: false, reason: "Nothing there." };
+    if (!PRODUCE[b.type]) return { ok: false, reason: "That does not hold notes." };
+    var n = b.stored || 0;
+    if (n < 1) return { ok: false, reason: "Nothing to collect yet." };
+    b.stored = 0;
+    state.notes = clamp(state.notes + n, 0, NOTE_CAP);
+    state.stats.collected = (state.stats.collected || 0) + 1;
+    return { ok: true, notes: n, collected: true };
+  }
+
+  function canMove(state, id, x, y) {
+    var b = buildingById(state, id);
+    if (!b) return { ok: false, reason: "Nothing selected." };
+    if (b.x === x && b.y === y) return { ok: true, same: true };
+    var dx, dy, land, block;
+    for (dy = 0; dy < b.h; dy++) {
+      for (dx = 0; dx < b.w; dx++) {
+        land = terrainAt(x + dx, y + dy);
+        if (land === "out") return { ok: false, reason: "That sits outside the lane." };
+        if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
+        if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+        block = occupied(state, x + dx, y + dy, id);
+        if (block) return { ok: false, reason: "Something is already there." };
+      }
+    }
+    return { ok: true };
+  }
+
+  function move(state, id, x, y) {
+    var check = canMove(state, id, x, y);
+    if (!check.ok) return check;
+    var b = buildingById(state, id);
+    b.x = x;
+    b.y = y;
+    return { ok: true, moved: !check.same, same: !!check.same };
   }
 
   function cratePayout(correct) {
@@ -409,6 +521,7 @@ var KHAYA = (function () {
       { id: "water", done: state.stats.watered > 0, text: "Water the bed" },
       { id: "harvest", done: state.stats.harvested > 0, text: "Harvest when the crop is ready" },
       { id: "place", done: state.stats.placed > 0, text: "Place a spaza, tank, or workshop" },
+      { id: "collect", done: (state.stats.collected || 0) > 0, text: "Collect notes from the spaza" },
       { id: "upgrade", done: state.stats.upgraded > 0, text: "Upgrade your home" },
       { id: "play", done: state.stats.played > 0, text: "Finish a lane mini-game" }
     ];
@@ -475,8 +588,19 @@ var KHAYA = (function () {
         y: clamp(raw.y, 0, ROWS - 1),
         w: def.w,
         h: def.h,
-        level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1)
+        level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1),
+        stored: clamp(raw.stored, 0, 30),
+        prodAcc: clamp(raw.prodAcc, 0, 60000),
+        buildLeft: clamp(raw.buildLeft, 0, 120000),
+        buildTotal: clamp(raw.buildTotal, 0, 120000),
+        pendingLevel: clamp(raw.pendingLevel, 0, def.upgrades ? def.upgrades.length : 1),
+        pendingXp: clamp(raw.pendingXp, 0, 100)
       };
+      if (b.pendingLevel <= b.level) {
+        b.pendingLevel = 0;
+        b.pendingXp = 0;
+        if (!(raw.buildLeft > 0)) b.buildLeft = 0;
+      }
       ok = true;
       for (dy = 0; dy < b.h && ok; dy++) {
         for (dx = 0; dx < b.w; dx++) {
@@ -519,11 +643,15 @@ var KHAYA = (function () {
     BUILDINGS: BUILDINGS,
     FARM_STEPS: FARM_STEPS,
     BUILD_STEPS: BUILD_STEPS,
+    PLAYER_STEPS: PLAYER_STEPS,
+    UPGRADE_MS: UPGRADE_MS,
     ELAPSE_CAP: ELAPSE_CAP,
     fresh: fresh,
     sanitize: sanitize,
     farmLevel: farmLevel,
     buildLevel: buildLevel,
+    playerXp: playerXp,
+    playerLevel: playerLevel,
     nextStep: nextStep,
     terrainAt: terrainAt,
     occupied: occupied,
@@ -536,6 +664,11 @@ var KHAYA = (function () {
     place: place,
     canUpgrade: canUpgrade,
     upgrade: upgrade,
+    collect: collect,
+    canMove: canMove,
+    move: move,
+    produceView: produceView,
+    buildView: buildView,
     upgradeCost: upgradeCost,
     placeCost: placeCost,
     sow: sow,

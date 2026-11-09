@@ -7,7 +7,9 @@
   var modalTitle = document.getElementById("modalTitle");
   var modalBody = document.getElementById("modalBody");
   var card = document.getElementById("card");
-  var taskEl = document.getElementById("task");
+  var goalEl = document.getElementById("goals");
+  var levelEl = document.getElementById("lv");
+  var xpFill = document.getElementById("xpfill");
   var resEl = document.getElementById("res");
   var notesEl = document.getElementById("notes");
   var toastEl = document.getElementById("toast");
@@ -26,6 +28,8 @@
   var born = {};
   var floats = [];
   var muted = localStorage.getItem("eish-khaya-mute") === "1";
+  var drag = null;
+  var laneLevel = KHAYA.playerLevel(state);
   var actx = null;
   var wind = null;
 
@@ -163,8 +167,37 @@
     resEl.innerHTML = bits.map(function (b) {
       return "<span title=\"" + b[0] + "\">" + icon(b[0]) + "<b>" + b[1] + "</b></span>";
     }).join("");
-    var task = KHAYA.currentTask(state);
-    taskEl.textContent = task.done ? task.text : "Next: " + task.text;
+    var info = KHAYA.nextStep(KHAYA.playerXp(state), KHAYA.PLAYER_STEPS);
+    var lv = KHAYA.playerLevel(state);
+    if (levelEl) levelEl.textContent = String(lv);
+    if (xpFill) {
+      var span = Math.max(1, info.next - info.prev);
+      var pct = info.max ? 1 : (KHAYA.playerXp(state) - info.prev) / span;
+      xpFill.style.transform = "scaleX(" + pct + ")";
+    }
+    if (goalEl) {
+      var open = KHAYA.tasks(state).filter(function (t) { return !t.done; }).slice(0, 3);
+      if (!open.length) open = [{ done: true, text: "The lane is underway. Keep growing it." }];
+      goalEl.innerHTML = open.map(function (t) {
+        return "<li" + (t.done ? " class=\"done\"" : "") + ">" + t.text + "</li>";
+      }).join("");
+    }
+  }
+
+  function celebrate() {
+    var after = KHAYA.playerLevel(state);
+    if (after > laneLevel) {
+      toast("Level " + after);
+      chime("place");
+      floats.push({
+        x: canvas.clientWidth / 2,
+        y: 72,
+        t: Date.now(),
+        text: "Level " + after,
+        color: "#c4841a",
+        coins: 8
+      });
+    }
   }
 
   function paintCard() {
@@ -202,13 +235,25 @@
       }
     } else {
       html += "<p>" + spec.blurb + "</p>";
-      var up = KHAYA.canUpgrade(state, b.id);
-      var price = KHAYA.upgradeCost(state, b);
-      if (price) {
-        html += "<p class=\"fine\">" + costLine(price) + "</p>";
-        html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
-        if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
-      } else html += "<p class=\"fine\">Fully built.</p>";
+      var job = KHAYA.buildView(b);
+      if (job) {
+        html += "<p>Building · " + Math.ceil(job.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + job.progress + ")\"></span></div>";
+      }
+      var prod = KHAYA.produceView(b);
+      if (prod) {
+        html += "<p>" + (prod.ready ? prod.stored + " notes ready" : "Next note in " + Math.ceil(prod.left / 1000) + "s") + "</p>";
+        html += "<div class=\"meter\"><span style=\"transform:scaleX(" + prod.progress + ")\"></span></div>";
+        if (prod.ready) html += "<button type=\"button\" class=\"hot\" data-do=\"collect\">Collect</button>";
+      }
+      if (!job) {
+        var up = KHAYA.canUpgrade(state, b.id);
+        var price = KHAYA.upgradeCost(state, b);
+        if (price) {
+          html += "<p class=\"fine\">" + costLine(price) + "</p>";
+          html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
+          if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
+        } else html += "<p class=\"fine\">Fully built.</p>";
+      }
     }
     card.innerHTML = html;
   }
@@ -224,7 +269,8 @@
     paintCard();
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats }, Date.now());
+    var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, Date.now());
   }
 
   function act(result) {
@@ -235,6 +281,7 @@
       return;
     }
     var focus = selected() || (result.id ? KHAYA.buildingById(state, result.id) : null);
+    if (result.building) chime("place");
     if (result.id) {
       born[result.id] = Date.now();
       chime("place");
@@ -252,9 +299,14 @@
     } else if (result.notes) {
       chime("harvest");
       toast("+" + result.notes + " notes");
+      if (result.collected && focus) {
+        var coin = cellPoint(focus);
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, result.notes) });
+      }
     } else if (result.xp) {
       chime("tap");
     }
+    celebrate();
     save();
     paint();
   }
@@ -366,15 +418,54 @@
     });
   }
 
-  canvas.addEventListener("pointerdown", function (ev) {
-    if (!modal.hidden) return;
+  function cellFrom(ev) {
     var rect = canvas.getBoundingClientRect();
     var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight);
-    var cell = KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+    return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+  }
+
+  canvas.addEventListener("pointerdown", function (ev) {
+    if (!modal.hidden) return;
+    var cell = cellFrom(ev);
     if (ghost) {
       ghost.x = cell.x;
       ghost.y = cell.y;
-      var placed = KHAYA.place(state, ghost.type, cell.x, cell.y);
+      drag = { ghost: true, px: ev.clientX, py: ev.clientY, moved: false, pointer: ev.pointerId };
+      try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+      paint();
+      return;
+    }
+    var hit = KHAYA.occupied(state, cell.x, cell.y);
+    if (!hit) {
+      selectedId = null;
+      paint();
+      return;
+    }
+    drag = { id: hit.id, px: ev.clientX, py: ev.clientY, moved: false, cx: hit.x, cy: hit.y, pointer: ev.pointerId };
+    try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+  });
+
+  canvas.addEventListener("pointermove", function (ev) {
+    if (!drag || ev.pointerId !== drag.pointer) return;
+    if (Math.hypot(ev.clientX - drag.px, ev.clientY - drag.py) > 12) drag.moved = true;
+    if (!drag.moved) return;
+    var cell = cellFrom(ev);
+    if (drag.ghost) {
+      ghost.x = cell.x;
+      ghost.y = cell.y;
+    } else {
+      drag.cx = cell.x;
+      drag.cy = cell.y;
+    }
+    paint();
+  });
+
+  function endDrag(ev) {
+    if (!drag || (ev && ev.pointerId !== drag.pointer)) return;
+    var item = drag;
+    drag = null;
+    if (item.ghost) {
+      var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
         ghost = null;
         selectedId = placed.id;
@@ -382,10 +473,19 @@
       act(placed);
       return;
     }
-    var hit = KHAYA.occupied(state, cell.x, cell.y);
-    selectedId = hit ? hit.id : null;
-    paint();
-  });
+    if (!item.moved) {
+      var b = KHAYA.buildingById(state, item.id);
+      selectedId = item.id;
+      if (b && (b.stored || 0) > 0) act(KHAYA.collect(state, b.id));
+      else paint();
+      return;
+    }
+    selectedId = item.id;
+    act(KHAYA.move(state, item.id, item.cx, item.cy));
+  }
+
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", function (ev) { drag = null; paint(); });
 
   card.addEventListener("click", function (ev) {
     var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
@@ -394,6 +494,7 @@
     if (todo === "water") act(KHAYA.water(state, selectedId, Date.now()));
     if (todo === "harvest") act(KHAYA.harvest(state, selectedId, Date.now()));
     if (todo === "upgrade") act(KHAYA.upgrade(state, selectedId));
+    if (todo === "collect") act(KHAYA.collect(state, selectedId));
   });
 
   document.getElementById("dock").addEventListener("click", function (ev) {
@@ -428,7 +529,7 @@
   if (!state.welcomed) {
     state.welcomed = true;
     save();
-    openModal("Welcome to Khaya Lane", "<p class=\"rules\">This is your lane. Sow a bed, water it, and harvest. Place a spaza to sell the crop, upgrade the home, and try Crate Day or the spaza counter when you want. Notes, seeds, and timber stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
+    openModal("Welcome to Khaya Lane", "<p class=\"rules\">Sow a bed, water it, and harvest. The spaza earns notes while you are away — tap the coin to collect. Drag a building to move it. Upgrade the home when you can. Notes stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
   }
 
   var muteBtn = document.getElementById("mute");
@@ -453,13 +554,23 @@
   function frame() {
     var now = Date.now();
     if (now - hudAt > 350) {
-      KHAYA.tick(state, now);
+      var ticked = KHAYA.tick(state, now);
+      if (ticked.finished && ticked.finished.length) {
+        var i;
+        for (i = 0; i < ticked.finished.length; i++) born[ticked.finished[i].id] = now;
+        chime("place");
+        celebrate();
+        save();
+        paintCard();
+      }
       paintHud();
-      if (selected() && selected().type === "bed") paintCard();
+      var sel = selected();
+      if (sel && (sel.type === "bed" || sel.buildLeft || KHAYA.produceView(sel))) paintCard();
       hudAt = now;
     }
     floats = floats.filter(function (f) { return now - f.t < 1000; });
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats }, now);
+    var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
+    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging }, now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

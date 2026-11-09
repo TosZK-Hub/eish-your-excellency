@@ -15,14 +15,18 @@
 <div id="app">
   <header>
     <div class="brand"><b>EISH!</b><span>Khaya Lane</span><p id="buildTag" class="stamp"></p></div>
-    <button type="button" id="mute" aria-pressed="false">Sound</button>
+    <div class="level" title="Lane level">
+      <b id="lv">1</b>
+      <div class="meter xp" aria-hidden="true"><span id="xpfill"></span></div>
+    </div>
+    <button type="button" id="mute" aria-pressed="false" aria-label="Sound">Sound</button>
     <div class="notes" id="notes">0</div>
   </header>
   <div class="res" id="res"></div>
   <div class="stage"><canvas id="view" aria-label="Your neighbourhood"></canvas></div>
   <button type="button" id="placing" data-act="cancel" hidden>Cancel</button>
   <section class="dock" id="dock">
-    <p class="task" id="task"></p>
+    <ul class="goals" id="goals"></ul>
     <div class="card" id="card"></div>
     <div class="bar">
       <button type="button" data-act="build">Build</button>

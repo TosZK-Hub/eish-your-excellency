@@ -9,7 +9,8 @@ var DRAW = (function () {
     "bed_maize_mid", "bed_maize_ready", "bed_spinach_mid", "bed_spinach_ready",
     "bed_tomato_mid", "bed_tomato_ready", "bed_aloe_mid", "bed_aloe_ready",
     "tank", "workshop", "solar", "jacaranda", "acacia", "aloeplant", "fence",
-    "person0", "person1", "person2", "person3", "hen0", "hen1", "dog0", "dog1", "neighbour"
+    "person0", "person1", "person2", "person3", "hen0", "hen1", "dog0", "dog1",
+    "neighbour", "neighbour2", "neighbour3"
   ];
   var PATH = [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [4, 5], [4, 4], [4, 3]];
 
@@ -127,10 +128,15 @@ var DRAW = (function () {
     ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
     ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
     ctx.fill();
+    var houses = [img.neighbour, img.neighbour2 || img.neighbour, img.neighbour3 || img.neighbour];
+    var spots = [0.14, 0.4, 0.68];
     var n;
-    for (n = 0; n < 3; n++) {
-      blit(ctx, img.neighbour, w * (0.18 + n * 0.28), hy + 6, o.tw * 1.15);
+    for (n = 0; n < houses.length; n++) {
+      if (!houses[n]) continue;
+      blit(ctx, houses[n], w * spots[n], hy + 8, o.tw, 0.62);
     }
+    blit(ctx, img.jacaranda, w * 0.86, hy + 28, o.tw, 0.7);
+    blit(ctx, img.acacia, w * 0.28, hy + 34, o.tw, 0.62);
   }
 
   function blit(ctx, image, cx, cy, tw, scale) {
@@ -214,6 +220,52 @@ var DRAW = (function () {
     ctx.restore();
   }
 
+  function barOver(ctx, x, y, w, progress, color) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,250,243,.92)";
+    ctx.strokeStyle = "#6b4524";
+    ctx.lineWidth = 2;
+    roundRect(ctx, x - w / 2, y, w, 8, 4);
+    ctx.fill();
+    ctx.stroke();
+    var fillW = Math.max(0, (w - 4) * progress);
+    if (fillW > 1) {
+      ctx.fillStyle = color;
+      roundRect(ctx, x - w / 2 + 2, y + 2, fillW, 4, 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function coinBadge(ctx, x, y, now) {
+    var bob = Math.sin(now / 180) * 3;
+    ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.fillStyle = "#f2c14e";
+    ctx.strokeStyle = "#7a5410";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#7a5410";
+    ctx.font = "700 12px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("N", 0, 1);
+    ctx.restore();
+  }
+
   function ring(ctx, x, y, w, h, o, color) {
     var c = corners(x, y, w, h, o);
     ctx.beginPath();
@@ -272,11 +324,14 @@ var DRAW = (function () {
       ctx.font = "700 18px Fredoka, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(f.text, f.x, f.y - a * 42);
+      var bits = f.coins || 6;
       var k;
-      for (k = 0; k < 6; k++) {
-        var ang = k / 6 * Math.PI * 2 + f.t;
+      for (k = 0; k < bits; k++) {
+        var ang = k / bits * Math.PI * 2 + f.t;
+        var rad = f.coins ? 4.2 : 3.2;
         ctx.beginPath();
-        ctx.arc(f.x + Math.cos(ang) * a * 26, f.y - 10 + Math.sin(ang) * a * 16, 3.2 * (1 - a), 0, 7);
+        ctx.fillStyle = f.coins ? "#f2c14e" : (f.color || "#243028");
+        ctx.arc(f.x + Math.cos(ang) * a * 34, f.y - 12 + Math.sin(ang) * a * 20, rad * (1 - a * 0.4), 0, 7);
         ctx.fill();
       }
       ctx.restore();
@@ -319,7 +374,27 @@ var DRAW = (function () {
     items.sort(function (a, b) { return a.k - b.k; });
     for (i = 0; i < items.length; i++) {
       var building = items[i].b;
-      drawSprite(ctx, spriteName(building, now), building, o, now, view.born && view.born[building.id]);
+      var dragging = view.drag && view.drag.id === building.id;
+      var drawAt = building;
+      if (dragging) {
+        drawAt = {
+          type: building.type, x: view.drag.x, y: view.drag.y,
+          w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt
+        };
+      }
+      ctx.save();
+      if (dragging) ctx.globalAlpha = 0.85;
+      drawSprite(ctx, spriteName(drawAt, now), drawAt, o, now, view.born && view.born[building.id]);
+      ctx.restore();
+      var anchor = centerOf(drawAt, o);
+      var job = KHAYA.buildView(building);
+      if (job && !dragging) barOver(ctx, anchor.x, anchor.y - o.th * 1.1, o.tw * 0.7, job.progress, "#7eb6e0");
+      var prod = KHAYA.produceView(building);
+      if (prod && prod.ready && !dragging) coinBadge(ctx, anchor.x, anchor.y - o.th * 1.35, now);
+      if (dragging) {
+        var ok = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
+        ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, ok ? "#f2c14e" : "#d64545");
+      }
     }
     life(ctx, o, now);
     if (view.ghost) {
