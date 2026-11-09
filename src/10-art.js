@@ -66,11 +66,12 @@ var DRAW = (function () {
     var z = cam.z || 1;
     if (z < 0.55) z = 0.55;
     if (z > 2.2) z = 2.2;
-    var cols = 8;
-    var rows = 8;
-    var horizon = Math.max(72, h * 0.30);
-    var availW = w * 0.96;
-    var availH = Math.max(80, (h - horizon) * 0.98);
+    var phone = w < 560;
+    var cols = phone ? 6.5 : 8;
+    var rows = phone ? 6.5 : 8;
+    var horizon = phone ? Math.max(20, h * 0.08) : Math.max(64, h * 0.22);
+    var availW = w * (phone ? 1.04 : 0.96);
+    var availH = Math.max(80, (h - horizon) * (phone ? 1.02 : 0.98));
     var tw = availW / ((cols + rows) / 2);
     var th = tw * 0.5;
     var plotH = (cols + rows) * th / 2;
@@ -181,8 +182,8 @@ var DRAW = (function () {
     for (n = 0; n < LOOK.neighbours.length; n++) {
       blitFoot(ctx, img[LOOK.neighbours[n]], w * spots[n], hy + 18, o.tw * 0.72, 0.9);
     }
-    blitFoot(ctx, img.tree_jacaranda, w * 0.9, hy + 28, o.tw * 0.7, LOOK.treeScale.tree_jacaranda || 1);
-    blitFoot(ctx, img.tree_acacia, w * 0.22, hy + 36, o.tw * 0.7, LOOK.treeScale.tree_acacia || 1);
+    blitFoot(ctx, img.tree_jacaranda, w * 0.94, hy + 18, o.tw * 0.48, LOOK.treeScale.tree_jacaranda || 1);
+    blitFoot(ctx, img.tree_acacia, w * 0.06, hy + 22, o.tw * 0.42, LOOK.treeScale.tree_acacia || 1);
   }
 
   function blitFoot(ctx, image, footX, footY, tw, scale) {
@@ -437,52 +438,94 @@ var DRAW = (function () {
     return "";
   }
 
-  function queueActors(queue, state, o, now, ctx) {
+  function actorWhere(entry, state, now) {
     var known = state.collection || {};
+    if (!known[entry.id] || !known[entry.id].have) return null;
+    var x = 2;
+    var y = 2;
+    var dir = 0;
+    var pose = "walk";
+    var bi;
+    var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
+    if (housed) {
+      x = housed.x + housed.w * 0.35;
+      y = housed.y + housed.h + 0.2;
+      pose = "idle";
+    } else if (entry.near === "home") {
+      var home = null;
+      for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
+      if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
+      pose = "idle";
+    } else if (entry.spot) {
+      x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
+      y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
+      pose = "idle";
+    } else if (entry.route) {
+      var step = routePoint(entry.route, now, entry.speed || 9000);
+      x = step.x;
+      y = step.y;
+      dir = step.dir;
+      if (entry.id === "farmer") {
+        var bed = null;
+        for (bi = 0; bi < state.buildings.length; bi++) {
+          if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
+        }
+        if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
+      }
+      if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
+      if (entry.id === "doek") {
+        var spaza = null;
+        for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
+        if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
+      }
+    }
+    return { x: x, y: y, dir: dir, pose: pose, housed: housed };
+  }
+
+  function importantFeet(state, o, now) {
+    var pts = [];
+    var i, b, spot;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      pts.push(north(b.x + b.w * 0.5, b.y + b.h * 0.55, o));
+    }
+    for (i = 0; i < LOOK.cast.length; i++) {
+      spot = actorWhere(LOOK.cast[i], state, now);
+      if (spot) pts.push(north(spot.x, spot.y, o));
+    }
+    pts.push(north(1.35, 6.35, o));
+    return pts;
+  }
+
+  function treeCovers(foot, file, scale, o, points) {
+    var image = img[file];
+    if (!image || !image.naturalWidth || !points) return false;
+    var px = (o.tw / 256) * (scale || 1);
+    var dw = image.naturalWidth * px;
+    var dh = image.naturalHeight * px;
+    var i, p, dx, dy;
+    for (i = 0; i < points.length; i++) {
+      p = points[i];
+      dy = foot.y - p.y;
+      if (dy < 6) continue;
+      dx = Math.abs(p.x - foot.x);
+      if (dx < dw * 0.46 && dy < dh * 0.88) return true;
+    }
+    return false;
+  }
+
+  function queueActors(queue, state, o, now, ctx) {
     var i;
     for (i = 0; i < LOOK.cast.length; i++) {
       (function (entry) {
-        if (!known[entry.id] || !known[entry.id].have) return;
+        var spot = actorWhere(entry, state, now);
+        if (!spot) return;
         var spec = LOOK.actors[entry.id];
-        var x = 2;
-        var y = 2;
-        var dir = 0;
-        var pose = "walk";
-        var bi;
-        var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
-        if (housed) {
-          x = housed.x + housed.w * 0.35;
-          y = housed.y + housed.h + 0.2;
-          pose = "idle";
-        } else if (entry.near === "home") {
-          var home = null;
-          var bi;
-          for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
-          if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
-          pose = "idle";
-        } else if (entry.spot) {
-          x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
-          y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
-          pose = "idle";
-        } else if (entry.route) {
-          var step = routePoint(entry.route, now, entry.speed || 9000);
-          x = step.x;
-          y = step.y;
-          dir = step.dir;
-          if (entry.id === "farmer") {
-            var bed = null;
-            for (bi = 0; bi < state.buildings.length; bi++) {
-              if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
-            }
-            if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
-          }
-          if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
-          if (entry.id === "doek") {
-            var spaza = null;
-            for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
-            if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
-          }
-        }
+        var x = spot.x;
+        var y = spot.y;
+        var dir = spot.dir;
+        var pose = spot.pose;
+        var housed = spot.housed;
         var n = north(x, y, o);
         var moving = pose === "walk" && !housed;
         var phase = now / 170 + x;
@@ -555,17 +598,24 @@ var DRAW = (function () {
       ground(ctx, x, y, o, state);
     }
     var queue = [];
+    var feet = importantFeet(state, o, now);
     for (i = 0; i < cells.length; i++) {
       x = cells[i].x;
       y = cells[i].y;
       if (KHAYA.terrainAt(x, y) !== "tree") continue;
+      if (LOOK.treeSkip && LOOK.treeSkip[x + "," + y]) continue;
       (function (tx, ty) {
         var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
-        var n = north(tx + 0.5, ty + 0.5, o);
+        var nudge = (LOOK.treeNudge && LOOK.treeNudge[tx + "," + ty]) || [0, 0];
+        var n = north(tx + 0.5 + nudge[0], ty + 0.5 + nudge[1], o);
         var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
+        var fade = treeCovers(n, file, treeScale, o, feet);
         queue.push({ y: n.y, draw: function () {
-          shadowAt(ctx, n.x, n.y, o.tw * 0.34, o.th * 0.2);
+          ctx.save();
+          if (fade) ctx.globalAlpha = 0.38;
+          shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.16);
           blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
+          ctx.restore();
         } });
       })(x, y);
     }
@@ -601,9 +651,14 @@ var DRAW = (function () {
       (function (piece) {
         var n = north(piece.x, piece.y, o);
         if (piece.file === "taxi") return;
+        var tree = piece.file.indexOf("tree_") === 0;
+        var fade = tree && treeCovers(n, piece.file, piece.scale || 1, o, feet);
         queue.push({ y: n.y, draw: function () {
-          shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.2);
+          ctx.save();
+          if (fade) ctx.globalAlpha = 0.38;
+          shadowAt(ctx, n.x, n.y, o.tw * (tree ? 0.22 : 0.28), o.th * 0.16);
           blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
+          ctx.restore();
         } });
       })(LOOK.dress[di]);
     }

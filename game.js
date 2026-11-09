@@ -1431,18 +1431,21 @@ if (typeof module !== "undefined" && module.exports) module.exports = KHAYA;
 //
 // World scale. One tile is 256 source pixels wide (128 tall).
 // Drawn size = source pixels × (tileWidth / 256) × scale.
-// home_l1 is the ruler. Scale 1.08 makes that shack about 1.7 tiles wide,
-// inside the 1.5–2 tile house band. Door-to-roof is about 0.9 of its bitmap,
-// and every person, animal and prop below is a fraction of that door.
-// A person is 60% of the door. A hen is a shin (ankle to knee). A dog stands
-// at the knee. A cow reaches a person's shoulder. Props sit at waist height.
-// Trees are 1.15–1.5× the full house, jacaranda tallest. The taxi is 1.2 tiles long.
+// home_l1 is the ruler. Scale 1.22 makes that shack about 1.9 tiles wide,
+// near the top of the 1.5–2 tile house band, so the home holds the yard.
+// Door-to-roof is about 0.9 of its bitmap, and every person, animal and prop
+// below is a fraction of that door. A person is 60% of the door. A hen is a
+// shin (ankle to knee). A dog stands at the knee. A cow reaches a person's
+// shoulder. Props sit at waist height. Acacia and marula canopies sit about
+// as high as the roof. The jacaranda is the one hero tree, a little taller.
+// Trees stand on the edges and the road, off the playable plot. The taxi is
+// 1.2 tiles long.
 var LOOK = {
   root: "assets/sprites/gen/",
   ext: ".webp",
-  world: { tile: 256, house: "home_l1", houseScale: 1.08, houseTiles: 1.7, doorFraction: 0.9, person: 0.6 },
+  world: { tile: 256, house: "home_l1", houseScale: 1.22, houseTiles: 1.9, doorFraction: 0.9, person: 0.6 },
   buildings: {
-    home: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [1.05, 0.38], scale: 1.08, yard: 1, levels: ["home_l1", "home_l2", "home_l3"] },
+    home: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [1.12, 0.4], scale: 1.22, yard: 1, levels: ["home_l1", "home_l2", "home_l3"] },
     bed: { anchor: [0.5, 0.58], offset: [0, 0], shadow: [0.72, 0.28], scale: 1, file: "bed_empty" },
     spaza: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.95, 0.36], scale: 0.9, yard: 1, levels: ["spaza", "spaza"] },
     tank: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.5, 0.2], scale: 0.85, file: "rain_tank" },
@@ -1473,32 +1476,35 @@ var LOOK = {
     cow: { file: "animal_cow", scale: 0.88, shadow: [0.36, 0.14] },
     goat: { file: "animal_goat", scale: 0.7, shadow: [0.24, 0.1] }
   },
-  treeScale: { tree_jacaranda: 1.17, tree_acacia: 0.96, tree_marula: 1.03 },
+  treeScale: { tree_jacaranda: 1.02, tree_acacia: 0.9, tree_marula: 0.84 },
   trees: ["tree_jacaranda", "tree_acacia", "tree_marula"],
   neighbours: ["neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"],
-  // Trees line the road and the plot edges. One jacaranda frames the house.
+  // Four trees, half the old row. Edges and the road only, off beds and the house.
   dress: [
     { file: "taxi", x: 1.35, y: 6.35, scale: 0.85 },
     { file: "washing_line", x: 3.15, y: 1.25, scale: 0.72 },
     { file: "wheelbarrow", x: 3.35, y: 4.15, scale: 0.5 },
     { file: "soccer_goal", x: 10.7, y: 2.4, scale: 0.85 },
-    { file: "tree_acacia", x: 3.25, y: 0.75, scale: 0.96 },
-    { file: "tree_jacaranda", x: 0.45, y: 5.15, scale: 1.17 },
-    { file: "tree_marula", x: 5.35, y: 6.85, scale: 1.03 },
-    { file: "tree_acacia", x: 11.15, y: 0.85, scale: 0.96 },
-    { file: "tree_acacia", x: 12.75, y: 4.15, scale: 0.92 },
-    { file: "tree_marula", x: 11.2, y: 6.7, scale: 1.0 },
-    { file: "tree_acacia", x: 1.2, y: 9.55, scale: 0.96 },
-    { file: "tree_marula", x: 6.55, y: 8.35, scale: 1.0 },
+    { file: "tree_jacaranda", x: -0.75, y: 2.6, scale: 1.02 },
+    { file: "tree_acacia", x: 5.6, y: -0.95, scale: 0.9 },
+    { file: "tree_acacia", x: -0.7, y: 6.55, scale: 0.86 },
     { file: "aloe", x: 2.4, y: 1.15, scale: 0.47 },
     { file: "neighbour_mural", x: 9.6, y: 6.55, scale: 0.78 },
     { file: "neighbour_facebrick", x: 2.5, y: 11.45, scale: 0.78 }
   ],
+  // The tree cell at (8,8) stands just south of Thabo, so its canopy covers him.
+  treeSkip: { "8,8": 1 },
+  treeNudge: {
+    "0,0": [-0.55, -0.55],
+    "7,0": [0.35, -0.7],
+    "15,0": [0.35, -0.4],
+    "15,10": [0.3, 0.45]
+  },
   treeAt: {
     "0,0": "tree_acacia",
     "7,0": "tree_marula",
     "15,0": "tree_acacia",
-    "7,8": "tree_acacia",
+    "8,8": "tree_acacia",
     "15,10": "tree_marula"
   },
   cast: [
@@ -1594,11 +1600,12 @@ var DRAW = (function () {
     var z = cam.z || 1;
     if (z < 0.55) z = 0.55;
     if (z > 2.2) z = 2.2;
-    var cols = 8;
-    var rows = 8;
-    var horizon = Math.max(72, h * 0.30);
-    var availW = w * 0.96;
-    var availH = Math.max(80, (h - horizon) * 0.98);
+    var phone = w < 560;
+    var cols = phone ? 6.5 : 8;
+    var rows = phone ? 6.5 : 8;
+    var horizon = phone ? Math.max(20, h * 0.08) : Math.max(64, h * 0.22);
+    var availW = w * (phone ? 1.04 : 0.96);
+    var availH = Math.max(80, (h - horizon) * (phone ? 1.02 : 0.98));
     var tw = availW / ((cols + rows) / 2);
     var th = tw * 0.5;
     var plotH = (cols + rows) * th / 2;
@@ -1709,8 +1716,8 @@ var DRAW = (function () {
     for (n = 0; n < LOOK.neighbours.length; n++) {
       blitFoot(ctx, img[LOOK.neighbours[n]], w * spots[n], hy + 18, o.tw * 0.72, 0.9);
     }
-    blitFoot(ctx, img.tree_jacaranda, w * 0.9, hy + 28, o.tw * 0.7, LOOK.treeScale.tree_jacaranda || 1);
-    blitFoot(ctx, img.tree_acacia, w * 0.22, hy + 36, o.tw * 0.7, LOOK.treeScale.tree_acacia || 1);
+    blitFoot(ctx, img.tree_jacaranda, w * 0.94, hy + 18, o.tw * 0.48, LOOK.treeScale.tree_jacaranda || 1);
+    blitFoot(ctx, img.tree_acacia, w * 0.06, hy + 22, o.tw * 0.42, LOOK.treeScale.tree_acacia || 1);
   }
 
   function blitFoot(ctx, image, footX, footY, tw, scale) {
@@ -1965,52 +1972,94 @@ var DRAW = (function () {
     return "";
   }
 
-  function queueActors(queue, state, o, now, ctx) {
+  function actorWhere(entry, state, now) {
     var known = state.collection || {};
+    if (!known[entry.id] || !known[entry.id].have) return null;
+    var x = 2;
+    var y = 2;
+    var dir = 0;
+    var pose = "walk";
+    var bi;
+    var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
+    if (housed) {
+      x = housed.x + housed.w * 0.35;
+      y = housed.y + housed.h + 0.2;
+      pose = "idle";
+    } else if (entry.near === "home") {
+      var home = null;
+      for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
+      if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
+      pose = "idle";
+    } else if (entry.spot) {
+      x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
+      y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
+      pose = "idle";
+    } else if (entry.route) {
+      var step = routePoint(entry.route, now, entry.speed || 9000);
+      x = step.x;
+      y = step.y;
+      dir = step.dir;
+      if (entry.id === "farmer") {
+        var bed = null;
+        for (bi = 0; bi < state.buildings.length; bi++) {
+          if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
+        }
+        if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
+      }
+      if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
+      if (entry.id === "doek") {
+        var spaza = null;
+        for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
+        if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
+      }
+    }
+    return { x: x, y: y, dir: dir, pose: pose, housed: housed };
+  }
+
+  function importantFeet(state, o, now) {
+    var pts = [];
+    var i, b, spot;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      pts.push(north(b.x + b.w * 0.5, b.y + b.h * 0.55, o));
+    }
+    for (i = 0; i < LOOK.cast.length; i++) {
+      spot = actorWhere(LOOK.cast[i], state, now);
+      if (spot) pts.push(north(spot.x, spot.y, o));
+    }
+    pts.push(north(1.35, 6.35, o));
+    return pts;
+  }
+
+  function treeCovers(foot, file, scale, o, points) {
+    var image = img[file];
+    if (!image || !image.naturalWidth || !points) return false;
+    var px = (o.tw / 256) * (scale || 1);
+    var dw = image.naturalWidth * px;
+    var dh = image.naturalHeight * px;
+    var i, p, dx, dy;
+    for (i = 0; i < points.length; i++) {
+      p = points[i];
+      dy = foot.y - p.y;
+      if (dy < 6) continue;
+      dx = Math.abs(p.x - foot.x);
+      if (dx < dw * 0.46 && dy < dh * 0.88) return true;
+    }
+    return false;
+  }
+
+  function queueActors(queue, state, o, now, ctx) {
     var i;
     for (i = 0; i < LOOK.cast.length; i++) {
       (function (entry) {
-        if (!known[entry.id] || !known[entry.id].have) return;
+        var spot = actorWhere(entry, state, now);
+        if (!spot) return;
         var spec = LOOK.actors[entry.id];
-        var x = 2;
-        var y = 2;
-        var dir = 0;
-        var pose = "walk";
-        var bi;
-        var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
-        if (housed) {
-          x = housed.x + housed.w * 0.35;
-          y = housed.y + housed.h + 0.2;
-          pose = "idle";
-        } else if (entry.near === "home") {
-          var home = null;
-          var bi;
-          for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
-          if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
-          pose = "idle";
-        } else if (entry.spot) {
-          x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
-          y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
-          pose = "idle";
-        } else if (entry.route) {
-          var step = routePoint(entry.route, now, entry.speed || 9000);
-          x = step.x;
-          y = step.y;
-          dir = step.dir;
-          if (entry.id === "farmer") {
-            var bed = null;
-            for (bi = 0; bi < state.buildings.length; bi++) {
-              if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
-            }
-            if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
-          }
-          if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
-          if (entry.id === "doek") {
-            var spaza = null;
-            for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
-            if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
-          }
-        }
+        var x = spot.x;
+        var y = spot.y;
+        var dir = spot.dir;
+        var pose = spot.pose;
+        var housed = spot.housed;
         var n = north(x, y, o);
         var moving = pose === "walk" && !housed;
         var phase = now / 170 + x;
@@ -2083,17 +2132,24 @@ var DRAW = (function () {
       ground(ctx, x, y, o, state);
     }
     var queue = [];
+    var feet = importantFeet(state, o, now);
     for (i = 0; i < cells.length; i++) {
       x = cells[i].x;
       y = cells[i].y;
       if (KHAYA.terrainAt(x, y) !== "tree") continue;
+      if (LOOK.treeSkip && LOOK.treeSkip[x + "," + y]) continue;
       (function (tx, ty) {
         var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
-        var n = north(tx + 0.5, ty + 0.5, o);
+        var nudge = (LOOK.treeNudge && LOOK.treeNudge[tx + "," + ty]) || [0, 0];
+        var n = north(tx + 0.5 + nudge[0], ty + 0.5 + nudge[1], o);
         var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
+        var fade = treeCovers(n, file, treeScale, o, feet);
         queue.push({ y: n.y, draw: function () {
-          shadowAt(ctx, n.x, n.y, o.tw * 0.34, o.th * 0.2);
+          ctx.save();
+          if (fade) ctx.globalAlpha = 0.38;
+          shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.16);
           blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
+          ctx.restore();
         } });
       })(x, y);
     }
@@ -2129,9 +2185,14 @@ var DRAW = (function () {
       (function (piece) {
         var n = north(piece.x, piece.y, o);
         if (piece.file === "taxi") return;
+        var tree = piece.file.indexOf("tree_") === 0;
+        var fade = tree && treeCovers(n, piece.file, piece.scale || 1, o, feet);
         queue.push({ y: n.y, draw: function () {
-          shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.2);
+          ctx.save();
+          if (fade) ctx.globalAlpha = 0.38;
+          shadowAt(ctx, n.x, n.y, o.tw * (tree ? 0.22 : 0.28), o.th * 0.16);
           blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
+          ctx.restore();
         } });
       })(LOOK.dress[di]);
     }
