@@ -124,6 +124,8 @@
       spinach: '<ellipse cx="12" cy="13" rx="6" ry="4" fill="#3e9a4a"/>',
       tomato: '<circle cx="12" cy="13" r="5" fill="#d64545"/>',
       aloe: '<path d="M12 16 L8 8 L12 11 L16 8 Z" fill="#7dcea0"/>',
+      morogo: '<ellipse cx="12" cy="13" rx="6" ry="4" fill="#3f8f4a"/>',
+      pumpkin: '<circle cx="12" cy="13" r="5" fill="#e07a2f"/>',
       coin: '<circle cx="12" cy="12" r="8" fill="#f2c14e" stroke="#a67c1a" stroke-width="2"/><text x="12" y="16" text-anchor="middle" font-size="10" font-family="Fredoka,sans-serif" fill="#7a5410">N</text>'
     };
     return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[kind] || paths.coin) + "</svg>";
@@ -263,6 +265,7 @@
         html += "<p>Choose a crop.</p><div class=\"row\">";
         Object.keys(KHAYA.CROPS).forEach(function (k) {
           var c = KHAYA.CROPS[k];
+          if (c.offer === false) return;
           var locked = KHAYA.farmLevel(state) < c.level;
           html += "<button type=\"button\" data-sow=\"" + k + "\"" + (locked || state.seeds < 1 ? " disabled" : "") + ">" + c.name + (locked ? " · lv " + c.level : "") + "</button>";
         });
@@ -361,7 +364,7 @@
     var html = "";
     Object.keys(KHAYA.BUILDINGS).forEach(function (type) {
       var def = KHAYA.BUILDINGS[type];
-      if (!def.cost) return;
+      if (!def.cost || def.menu === false) return;
       var cost = KHAYA.placeCost(state, type);
       var check = KHAYA.canPlace(state, type, -1, -1);
       var skillLock = KHAYA.buildLevel(state) < (def.skill || 1);

@@ -163,6 +163,10 @@ for (var y = 0; y < 8; y++) {
 }
 
 eq("tasks start", KHAYA.currentTask(KHAYA.fresh(1)).id, "sow");
+var greens = KHAYA.fresh(1);
+eq("pumpkin locked", KHAYA.sow(greens, greens.buildings[1].id, "pumpkin").ok, false);
+eq("morogo", KHAYA.sow(greens, greens.buildings[1].id, "morogo").ok, true);
+eq("morogo seed", greens.seeds, 11);
 
 var wide = KHAYA.fresh(1);
 eq("east locked", KHAYA.canPlace(wide, "bed", 9, 2).ok, false);

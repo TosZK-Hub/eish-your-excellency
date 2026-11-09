@@ -50,14 +50,20 @@ var KHAYA = (function () {
     gogo: { name: "Gogo", kind: "villager", where: ["home"], bonus: { waterCap: 1 }, blurb: "The tank keeps one extra bottle." },
     kid: { name: "Aya", kind: "villager", where: ["home", "bed"], bonus: { sowXp: 1 }, blurb: "Sowing is a bit more fun." },
     hen: { name: "Hen", kind: "animal", where: ["home"], bonus: { cap: 1 }, blurb: "Notes pile a little higher." },
-    dog: { name: "Biscuit", kind: "animal", where: ["home"], bonus: {}, blurb: "Keeps the yard company." }
+    dog: { name: "Biscuit", kind: "animal", where: ["home"], bonus: {}, blurb: "An Africanis. Keeps the yard company." },
+    basotho: { name: "Ntate", kind: "villager", where: ["home"], bonus: { farmXp: 1 }, blurb: "A Basotho elder. Harvests settle in when he stays." },
+    taxi: { name: "Jabu", kind: "villager", where: ["home", "workshop"], bonus: { buildXp: 1 }, blurb: "Drives the taxi. Building counts for a little more." },
+    cow: { name: "Nguni", kind: "animal", where: ["home"], bonus: { cap: 1 }, blurb: "A Nguni cow. Notes pile a little higher when she stays." },
+    goat: { name: "Boer", kind: "animal", where: ["home"], bonus: {}, blurb: "A Boer goat. Company for the kraal." }
   };
 
   var CROPS = {
     maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
-    spinach: { name: "Spinach", grow: 12000, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3 },
-    tomato: { name: "Tomato", grow: 22000, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6 },
-    aloe: { name: "Aloe", grow: 20000, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 }
+    spinach: { name: "Spinach", grow: 12000, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3, offer: false },
+    tomato: { name: "Tomato", grow: 22000, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6, offer: false },
+    aloe: { name: "Aloe", grow: 20000, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 },
+    morogo: { name: "Morogo", grow: 14000, water: 1, seed: 1, yield: 2, xp: 7, level: 1, price: 4 },
+    pumpkin: { name: "Pumpkin", grow: 24000, water: 2, seed: 1, yield: 2, xp: 14, level: 2, price: 7 }
   };
 
   var FARM_STEPS = [0, 24, 70, 140];
@@ -112,10 +118,19 @@ var KHAYA = (function () {
       blurb: "A pot of aloe. Each clump helps the lane earn a little faster."
     },
     palisade: {
-      name: "Palisade", w: 1, h: 1, limit: 3, skill: 1, decor: 1,
+      name: "Palisade", w: 1, h: 1, limit: 3, skill: 1, decor: 1, menu: false,
       cost: { notes: 12 },
       blurb: "A short painted fence. It makes the yard feel finished."
-    }
+    },
+    braai: { name: "Braai", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 14 }, blurb: "An oil-drum braai. The yard smells like boerewors." },
+    potjie: { name: "Potjie", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 16 }, blurb: "A three-legged pot over a small fire." },
+    imbawula: { name: "Imbawula", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 10 }, blurb: "A coal brazier with a kettle on top." },
+    barrow: { name: "Wheelbarrow", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 12 }, blurb: "Bricks and a spade, ready for the next job." },
+    mielie: { name: "Mielie cart", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 18 }, blurb: "Roasting cobs for anyone walking past." },
+    wash: { name: "Washing line", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 10 }, blurb: "Monday's washing, bright against the sky." },
+    coop: { name: "Chicken coop", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 22 }, blurb: "A tidy coop. The hens already know the way." },
+    patch: { name: "Pumpkin patch", w: 1, h: 1, limit: 1, skill: 1, decor: 1, cost: { notes: 12 }, blurb: "Vines and Boer pumpkins on the red earth." },
+    kraal: { name: "Kraal", w: 2, h: 2, limit: 1, skill: 1, decor: 1, cost: { notes: 36 }, blurb: "Poles and thorn branches, with room for the cow and the goat." }
   };
 
   function clamp(n, lo, hi) {
@@ -237,7 +252,7 @@ var KHAYA = (function () {
       water: 10,
       timber: 8,
       bricks: 5,
-      crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0 },
+      crops: { maize: 0, spinach: 0, tomato: 0, aloe: 0, morogo: 0, pumpkin: 0 },
       farmXp: 0,
       buildXp: 0,
       stats: { sown: 0, watered: 0, harvested: 0, placed: 0, upgraded: 0, played: 0, collected: 0, expanded: 0 },
@@ -255,7 +270,11 @@ var KHAYA = (function () {
         jersey: { have: 0, home: 0, seen: 0 },
         gogo: { have: 0, home: 0, seen: 0 },
         kid: { have: 0, home: 0, seen: 0 },
-        dog: { have: 0, home: 0, seen: 0 }
+        dog: { have: 0, home: 0, seen: 0 },
+        basotho: { have: 0, home: 0, seen: 0 },
+        taxi: { have: 0, home: 0, seen: 0 },
+        cow: { have: 0, home: 0, seen: 0 },
+        goat: { have: 0, home: 0, seen: 0 }
       },
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
@@ -689,6 +708,10 @@ var KHAYA = (function () {
     if (id === "jersey") return stats.upgraded > 0;
     if (id === "gogo") return playerLevel(state) >= 3;
     if (id === "dog") return stats.played > 0;
+    if (id === "basotho") return playerLevel(state) >= 2;
+    if (id === "taxi") return stats.placed > 0;
+    if (id === "cow") return (stats.expanded || 0) > 0;
+    if (id === "goat") return (stats.collected || 0) > 0;
     return false;
   }
 

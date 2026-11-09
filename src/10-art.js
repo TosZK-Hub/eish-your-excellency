@@ -14,30 +14,42 @@ var DRAW = (function () {
       if (spec.levels) for (i = 0; i < spec.levels.length; i++) add(spec.levels[i]);
       if (spec.states) for (i = 0; i < spec.states.length; i++) add(spec.states[i]);
     }
-    for (id in LOOK.actors) {
-      spec = LOOK.actors[id];
-      if (spec.walk) for (d = 0; d < spec.dirs; d++) for (f = 0; f < spec.frames; f++) add(spec.walk + "_" + d + "_" + f);
-      if (spec.water) for (i = 0; i < spec.water.length; i++) add(spec.water[i]);
-      if (spec.wave) for (i = 0; i < spec.wave.length; i++) add(spec.wave[i]);
-      if (spec.idle) for (i = 0; i < spec.idle.length; i++) add(spec.idle[i]);
-    }
-    add(LOOK.scenery.jacaranda.file);
-    add(LOOK.scenery.acacia.file);
-    for (i = 0; i < LOOK.scenery.neighbours.files.length; i++) add(LOOK.scenery.neighbours.files[i]);
+    for (id in LOOK.actors) add(LOOK.actors[id].file);
+    for (i = 0; i < LOOK.trees.length; i++) add(LOOK.trees[i]);
+    for (i = 0; i < LOOK.neighbours.length; i++) add(LOOK.neighbours[i]);
+    for (i = 0; i < LOOK.dress.length; i++) add(LOOK.dress[i].file);
+    add("tile_grass");
+    add("tile_dirt");
     return list;
   }
 
-  function load(done) {
-    var names = catalogFiles();
+  function loadSet(names, done) {
+    if (!names.length) { if (done) done(); return; }
     var left = names.length;
     names.forEach(function (n) {
       var el = new Image();
       el.onload = el.onerror = function () {
         if (el.naturalWidth) img[n] = el;
         left -= 1;
-        if (left === 0) { ready = true; if (done) done(); }
+        if (left === 0 && done) done();
       };
-      el.src = LOOK.root + n + ".png";
+      el.src = LOOK.root + n + LOOK.ext;
+    });
+  }
+
+  function load(done) {
+    var names = catalogFiles();
+    var first = [];
+    var rest = [];
+    var i;
+    for (i = 0; i < names.length; i++) {
+      if (LOOK.first.indexOf(names[i]) >= 0) first.push(names[i]);
+      else rest.push(names[i]);
+    }
+    loadSet(first, function () {
+      ready = true;
+      if (done) done();
+      loadSet(rest);
     });
   }
 
@@ -138,9 +150,9 @@ var DRAW = (function () {
     ctx.ellipse(w * 0.48, hy + 18, w * 0.16, h * 0.06, 0, 0, Math.PI * 2);
     ctx.fill();
     var veld = ctx.createLinearGradient(0, hy, 0, h);
-    veld.addColorStop(0, "#c6a15a");
-    veld.addColorStop(0.18, "#8eae55");
-    veld.addColorStop(1, "#6d9448");
+    veld.addColorStop(0, "#e2c07a");
+    veld.addColorStop(0.22, "#c6a84e");
+    veld.addColorStop(1, "#b08a3e");
     ctx.fillStyle = veld;
     ctx.fillRect(0, hy, w, h - hy);
     var i;
@@ -164,21 +176,21 @@ var DRAW = (function () {
     ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
     ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
     ctx.fill();
-    var houses = [img.neighbour, img.neighbour2 || img.neighbour, img.neighbour3 || img.neighbour];
-    var spots = [0.14, 0.4, 0.68];
+    var spots = [0.12, 0.4, 0.7];
     var n;
-    for (n = 0; n < houses.length; n++) {
-      if (!houses[n]) continue;
-      blit(ctx, houses[n], w * spots[n], hy + 8, o.tw, 0.62);
+    for (n = 0; n < LOOK.neighbours.length; n++) {
+      blitFoot(ctx, img[LOOK.neighbours[n]], w * spots[n], hy + 18, o.tw * 0.72, 0.9);
     }
-    blit(ctx, img.jacaranda, w * 0.86, hy + 28, o.tw, 0.7);
-    blit(ctx, img.acacia, w * 0.28, hy + 34, o.tw, 0.62);
+    blitFoot(ctx, img.tree_jacaranda, w * 0.88, hy + 36, o.tw * 0.7, 1);
+    blitFoot(ctx, img.tree_acacia, w * 0.26, hy + 42, o.tw * 0.7, 1);
   }
 
-  function blit(ctx, image, cx, cy, tw, scale) {
-    if (!image) return;
-    var dw = tw * SPRITE * (scale || 1);
-    ctx.drawImage(image, cx - dw / 2, cy - dw / 2, dw, dw);
+  function blitFoot(ctx, image, footX, footY, tw, scale) {
+    if (!image || !image.naturalWidth) return;
+    var px = (tw / 256) * (scale || 1);
+    var dw = image.naturalWidth * px;
+    var dh = image.naturalHeight * px;
+    ctx.drawImage(image, footX - dw / 2, footY - dh, dw, dh);
   }
 
   function hash(x, y) {
@@ -190,9 +202,21 @@ var DRAW = (function () {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
     var open = !state || KHAYA.plotOpen(state, x, y);
-    var fill = kind === "path" ? "#e4c79a" : kind === "tree" ? "#6ea356" : (hash(x, y) % 4 === 0 ? "#74a85a" : "#7eb262");
-    if (!open) fill = kind === "path" ? "#b7a07a" : "#5e7a48";
-    poly(ctx, [c.n, c.e, c.s, c.w], fill);
+    var tile = kind === "path" ? img.tile_dirt : img.tile_grass;
+    if (tile) {
+      var midCell = north(x + 0.5, y + 0.5, o);
+      ctx.drawImage(tile, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    } else {
+      var fill = kind === "path" ? "#c47a45" : "#c6a84a";
+      poly(ctx, [c.n, c.e, c.s, c.w], fill);
+    }
+    if (!open) {
+      ctx.save();
+      ctx.globalAlpha = 0.38;
+      poly(ctx, [c.n, c.e, c.s, c.w], "#3a2416");
+      ctx.restore();
+    }
+    if (tile) return;
     var p = mid(c.n, c.s, 0.55);
     ctx.save();
     if (kind === "path") {
@@ -226,8 +250,13 @@ var DRAW = (function () {
     if (b.type === "bed") {
       var view = KHAYA.bedView(b, now);
       if (!view || view.phase === "empty") return "bed_empty";
-      if (view.phase === "sown" || view.progress < 0.34) return "bed_sown";
-      return "bed_" + b.crop + "_" + (view.progress < 0.72 ? "mid" : "ready");
+      var crop = b.crop === "spinach" ? "morogo" : b.crop === "tomato" ? "pumpkin" : b.crop;
+      if (crop === "aloe") return view.phase === "sown" || view.progress < 0.5 ? "bed_empty" : "aloe";
+      if (view.phase === "sown" || view.progress < 0.34) return crop + "_sown";
+      if (view.progress < 0.72) return crop + "_growing";
+      if (crop === "pumpkin" && view.progress < 0.92) return "pumpkin_fruiting";
+      if (crop === "morogo") return "morogo_ready_basket";
+      return crop + "_ready";
     }
     if (spec.levels) {
       var lv = Math.max(1, Math.min(spec.levels.length, b.level || 1));
@@ -240,6 +269,23 @@ var DRAW = (function () {
     var spec = LOOK.buildings[b.type] || { anchor: [0.5, 0.55], offset: [0, 0] };
     var p = north(b.x + b.w * spec.anchor[0], b.y + b.h * spec.anchor[1], o);
     return { x: p.x + (spec.offset[0] || 0), y: p.y + (spec.offset[1] || 0), spec: spec };
+  }
+
+  function puff(ctx, x, y, now, kind) {
+    var steam = kind === "steam";
+    var i;
+    ctx.save();
+    for (i = 0; i < 5; i++) {
+      var t = (now / (steam ? 1100 : 800) + i / 5) % 1;
+      var px = x + Math.sin(now / 380 + i * 1.7) * (4 + t * 8);
+      var py = y - t * (steam ? 28 : 40);
+      ctx.globalAlpha = (1 - t) * (steam ? 0.42 : 0.5);
+      ctx.fillStyle = steam ? "rgba(244,248,252,0.95)" : (kind === "coal" ? "rgba(70,64,58,0.9)" : "rgba(90,84,76,0.85)");
+      ctx.beginPath();
+      ctx.ellipse(px, py, 3 + t * 8, 2.4 + t * 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function shadowAt(ctx, x, y, rx, ry) {
@@ -271,10 +317,11 @@ var DRAW = (function () {
     shadowAt(ctx, spot.x, spot.y + o.th * 0.08, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.3);
     ctx.save();
     ctx.translate(spot.x, spot.y);
-    ctx.scale(sc * sx, sc * sy);
+    ctx.scale(sx, sy);
     ctx.translate(-spot.x, -spot.y);
-    blit(ctx, img[name], spot.x, spot.y, o.tw, 1);
+    blitFoot(ctx, img[name], spot.x, spot.y, o.tw, sc);
     ctx.restore();
+    if (spot.spec.smoke) puff(ctx, spot.x, spot.y - o.th * 0.9, now, spot.spec.smoke);
     return spot;
   }
 
@@ -410,11 +457,22 @@ var DRAW = (function () {
           }
         }
         var n = north(x, y, o);
-        var file = actorFrame(spec, now, dir, pose);
+        var moving = pose === "walk" && !housed;
+        var phase = now / 170 + x;
+        var bob = moving ? Math.sin(phase) * o.th * 0.08 : Math.sin(now / 700 + y) * o.th * 0.02;
+        var stretch = moving ? 1 + Math.sin(phase) * 0.045 : 1;
+        var squashY = moving ? 1 - Math.sin(phase) * 0.04 : 1;
+        var lean = moving ? (dir === 1 || dir === 0 ? -0.08 : 0.08) : 0;
+        var flip = dir === 1 || dir === 0 ? -1 : 1;
         queue.push({ y: n.y, draw: function () {
           var sh = spec.shadow || [0.3, 0.12];
-          shadowAt(ctx, n.x, n.y + 8, o.tw * sh[0] * 0.7, o.th * sh[1] * 1.4);
-          blit(ctx, img[file], n.x, n.y, o.tw, spec.scale);
+          shadowAt(ctx, n.x, n.y, o.tw * sh[0] * 0.55, o.th * sh[1] * 1.1);
+          ctx.save();
+          ctx.translate(n.x, n.y + bob);
+          ctx.rotate(lean);
+          ctx.scale(flip * stretch, squashY);
+          blitFoot(ctx, img[spec.file], 0, 0, o.tw, spec.scale);
+          ctx.restore();
         } });
       })(LOOK.cast[i]);
     }
@@ -475,12 +533,11 @@ var DRAW = (function () {
       y = cells[i].y;
       if (KHAYA.terrainAt(x, y) !== "tree") continue;
       (function (tx, ty) {
-        var file = hash(tx, ty) % 2 ? LOOK.scenery.jacaranda : LOOK.scenery.acacia;
+        var file = LOOK.trees[hash(tx, ty) % LOOK.trees.length];
         var n = north(tx + 0.5, ty + 0.5, o);
         queue.push({ y: n.y, draw: function () {
-          var sh = file.shadow;
-          shadowAt(ctx, n.x, n.y + 6, o.tw * sh[0] * 0.45, o.th * sh[1] * 1.2);
-          blit(ctx, img[file.file], n.x, n.y, o.tw, file.scale);
+          shadowAt(ctx, n.x, n.y, o.tw * 0.42, o.th * 0.28);
+          blitFoot(ctx, img[file], n.x, n.y, o.tw, 1);
         } });
       })(x, y);
     }
@@ -510,6 +567,17 @@ var DRAW = (function () {
           }
         } });
       })(state.buildings[i]);
+    }
+    var di;
+    for (di = 0; di < LOOK.dress.length; di++) {
+      (function (piece) {
+        var n = north(piece.x, piece.y, o);
+        queue.push({ y: n.y, draw: function () {
+          shadowAt(ctx, n.x, n.y, o.tw * 0.28, o.th * 0.2);
+          blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
+          if (piece.file === "taxi") puff(ctx, n.x + o.tw * 0.05, n.y - o.th * 0.35, now, "steam");
+        } });
+      })(LOOK.dress[di]);
     }
     queueActors(queue, state, o, now, ctx);
     queue.sort(function (a, b) { return a.y - b.y; });

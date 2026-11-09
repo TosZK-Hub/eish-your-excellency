@@ -5,17 +5,19 @@
   font-display: swap;
 }
 :root {
-  --ink: #243028;
-  --soft: #5c6b60;
-  --paper: #f6efe2;
-  --card: #fffaf3;
+  --ink: #3a2416;
+  --soft: #7a5a3a;
+  --paper: #f4e2c4;
+  --card: #fff6e4;
   --green: #2f6d4f;
-  --gold: #f2c14e;
-  --shadow: 0 8px 0 rgba(90, 60, 30, .18);
+  --gold: #e2a53a;
+  --earth: #c45c32;
+  --sky: #7eb6e0;
+  --shadow: 0 8px 0 rgba(90, 48, 18, .2);
   font-family: Fredoka, "Avenir Next", "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: #6d9448; color: var(--ink); }
+html, body { margin: 0; height: 100%; background: #c4a15a; color: var(--ink); }
 body { min-height: 100dvh; }
 button { font: inherit; color: inherit; }
 #boot {
@@ -31,7 +33,7 @@ header, .res, .dock {
 header {
   display: flex; align-items: center; gap: 8px;
   padding-top: max(8px, env(safe-area-inset-top));
-  background: linear-gradient(#f8f1e4, rgba(248, 241, 228, .92));
+  background: linear-gradient(#f8e7c4, rgba(244, 226, 196, .94));
 }
 .brand { display: flex; flex-direction: column; line-height: 1; margin-right: auto; }
 .brand b { font-size: 26px; font-weight: 700; letter-spacing: .03em; }
@@ -73,7 +75,7 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   box-shadow: 0 4px 0 #111;
 }
 .dock {
-  background: #f6efe2;
+  background: #f4e2c4;
   border-radius: 22px 22px 0 0;
   box-shadow: 0 -8px 24px rgba(40, 30, 10, .12);
   padding-top: 8px;
