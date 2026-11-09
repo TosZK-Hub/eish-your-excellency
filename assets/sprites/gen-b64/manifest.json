@@ -1,0 +1,302 @@
+{
+ "aloe.png": {
+  "sha256": "d7828c691488c83fea97d59be569f00d7dcba2e209c4cf1e276adf9956046cf2",
+  "bytes": 82414,
+  "w": 190,
+  "h": 270
+ },
+ "animal_cow.png": {
+  "sha256": "f9f816a57f314c4826dd923cb53b90e0282074fd6d6286d61e1a09a410aca181",
+  "bytes": 42181,
+  "w": 175,
+  "h": 170
+ },
+ "animal_dog.png": {
+  "sha256": "8e50e56a27cdf07c32fcf265e8e7fe14ad2c3dbde46b60d3ac1e4c563e688dcb",
+  "bytes": 16111,
+  "w": 93,
+  "h": 120
+ },
+ "animal_goat.png": {
+  "sha256": "cc7f43ad0fe7ff47f916219267d3eb1768e37675634073553df1120409ed80e3",
+  "bytes": 21324,
+  "w": 106,
+  "h": 130
+ },
+ "animal_hen.png": {
+  "sha256": "d96ea2143354708805c526115cdf479c8e9c0b2576db8ac8ab10e6e74893eb32",
+  "bytes": 15411,
+  "w": 67,
+  "h": 96
+ },
+ "bed_empty.png": {
+  "sha256": "518f643d86edbab2e25eef20d5ca77e989d99064963dba62dfde282d037cfacf",
+  "bytes": 57845,
+  "w": 256,
+  "h": 167
+ },
+ "braai_drum.png": {
+  "sha256": "c44c13a32d16b3346b0cba8e420c4d2c52a7968a722d65281e79b4600d911973",
+  "bytes": 91065,
+  "w": 220,
+  "h": 277
+ },
+ "char_basotho_elder.png": {
+  "sha256": "42cb17787aeecc290f7a9592b9c596f815de3cf1b4bc55fa830e5f278bdb6602",
+  "bytes": 65924,
+  "w": 139,
+  "h": 256
+ },
+ "char_farmer.png": {
+  "sha256": "38098a7f9928c128d01e90b9a21e7d8a9e1f1f3f3678a957279c4710ac205e3d",
+  "bytes": 60265,
+  "w": 171,
+  "h": 256
+ },
+ "char_gogo.png": {
+  "sha256": "1c0a6a16daf64cc94a69c14763c9c8aeae6953b637bf74afd059c2d60b7b5658",
+  "bytes": 59637,
+  "w": 146,
+  "h": 256
+ },
+ "char_kid.png": {
+  "sha256": "d4c219f84d3fc9df7ce752ccdba669abacdb233f4d159ec96ce1774cf878b747",
+  "bytes": 42612,
+  "w": 122,
+  "h": 215
+ },
+ "char_man_jersey.png": {
+  "sha256": "e0d10191495da8652446eca656ebced37ef8236139766a6679c45b2a68756812",
+  "bytes": 52776,
+  "w": 129,
+  "h": 256
+ },
+ "char_taxi_driver.png": {
+  "sha256": "f486b654ec8992dde300894d62925a4bd024e1f5343407d473e855fc140d6ae8",
+  "bytes": 63624,
+  "w": 173,
+  "h": 256
+ },
+ "char_woman_doek.png": {
+  "sha256": "7b7a89fffe8b45c21a4fbabdb907063f60270646c32b6dd953fc873c3c848c00",
+  "bytes": 54974,
+  "w": 116,
+  "h": 256
+ },
+ "chicken_coop.png": {
+  "sha256": "b3333ba7281d196a627c8665ce19f92778b183f0c7573bd3e872c85c5bdef973",
+  "bytes": 160257,
+  "w": 300,
+  "h": 315
+ },
+ "home_l1.png": {
+  "sha256": "3fb6e88294ef2861a1505c7474671f7cb0a72e75f0bce4cc4ff72034abff771b",
+  "bytes": 226272,
+  "w": 400,
+  "h": 341
+ },
+ "home_l2.png": {
+  "sha256": "6e39bca36f73564ab54d55bdaae6a901febc79e668145cde56cb86ea318132f4",
+  "bytes": 328507,
+  "w": 460,
+  "h": 398
+ },
+ "home_l3.png": {
+  "sha256": "d179f71a7620ac2c925129de6a6c29f3265dee41108d733cf8fa8045da23de83",
+  "bytes": 393385,
+  "w": 560,
+  "h": 464
+ },
+ "imbawula.png": {
+  "sha256": "d4b62643bd944820cc95ff1722a5190f717082c8eb08b8faa71502a93266c32e",
+  "bytes": 47969,
+  "w": 130,
+  "h": 223
+ },
+ "kraal.png": {
+  "sha256": "4b73b467f16dd7039881c811352317e5b76980b059f9fce03324aaed6f788190",
+  "bytes": 250690,
+  "w": 420,
+  "h": 353
+ },
+ "maize_growing.png": {
+  "sha256": "c773bc16ece15d9dc49db39554652c9e2bc9b9a9e71fed3de5c60f40687e12c4",
+  "bytes": 80701,
+  "w": 256,
+  "h": 201
+ },
+ "maize_ready.png": {
+  "sha256": "f46e275f951d817319b89bd8fddd63cc0b503e6bb869a6104c098d20a23cb5d0",
+  "bytes": 94678,
+  "w": 256,
+  "h": 214
+ },
+ "maize_sown.png": {
+  "sha256": "2c927c582a2c260e4b42373ee8a6612273a68c9c284de4330a6388bacd493b0a",
+  "bytes": 63126,
+  "w": 256,
+  "h": 168
+ },
+ "mielie_cart.png": {
+  "sha256": "6479d447408c348a7d6ab0746f9b773136924b611c847411716ab6cb91a3847a",
+  "bytes": 118575,
+  "w": 240,
+  "h": 329
+ },
+ "morogo_growing.png": {
+  "sha256": "c7d05a4edc95f2ff19a0d7835fd7ef19996b888d322a0ced881937a5a00c797c",
+  "bytes": 64958,
+  "w": 256,
+  "h": 178
+ },
+ "morogo_ready.png": {
+  "sha256": "6a15fda94d0e60548f999af5cdc31455bbcb4742ad81aed09dacb091c52f9f43",
+  "bytes": 69820,
+  "w": 256,
+  "h": 183
+ },
+ "morogo_ready_basket.png": {
+  "sha256": "ce2899b0ae208e0130bef5b3741b72958e0dec38a43eec4cbf5e464448251f1d",
+  "bytes": 70703,
+  "w": 256,
+  "h": 184
+ },
+ "morogo_sown.png": {
+  "sha256": "bd786a960ecbf7a16737a556e5d7cf8434059af30dfbce9cc683a32d84f69378",
+  "bytes": 63722,
+  "w": 256,
+  "h": 176
+ },
+ "neighbour_facebrick.png": {
+  "sha256": "f15f50fc6107890973c55983a40f3d048a227dc6de165a49c2eb17af16f222ac",
+  "bytes": 307680,
+  "w": 440,
+  "h": 382
+ },
+ "neighbour_mural.png": {
+  "sha256": "e517ad86a178fac6167b637e9f52277186a0ff37d1f8f9c0bee73a9fdc0021d5",
+  "bytes": 313630,
+  "w": 440,
+  "h": 383
+ },
+ "neighbour_ndebele.png": {
+  "sha256": "a304bcedad3acfd21ccf555f4bd1d26f6acee3775947e59f24effadf9ae65b4d",
+  "bytes": 274481,
+  "w": 440,
+  "h": 351
+ },
+ "potjie.png": {
+  "sha256": "1edd690db1531a5d93d02508510680cf481340ac3be606a8744f324330859d8a",
+  "bytes": 58387,
+  "w": 190,
+  "h": 201
+ },
+ "pumpkin_fruiting.png": {
+  "sha256": "ff89bb7ea52a72a45e87a3c4703b48f1c24aae1723e78a99853a11ad418f0190",
+  "bytes": 74254,
+  "w": 256,
+  "h": 199
+ },
+ "pumpkin_growing.png": {
+  "sha256": "0a2cae113db8d46907fa150e744cf1115598d08efde03942c0a98d32ea3cf5f8",
+  "bytes": 72030,
+  "w": 256,
+  "h": 194
+ },
+ "pumpkin_patch.png": {
+  "sha256": "7094c802759b5d05287cd0d45a9d8d7cbeac5ed5c373c062e235d20ce300e918",
+  "bytes": 94266,
+  "w": 300,
+  "h": 201
+ },
+ "pumpkin_ready.png": {
+  "sha256": "9d6f2c6668d915b916a14601baf51100034d0299d1e2a57db4c1343435c163d7",
+  "bytes": 77987,
+  "w": 256,
+  "h": 198
+ },
+ "pumpkin_sown.png": {
+  "sha256": "ee7c629084d2783bd5cac8d2ea1ef8079da5634677203ea883bce8b3d25d8573",
+  "bytes": 65164,
+  "w": 256,
+  "h": 193
+ },
+ "rain_tank.png": {
+  "sha256": "d55ff0a29a6617b984dc8e0cec8f259a23ce43cd80e3d1fdd88700ed7029aaf4",
+  "bytes": 103274,
+  "w": 240,
+  "h": 327
+ },
+ "soccer_goal.png": {
+  "sha256": "31fb36e7b39e71b885475a2aa8a0aba5fbf95b5896e3883d708748f8bddfd356",
+  "bytes": 130382,
+  "w": 280,
+  "h": 256
+ },
+ "solar_stand.png": {
+  "sha256": "ce211864554a69b316c973e44ebd68ef36ee39e6ad5440fcf1af9c1b6aca6d61",
+  "bytes": 216510,
+  "w": 320,
+  "h": 436
+ },
+ "spaza.png": {
+  "sha256": "b71b08f06f3956dccb2ec4decc943b6f09319365d835661c37ff35f624a9c985",
+  "bytes": 355829,
+  "w": 480,
+  "h": 412
+ },
+ "taxi.png": {
+  "sha256": "a8ecb6a26b7488fe1c61ac1abcebc4944858f0a944073be92fd23df043caaa2e",
+  "bytes": 175200,
+  "w": 360,
+  "h": 326
+ },
+ "tile_dirt.png": {
+  "sha256": "e6a5e3a485845cc9c4a17fb92e480be59775e67b7fbd93fc1c8918fb73ea078b",
+  "bytes": 73183,
+  "w": 256,
+  "h": 128
+ },
+ "tile_grass.png": {
+  "sha256": "63251dac8bf0ce0592b65f03680354dead52bf192666d667c6b0297f7af1fdd8",
+  "bytes": 85366,
+  "w": 256,
+  "h": 128
+ },
+ "tree_acacia.png": {
+  "sha256": "eb57dcbb5dc56048669a9ecee9728f88dbb5a2b0983972134a36adc879e82258",
+  "bytes": 187465,
+  "w": 420,
+  "h": 404
+ },
+ "tree_jacaranda.png": {
+  "sha256": "436a939a282e9d3163f57bd2803109889c00fbf5ec74e7a2e08dda1067598fe1",
+  "bytes": 268882,
+  "w": 380,
+  "h": 432
+ },
+ "tree_marula.png": {
+  "sha256": "d9e9e6276592db1a3c84dc8896c6cef092860ec814ed7999acbd055249785308",
+  "bytes": 220675,
+  "w": 380,
+  "h": 426
+ },
+ "washing_line.png": {
+  "sha256": "d482fc17d53935e03c9ea05e372b21720301b8acf78e5263612bee168805fa98",
+  "bytes": 79702,
+  "w": 320,
+  "h": 323
+ },
+ "wheelbarrow.png": {
+  "sha256": "eb93bf1c076389cacf6d682f6df7079b9689c96569da31e09526761b34cb65a4",
+  "bytes": 48338,
+  "w": 200,
+  "h": 198
+ },
+ "workshop.png": {
+  "sha256": "a3697ba1f032d3057a4dbedbc732dc38d8aab49fa63778724951431586e51f4f",
+  "bytes": 352650,
+  "w": 480,
+  "h": 422
+ }
+}
