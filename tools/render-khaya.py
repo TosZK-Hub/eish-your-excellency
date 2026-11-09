@@ -667,10 +667,10 @@ def brow(x, z, bob, roll):
 
 
 def hair_crop(z, bob, material):
-    uv((0, 0.06, z + 0.18 + bob), 0.3, material, (1.15, 1.05, 0.55))
-    for i in range(7):
-        ang = -0.8 + i * 0.26
-        uv((math.sin(ang) * 0.32, math.cos(ang) * 0.16, z + 0.08 + bob), 0.12, material)
+    uv((0, 0.02, z + 0.24 + bob), 0.36, material, (1.05, 1.0, 0.62))
+    uv((0, 0.1, z + 0.12 + bob), 0.3, material, (1.15, 0.85, 0.45))
+    uv((-0.2, 0.02, z + 0.16 + bob), 0.14, material)
+    uv((0.2, 0.0, z + 0.16 + bob), 0.14, material)
 
 
 def arm(side, action, frame, bob, sleeve, skin):
@@ -769,9 +769,9 @@ def figure(kind, frame, facing, action):
     elif kind == "jersey":
         hair_crop(head_z, bob, HAIR)
     else:
-        uv(p(0, 0.04, head_z + 0.12 + bob), 0.28 * s, HAIR, (1.2, 1.15, 0.7))
-        uv(p(-0.18, 0.02, head_z + 0.2 + bob), 0.14 * s, HAIR)
-        uv(p(0.2, 0.0, head_z + 0.18 + bob), 0.13 * s, HAIR)
+        uv(p(0, 0.02, head_z + 0.26 + bob), 0.36 * s, HAIR, (1.1, 1.05, 0.62))
+        uv(p(-0.18, 0.02, head_z + 0.16 + bob), 0.16 * s, HAIR)
+        uv(p(0.18, 0.0, head_z + 0.16 + bob), 0.16 * s, HAIR)
     eye(-0.14 * s, (head_z + bob) * s, 0)
     eye(0.14 * s, (head_z + bob) * s, 0)
     brow(-0.15 * s, (head_z + bob) * s, 0, 0.15)
@@ -896,6 +896,24 @@ elif only == "roof":
     spaza(1)
 elif only == "buildings":
     buildings()
+elif only == "hair":
+    for facing in (0, 1, 2, 3):
+        for frame in range(6):
+            figure("jersey", frame, facing, "walk")
+            shot("jersey_w_%d_%d" % (facing, frame), 1.15, 4.6)
+    for frame in range(4):
+        figure("kid", frame, 0, "idle")
+        shot("kid_%d" % frame, 0.9, 4.6)
+elif only == "cast":
+    figure("jersey", 2, 0, "walk")
+    shot("jersey_w_0_2", 1.15, 4.6)
+    figure("gogo", 1, 0, "carry")
+    shot("gogo_1", 1.15, 4.6)
+    figure("kid", 0, 0, "idle")
+    shot("kid_0", 0.9, 4.6)
+    figure("farmer", 0, 0, "water")
+    shot("farmer_water_0", 1.15, 4.6)
+    animal_shots()
 elif only == "people":
     person_shots()
     animal_shots()

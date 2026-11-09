@@ -526,6 +526,7 @@
     }
   });
 
+  if (q.get("go") === "1") state.welcomed = true;
   if (!state.welcomed) {
     state.welcomed = true;
     save();

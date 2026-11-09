@@ -699,9 +699,16 @@ var DRAW = (function () {
     "bed_maize_mid", "bed_maize_ready", "bed_spinach_mid", "bed_spinach_ready",
     "bed_tomato_mid", "bed_tomato_ready", "bed_aloe_mid", "bed_aloe_ready",
     "tank", "workshop", "solar", "jacaranda", "acacia", "aloeplant", "fence",
-    "person0", "person1", "person2", "person3", "hen0", "hen1", "dog0", "dog1",
     "neighbour", "neighbour2", "neighbour3"
   ];
+  var who, d, f;
+  for (who = 0; who < 3; who++) {
+    var person = ["farmer", "doek", "jersey"][who];
+    for (d = 0; d < 4; d++) for (f = 0; f < 6; f++) names.push(person + "_w_" + d + "_" + f);
+  }
+  for (f = 0; f < 4; f++) {
+    names.push("gogo_" + f, "kid_" + f, "farmer_water_" + f, "jersey_wave_" + f, "hen_" + f, "dog_" + f);
+  }
   var PATH = [[4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [4, 5], [4, 4], [4, 3]];
 
   function load(done) {
@@ -969,37 +976,75 @@ var DRAW = (function () {
     ctx.stroke();
   }
 
-  function life(ctx, o, now) {
-    var spots = [
-      { name: "person", offset: 0, scale: 0.72 },
-      { name: "person", offset: 0.45, scale: 0.72 },
-      { name: "hen", offset: 0.2, scale: 0.55, wobble: true },
-      { name: "hen", offset: 0.7, scale: 0.5, wobble: true },
-      { name: "dog", offset: 0.15, scale: 0.62 }
-    ];
+  function facing(dx, dy) {
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 1 : 3;
+    return dy >= 0 ? 2 : 0;
+  }
+
+  function along(ctx, o, now, key, route, scale, speed) {
+    var u = (now / speed) % 1;
+    var f = u * route.length;
+    var a = Math.floor(f) % route.length;
+    var b = (a + 1) % route.length;
+    var k = f - Math.floor(f);
+    var x = route[a][0] + (route[b][0] - route[a][0]) * k;
+    var y = route[a][1] + (route[b][1] - route[a][1]) * k;
+    var dir = facing(route[b][0] - route[a][0], route[b][1] - route[a][1]);
+    var frame = Math.floor(now / 140) % 6;
+    var n = north(x, y, o);
+    blit(ctx, img[key + "_w_" + dir + "_" + frame], n.x, n.y + o.th * 0.15, o.tw, scale);
+  }
+
+  function life(ctx, o, now, state) {
+    var bed = null;
+    var spaza = null;
+    var home = null;
     var i;
-    for (i = 0; i < spots.length; i++) {
-      var s = spots[i];
-      var u = ((now / 7000) + s.offset) % 1;
-      var f = u * PATH.length;
-      var a = Math.floor(f) % PATH.length;
-      var b = (a + 1) % PATH.length;
-      var k = f - Math.floor(f);
-      var x = PATH[a][0] + (PATH[b][0] - PATH[a][0]) * k;
-      var y = PATH[a][1] + (PATH[b][1] - PATH[a][1]) * k;
-      if (s.name === "hen") {
-        x = 5.4 + Math.sin(now / 900 + s.offset * 6) * 0.7;
-        y = 4.2 + Math.cos(now / 1100 + s.offset) * 0.45;
-      }
-      if (s.name === "dog") {
-        x = 2.3 + Math.sin(now / 1400) * 0.35;
-        y = 4.15;
-      }
-      var n = north(x, y, o);
-      var frame = Math.floor(now / 180 + s.offset * 8) % (s.name === "person" ? 4 : 2);
-      var key = s.name + frame;
-      blit(ctx, img[key], n.x, n.y + o.th * 0.35, o.tw, s.scale);
+    for (i = 0; i < state.buildings.length; i++) {
+      var b = state.buildings[i];
+      if (!bed && b.type === "bed") bed = b;
+      if (b.type === "spaza") spaza = b;
+      if (b.type === "home") home = b;
     }
+    if (bed && (bed.phase === "sown" || bed.phase === "growing" || bed.phase === "ready")) {
+      var watering = north(bed.x + 0.15, bed.y + 1.05, o);
+      blit(ctx, img["farmer_water_" + (Math.floor(now / 180) % 4)], watering.x, watering.y, o.tw, 0.58);
+    } else {
+      along(ctx, o, now, "farmer", [[6, 3], [6, 4], [5, 4], [5, 3]], 0.58, 9000);
+    }
+    if (spaza) {
+      var counter = north(spaza.x + 0.35, spaza.y + 1.15, o);
+      blit(ctx, img["doek_w_0_" + (Math.floor(now / 200) % 6)], counter.x, counter.y, o.tw, 0.58);
+    } else {
+      along(ctx, o, now + 2000, "doek", [[2, 1], [3, 1], [3, 2], [2, 2]], 0.58, 11000);
+    }
+    if (Math.floor(now / 5000) % 6 === 0) {
+      var wave = north(3.2, 5.2, o);
+      blit(ctx, img["jersey_wave_" + (Math.floor(now / 160) % 4)], wave.x, wave.y, o.tw, 0.58);
+    } else {
+      along(ctx, o, now + 800, "jersey", PATH, 0.58, 8000);
+    }
+    var gogoRoute = [[1, 5], [2, 5], [2, 4], [1, 4]];
+    var gu = (now / 12000) % 1 * gogoRoute.length;
+    var ga = Math.floor(gu) % gogoRoute.length;
+    var gb = (ga + 1) % gogoRoute.length;
+    var gk = gu - Math.floor(gu);
+    var gn = north(
+      gogoRoute[ga][0] + (gogoRoute[gb][0] - gogoRoute[ga][0]) * gk + 0.5,
+      gogoRoute[ga][1] + (gogoRoute[gb][1] - gogoRoute[ga][1]) * gk + 0.5,
+      o
+    );
+    blit(ctx, img["gogo_" + (Math.floor(now / 280) % 4)], gn.x, gn.y, o.tw, 0.52);
+    if (home) {
+      var kn = north(home.x + home.w + 0.15, home.y + 0.4, o);
+      blit(ctx, img["kid_" + (Math.floor(now / 320) % 4)], kn.x, kn.y, o.tw, 0.46);
+    }
+    var h1 = north(5.5 + Math.sin(now / 900) * 0.45, 4.3 + Math.cos(now / 1100) * 0.3, o);
+    var h2 = north(6.3 + Math.cos(now / 1000) * 0.35, 5.1, o);
+    blit(ctx, img["hen_" + (Math.floor(now / 180) % 4)], h1.x, h1.y, o.tw, 0.72);
+    blit(ctx, img["hen_" + (Math.floor(now / 180 + 2) % 4)], h2.x, h2.y, o.tw, 0.66);
+    var dn = north(2.4 + Math.sin(now / 1500) * 0.4, 4.2, o);
+    blit(ctx, img["dog_" + (Math.floor(now / 160) % 4)], dn.x, dn.y, o.tw, 0.78);
   }
 
   function floats(ctx, list, now) {
@@ -1086,7 +1131,7 @@ var DRAW = (function () {
         ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, ok ? "#f2c14e" : "#d64545");
       }
     }
-    life(ctx, o, now);
+    life(ctx, o, now, state);
     if (view.ghost) {
       var gok = KHAYA.canPlace(state, view.ghost.type, view.ghost.x, view.ghost.y).ok;
       var ghost = {
@@ -1747,6 +1792,7 @@ var PLAY = (function () {
     }
   });
 
+  if (q.get("go") === "1") state.welcomed = true;
   if (!state.welcomed) {
     state.welcomed = true;
     save();
