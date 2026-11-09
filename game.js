@@ -791,21 +791,26 @@ var DRAW = (function () {
 
   function spaza(ctx, b, o) {
     var c = corners(b.x, b.y, 1, 1, o);
-    var h = o.th * (0.85 + (b.level - 1) * 0.25);
-    prism(ctx, c, h, "#f7e7cf", "#f0d8b8", "#e4c49a");
-    var awning = b.level > 1 ? "#2f8f78" : "#e2a53a";
-    poly(ctx, [lift(c.n, h), lift(c.e, h), lift(mid(c.e, c.s, 0.15), h + o.th * 0.28), lift(mid(c.n, c.w, 0.15), h + o.th * 0.28)], awning, false);
-    poly(ctx, [lift(c.n, h), lift(c.w, h), lift(mid(c.w, c.s, 0.15), h + o.th * 0.22), lift(mid(c.n, c.e, 0.08), h + o.th * 0.22)], shade(awning, -28), false);
+    var h = o.th * 0.7;
+    prism(ctx, c, h, "#f0d7a4", "#e2c48a", "#c9a56c");
+    var lip = o.th * 0.42;
+    poly(ctx, [lift(c.w, h), lift(c.n, h), lift(c.e, h), lift(mid(c.e, c.s, 0.35), h - lip), lift(c.s, h - lip)], "#2f8f78", false);
+    poly(ctx, [lift(mid(c.w, c.n, 0.5), h), lift(mid(c.n, c.e, 0.5), h), lift(mid(c.e, c.s, 0.65), h - lip), lift(mid(c.s, c.w, 0.5), h - lip)], "#f4e4c4", false);
+    var sign = lift(mid(c.n, c.s, 0.42), h + o.th * 0.35);
     ctx.fillStyle = "#243028";
-    ctx.font = "700 " + Math.max(9, o.tw * 0.16) + "px sans-serif";
+    ctx.font = "700 " + Math.max(10, o.tw * 0.2) + "px sans-serif";
     ctx.textAlign = "center";
-    var label = lift(mid(c.n, c.s, 0.48), h + o.th * 0.55);
-    ctx.fillText("SPAZA", label.x, label.y);
+    ctx.fillText("SPAZA", sign.x, sign.y);
+    ctx.fillStyle = "#d4654a";
+    var crate = mid(c.s, c.w, 0.35);
+    ctx.beginPath();
+    ctx.arc(crate.x, crate.y - 3, Math.max(3, o.tw * 0.06), 0, Math.PI * 2);
+    ctx.fill();
     if (b.level > 1) {
-      ctx.fillStyle = "#d4654a";
-      ctx.fillRect(label.x - 8, label.y + 4, 6, 8);
       ctx.fillStyle = "#e2b23a";
-      ctx.fillRect(label.x + 2, label.y + 6, 6, 6);
+      ctx.beginPath();
+      ctx.arc(mid(c.s, c.e, 0.3).x, mid(c.s, c.e, 0.3).y - 4, Math.max(3, o.tw * 0.06), 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
