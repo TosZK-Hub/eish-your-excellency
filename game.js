@@ -1016,7 +1016,7 @@ var DRAW = (function () {
       var counter = north(spaza.x + 0.35, spaza.y + 1.15, o);
       blit(ctx, img["doek_w_0_" + (Math.floor(now / 200) % 6)], counter.x, counter.y, o.tw, 0.58);
     } else {
-      along(ctx, o, now + 2000, "doek", [[2, 1], [3, 1], [3, 2], [2, 2]], 0.58, 11000);
+      along(ctx, o, now + 2000, "doek", [[6, 1], [6, 2], [5, 2], [5, 1]], 0.58, 11000);
     }
     if (Math.floor(now / 5000) % 6 === 0) {
       var wave = north(3.2, 5.2, o);
@@ -1036,7 +1036,7 @@ var DRAW = (function () {
     );
     blit(ctx, img["gogo_" + (Math.floor(now / 280) % 4)], gn.x, gn.y, o.tw, 0.52);
     if (home) {
-      var kn = north(home.x + home.w + 0.15, home.y + 0.4, o);
+      var kn = north(home.x + home.w + 0.65, home.y + home.h + 0.15, o);
       blit(ctx, img["kid_" + (Math.floor(now / 320) % 4)], kn.x, kn.y, o.tw, 0.46);
     }
     var h1 = north(5.5 + Math.sin(now / 900) * 0.45, 4.3 + Math.cos(now / 1100) * 0.3, o);
