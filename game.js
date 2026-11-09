@@ -1642,15 +1642,15 @@
   function frameCamera(app, px) {
     var wide = camera.aspect > 1.15;
     var title = app.screen === "title" || app.screen === "how";
-    var hfov = title ? (wide ? 46 : 42) : (wide ? 66 : 62);
+    var hfov = title ? (wide ? 46 : 42) : (camera.aspect < 0.85 ? 52 : 66);
     if (title) {
       camera.position.set(0.62, 1.02, 3.25);
       camera.lookAt(-0.02, 0.86, 0);
     } else {
       var sway = app.reduced ? 0 : Math.sin((app.time || 0) * 1.5) * 0.02;
       if (camera.aspect < 0.85) {
-        camera.position.set(px * 0.22 + 0.12, 1.42, 3.05);
-        camera.lookAt(px * 0.35, 0.78 + sway, -3.6);
+        camera.position.set(px * 0.2 + 0.1, 1.38, 2.75);
+        camera.lookAt(px * 0.32, 0.82 + sway, -2.6);
       } else {
         camera.position.set(px * 0.28 + 0.22, wide ? 1.85 : 1.7, wide ? 4.6 : 4.2);
         camera.lookAt(px * 0.45, 0.98 + sway, -6.2);

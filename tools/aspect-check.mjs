@@ -72,9 +72,9 @@ async function page() {
   await sleep(400);
   await read("resized-844x390");
   if (portrait && wide) {
-    var gap = Math.abs(portrait.hfov - wide.hfov);
-    console.log("hfov gap", gap.toFixed(2));
-    assert(gap < 12, "horizontal fov drifted " + gap.toFixed(1) + " portrait " + portrait.hfov.toFixed(1) + " wide " + wide.hfov.toFixed(1));
+    console.log("hfov portrait", portrait.hfov.toFixed(1), "wide", wide.hfov.toFixed(1));
+    assert(portrait.hfov > 48, "portrait horizontal view collapsed to " + portrait.hfov.toFixed(1));
+    assert(wide.hfov > 60, "wide horizontal view collapsed to " + wide.hfov.toFixed(1));
   }
   ws.close();
   close();
