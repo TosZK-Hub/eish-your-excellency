@@ -1,0 +1,12 @@
+assets/lerato.glb
+
+The body, face, eyes and skeleton are from Quaternius Universal Base Characters
+(standard / free pack), CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://quaternius.com/packs/universalbasecharacters.html
+Models by Quaternius. The pack was claimed at the publisher's free price on
+https://quaternius.itch.io/universal-base-characters
+
+The jacket, trousers, sneakers and hair cap are new meshes made in Blender on
+that skeleton (tools/dress-lerato.py). The run, idle, jump and slide clips were
+keyed in that same script. Those additions are original to this project.

@@ -412,7 +412,11 @@
   if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(view);
   root.__EISH = app;
   root.__metrics = function () { return WORLD.metrics(); };
-  requestAnimationFrame(loop);
+  function beginLoop() {
+    requestAnimationFrame(loop);
+  }
+  if (WORLD.loadHero) WORLD.loadHero("assets/lerato.glb", beginLoop);
+  else beginLoop();
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("sw.js").catch(function () {});
   }

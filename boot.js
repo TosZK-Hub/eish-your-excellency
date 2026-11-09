@@ -1,7 +1,9 @@
 // Loads Three.js (MIT) then the game. A failed import surfaces on the page.
 import * as THREE from "three";
+import { GLTFLoader } from "./vendor/loaders/GLTFLoader.js";
 
 window.THREE = THREE;
+window.GLTFLoader = GLTFLoader;
 
 var boot = document.getElementById("boot");
 var fail = document.getElementById("glfail");

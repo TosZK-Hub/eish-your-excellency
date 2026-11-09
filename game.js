@@ -1880,11 +1880,59 @@
     };
   }
 
+  function loadHero(url, done) {
+    var THREE = three();
+    if (!root.GLTFLoader || !runners) { done(); return; }
+    var loader = new root.GLTFLoader();
+    loader.load(url, function (gltf) {
+      var inner = gltf.scene;
+      inner.rotation.y = Math.PI;
+      inner.traverse(function (o) {
+        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      });
+      var group = new THREE.Group();
+      group.name = "lerato";
+      group.add(inner);
+      var mixer = new THREE.AnimationMixer(inner);
+      var actions = {};
+      var i;
+      for (i = 0; i < gltf.animations.length; i++) {
+        actions[gltf.animations[i].name] = mixer.clipAction(gltf.animations[i]);
+      }
+      var current = "";
+      function animate(info) {
+        var mode = info.mode || "run";
+        var name = mode === "idle" || mode === "jump" || mode === "slide" || mode === "hit" ? mode : "run";
+        if (name === "hit") name = "idle";
+        var action = actions[name] || actions.run;
+        if (!action) return;
+        if (current !== name) {
+          var key;
+          for (key in actions) actions[key].stop();
+          action.play();
+          current = name;
+        }
+        var dur = action.getClip().duration || 0.5;
+        var t = name === "jump" ? Math.min(1, info.air || 0) * dur : ((info.phase || 0) % 1) * dur;
+        action.time = t;
+        action.paused = true;
+        mixer.update(0);
+      }
+      scene.remove(runners[0].object);
+      var cast = runners[0].cast;
+      runners[0] = { object: group, animate: animate, cast: cast };
+      scene.add(group);
+      animate({ mode: "idle", phase: 0, t: 0, dt: 0.05 });
+      done();
+    }, undefined, function () { done(); });
+  }
+
   root.WORLD = {
     init: init,
     resize: resize,
     frame: frame,
     metrics: metrics,
+    loadHero: loadHero,
     failReason: function () { return failReason; }
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
@@ -2302,7 +2350,11 @@
   if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(view);
   root.__EISH = app;
   root.__metrics = function () { return WORLD.metrics(); };
-  requestAnimationFrame(loop);
+  function beginLoop() {
+    requestAnimationFrame(loop);
+  }
+  if (WORLD.loadHero) WORLD.loadHero("assets/lerato.glb", beginLoop);
+  else beginLoop();
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("sw.js").catch(function () {});
   }
