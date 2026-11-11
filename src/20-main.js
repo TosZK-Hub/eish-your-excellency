@@ -392,7 +392,12 @@
     paintHud();
     paintCard();
     placingEl.hidden = !ghost;
-    if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
+    if (ghost) {
+      var gcheck = KHAYA.canPlace(state, ghost.type, ghost.x, ghost.y);
+      placingEl.textContent = gcheck.ok
+        ? "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap to set it"
+        : KHAYA.BUILDINGS[ghost.type].name + " will not fit there";
+    }
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
     DRAW.render(canvas, state, scene(dragging), Date.now());
   }
@@ -426,7 +431,7 @@
       chime(result.crit ? "place" : "harvest");
       if (focus) {
         var p = cellPoint(focus);
-        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
+        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f", coins: result.crit ? 6 : 4 });
       }
       if (result.crit && result.combo >= 3) toast("Golden mielie, combo " + result.combo + ".");
       else if (result.crit) toast("A golden mielie. Triple harvest.");
@@ -436,7 +441,8 @@
       toast("+" + result.notes + " notes");
       if (result.collected && focus) {
         var coin = cellPoint(focus);
-        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(6, result.notes) });
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, 3 + result.notes) });
+        squash[focus.id] = Date.now();
         var rect = canvas.getBoundingClientRect();
         flyCoins(rect.left + coin.x, rect.top + coin.y, result.notes);
       }
@@ -472,7 +478,7 @@
     openModal("Build", html);
     modalBody.querySelectorAll("[data-arm]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        ghost = { type: btn.getAttribute("data-arm"), x: 2, y: 5 };
+        ghost = { type: btn.getAttribute("data-arm"), x: 3, y: 5 };
         selectedId = null;
         closeModal();
         paint();
@@ -666,10 +672,26 @@
     });
   }
 
-  function cellFrom(ev) {
+  function cellFrom(ev, precise) {
     var rect = canvas.getBoundingClientRect();
+    var sx = ev.clientX - rect.left;
+    var sy = ev.clientY - rect.top;
     var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
-    return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+    var cell = KHAYA.pickCell(sx, sy, o.ox, o.oy, o.tw, o.th);
+    if (precise || ghost) return cell;
+    if (KHAYA.occupied(state, cell.x, cell.y)) return cell;
+    var best = null;
+    var bestD = o.tw * 0.62;
+    var near = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+    var i, b, c, d;
+    for (i = 0; i < near.length; i++) {
+      b = KHAYA.occupied(state, cell.x + near[i][0], cell.y + near[i][1]);
+      if (!b) continue;
+      c = KHAYA.cellNorth(b.x + b.w / 2, b.y + b.h / 2, o.ox, o.oy, o.tw, o.th);
+      d = Math.hypot(c.x - sx, c.y - sy);
+      if (d < bestD) { bestD = d; best = { x: b.x, y: b.y }; }
+    }
+    return best || cell;
   }
 
   function pinchDist() {
@@ -730,8 +752,8 @@
     if (drag.pan) {
       cam.x += ev.clientX - drag.lx;
       cam.y += ev.clientY - drag.ly;
-      cam.vx = (ev.clientX - drag.lx) * 0.28;
-      cam.vy = (ev.clientY - drag.ly) * 0.28;
+      cam.vx = Math.max(-14, Math.min(14, (ev.clientX - drag.lx) * 0.22));
+      cam.vy = Math.max(-14, Math.min(14, (ev.clientY - drag.ly) * 0.22));
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
@@ -759,6 +781,7 @@
       return;
     }
     if (item.ghost) {
+      if (item.moved) { paint(); return; }
       var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
         ghost = null;
@@ -941,10 +964,10 @@
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
-      cam.vx *= 0.78;
-      cam.vy *= 0.78;
-      if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
-      if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
+      cam.vx *= 0.86;
+      cam.vy *= 0.86;
+      if (Math.abs(cam.vx) < 0.2) cam.vx = 0;
+      if (Math.abs(cam.vy) < 0.2) cam.vy = 0;
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
     }
     if (now - hudAt > 350) {

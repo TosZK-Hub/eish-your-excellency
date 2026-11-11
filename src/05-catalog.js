@@ -133,7 +133,7 @@ var LOOK = {
     { id: "goat", route: [[9.5, 2.5], [10.5, 2.5], [10.5, 3.5], [9.5, 3.5]], speed: 8600 }
   ],
   // One clump cut from each crop sheet. Four of these sit inside the bed.
-  plantSpots: [[0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
+  plantSpots: [[0.50, 0.50], [0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
   plant: {
     maize_sown: { x: 88, y: 36, w: 72, h: 52, kind: "sown" },
     maize_growing: { x: 96, y: 18, w: 64, h: 70, kind: "grow" },
@@ -180,8 +180,8 @@ var LOOK = {
 LOOK.plantDraw = function (file, tw) {
   var spec = LOOK.plant[file];
   if (!spec) return null;
-  var capW = spec.kind === "sown" ? 0.10 : spec.kind === "grow" ? 0.13 : 0.15;
-  var capH = spec.kind === "sown" ? 0.08 : spec.kind === "grow" ? 0.11 : 0.13;
+  var capW = spec.kind === "sown" ? 0.11 : spec.kind === "grow" ? 0.15 : 0.17;
+  var capH = spec.kind === "sown" ? 0.09 : spec.kind === "grow" ? 0.12 : 0.145;
   var dw = tw * capW;
   var dh = dw * (spec.h / spec.w);
   if (dh > tw * capH) {

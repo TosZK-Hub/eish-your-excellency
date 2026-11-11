@@ -1818,7 +1818,7 @@ var LOOK = {
     { id: "goat", route: [[9.5, 2.5], [10.5, 2.5], [10.5, 3.5], [9.5, 3.5]], speed: 8600 }
   ],
   // One clump cut from each crop sheet. Four of these sit inside the bed.
-  plantSpots: [[0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
+  plantSpots: [[0.50, 0.50], [0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
   plant: {
     maize_sown: { x: 88, y: 36, w: 72, h: 52, kind: "sown" },
     maize_growing: { x: 96, y: 18, w: 64, h: 70, kind: "grow" },
@@ -1865,8 +1865,8 @@ var LOOK = {
 LOOK.plantDraw = function (file, tw) {
   var spec = LOOK.plant[file];
   if (!spec) return null;
-  var capW = spec.kind === "sown" ? 0.10 : spec.kind === "grow" ? 0.13 : 0.15;
-  var capH = spec.kind === "sown" ? 0.08 : spec.kind === "grow" ? 0.11 : 0.13;
+  var capW = spec.kind === "sown" ? 0.11 : spec.kind === "grow" ? 0.15 : 0.17;
+  var capH = spec.kind === "sown" ? 0.09 : spec.kind === "grow" ? 0.12 : 0.145;
   var dw = tw * capW;
   var dh = dw * (spec.h / spec.w);
   if (dh > tw * capH) {
@@ -2072,11 +2072,11 @@ var DRAW = (function () {
     if (cam.z > 2.2) cam.z = 2.2;
     var limX = Math.max(70, w * 1.05);
     var limY = Math.max(48, h * 0.7);
-    if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
-    if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
-    if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
-    if (cam.y < -limY) { cam.y = -limY; cam.vy = 0; }
-    var maxV = 10;
+    if (cam.x > limX) { cam.x = limX; cam.vx = cam.vx > 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.x < -limX) { cam.x = -limX; cam.vx = cam.vx < 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.y > limY) { cam.y = limY; cam.vy = cam.vy > 0 ? cam.vy * -0.18 : cam.vy; }
+    if (cam.y < -limY) { cam.y = -limY; cam.vy = cam.vy < 0 ? cam.vy * -0.18 : cam.vy; }
+    var maxV = 14;
     if (cam.vx > maxV) cam.vx = maxV;
     if (cam.vx < -maxV) cam.vx = -maxV;
     if (cam.vy > maxV) cam.vy = maxV;
@@ -2985,7 +2985,10 @@ var DRAW = (function () {
       }
     })();
     queue.sort(function (a, b) { return a.y - b.y; });
-    for (i = 0; i < queue.length; i++) queue[i].draw();
+    for (i = 0; i < queue.length; i++) {
+      if (queue[i].y < -o.th * 3 || queue[i].y > h + o.th * 2) continue;
+      queue[i].draw();
+    }
     if (VEIL[phase]) {
       ctx.fillStyle = VEIL[phase];
       ctx.fillRect(0, 0, w, h);
@@ -3052,11 +3055,19 @@ var DRAW = (function () {
         type: view.ghost.type, x: view.ghost.x, y: view.ghost.y,
         w: KHAYA.BUILDINGS[view.ghost.type].w, h: KHAYA.BUILDINGS[view.ghost.type].h, level: 1
       };
+      var shade = corners(ghost.x, ghost.y, ghost.w, ghost.h, o);
       ctx.save();
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.34;
+      poly(ctx, [shade.n, shade.e, shade.s, shade.w], gok ? "#7dcea0" : "#e07a6a");
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = gok ? 0.72 : 0.45;
+      if (!gok) {
+        ctx.translate(Math.sin(now / 70) * 2, 0);
+      }
       drawSprite(ctx, buildingFile(ghost, now), ghost, o, now, 0);
       ctx.restore();
-      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#f2c14e" : "#d64545");
+      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#2f6d4f" : "#d64545");
     }
     if (view.selected) ring(ctx, view.selected.x, view.selected.y, view.selected.w, view.selected.h, o, "#f2c14e");
     if (view.hint) {
@@ -3791,7 +3802,12 @@ var PLAY = (function () {
     paintHud();
     paintCard();
     placingEl.hidden = !ghost;
-    if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
+    if (ghost) {
+      var gcheck = KHAYA.canPlace(state, ghost.type, ghost.x, ghost.y);
+      placingEl.textContent = gcheck.ok
+        ? "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap to set it"
+        : KHAYA.BUILDINGS[ghost.type].name + " will not fit there";
+    }
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
     DRAW.render(canvas, state, scene(dragging), Date.now());
   }
@@ -3825,7 +3841,7 @@ var PLAY = (function () {
       chime(result.crit ? "place" : "harvest");
       if (focus) {
         var p = cellPoint(focus);
-        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
+        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f", coins: result.crit ? 6 : 4 });
       }
       if (result.crit && result.combo >= 3) toast("Golden mielie, combo " + result.combo + ".");
       else if (result.crit) toast("A golden mielie. Triple harvest.");
@@ -3835,7 +3851,8 @@ var PLAY = (function () {
       toast("+" + result.notes + " notes");
       if (result.collected && focus) {
         var coin = cellPoint(focus);
-        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(6, result.notes) });
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, 3 + result.notes) });
+        squash[focus.id] = Date.now();
         var rect = canvas.getBoundingClientRect();
         flyCoins(rect.left + coin.x, rect.top + coin.y, result.notes);
       }
@@ -3871,7 +3888,7 @@ var PLAY = (function () {
     openModal("Build", html);
     modalBody.querySelectorAll("[data-arm]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        ghost = { type: btn.getAttribute("data-arm"), x: 2, y: 5 };
+        ghost = { type: btn.getAttribute("data-arm"), x: 3, y: 5 };
         selectedId = null;
         closeModal();
         paint();
@@ -4065,10 +4082,26 @@ var PLAY = (function () {
     });
   }
 
-  function cellFrom(ev) {
+  function cellFrom(ev, precise) {
     var rect = canvas.getBoundingClientRect();
+    var sx = ev.clientX - rect.left;
+    var sy = ev.clientY - rect.top;
     var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
-    return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+    var cell = KHAYA.pickCell(sx, sy, o.ox, o.oy, o.tw, o.th);
+    if (precise || ghost) return cell;
+    if (KHAYA.occupied(state, cell.x, cell.y)) return cell;
+    var best = null;
+    var bestD = o.tw * 0.62;
+    var near = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+    var i, b, c, d;
+    for (i = 0; i < near.length; i++) {
+      b = KHAYA.occupied(state, cell.x + near[i][0], cell.y + near[i][1]);
+      if (!b) continue;
+      c = KHAYA.cellNorth(b.x + b.w / 2, b.y + b.h / 2, o.ox, o.oy, o.tw, o.th);
+      d = Math.hypot(c.x - sx, c.y - sy);
+      if (d < bestD) { bestD = d; best = { x: b.x, y: b.y }; }
+    }
+    return best || cell;
   }
 
   function pinchDist() {
@@ -4129,8 +4162,8 @@ var PLAY = (function () {
     if (drag.pan) {
       cam.x += ev.clientX - drag.lx;
       cam.y += ev.clientY - drag.ly;
-      cam.vx = (ev.clientX - drag.lx) * 0.28;
-      cam.vy = (ev.clientY - drag.ly) * 0.28;
+      cam.vx = Math.max(-14, Math.min(14, (ev.clientX - drag.lx) * 0.22));
+      cam.vy = Math.max(-14, Math.min(14, (ev.clientY - drag.ly) * 0.22));
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
@@ -4158,6 +4191,7 @@ var PLAY = (function () {
       return;
     }
     if (item.ghost) {
+      if (item.moved) { paint(); return; }
       var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
         ghost = null;
@@ -4340,10 +4374,10 @@ var PLAY = (function () {
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
-      cam.vx *= 0.78;
-      cam.vy *= 0.78;
-      if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
-      if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
+      cam.vx *= 0.86;
+      cam.vy *= 0.86;
+      if (Math.abs(cam.vx) < 0.2) cam.vx = 0;
+      if (Math.abs(cam.vy) < 0.2) cam.vy = 0;
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
     }
     if (now - hudAt > 350) {

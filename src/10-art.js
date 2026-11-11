@@ -127,11 +127,11 @@ var DRAW = (function () {
     if (cam.z > 2.2) cam.z = 2.2;
     var limX = Math.max(70, w * 1.05);
     var limY = Math.max(48, h * 0.7);
-    if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
-    if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
-    if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
-    if (cam.y < -limY) { cam.y = -limY; cam.vy = 0; }
-    var maxV = 10;
+    if (cam.x > limX) { cam.x = limX; cam.vx = cam.vx > 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.x < -limX) { cam.x = -limX; cam.vx = cam.vx < 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.y > limY) { cam.y = limY; cam.vy = cam.vy > 0 ? cam.vy * -0.18 : cam.vy; }
+    if (cam.y < -limY) { cam.y = -limY; cam.vy = cam.vy < 0 ? cam.vy * -0.18 : cam.vy; }
+    var maxV = 14;
     if (cam.vx > maxV) cam.vx = maxV;
     if (cam.vx < -maxV) cam.vx = -maxV;
     if (cam.vy > maxV) cam.vy = maxV;
@@ -1040,7 +1040,10 @@ var DRAW = (function () {
       }
     })();
     queue.sort(function (a, b) { return a.y - b.y; });
-    for (i = 0; i < queue.length; i++) queue[i].draw();
+    for (i = 0; i < queue.length; i++) {
+      if (queue[i].y < -o.th * 3 || queue[i].y > h + o.th * 2) continue;
+      queue[i].draw();
+    }
     if (VEIL[phase]) {
       ctx.fillStyle = VEIL[phase];
       ctx.fillRect(0, 0, w, h);
@@ -1107,11 +1110,19 @@ var DRAW = (function () {
         type: view.ghost.type, x: view.ghost.x, y: view.ghost.y,
         w: KHAYA.BUILDINGS[view.ghost.type].w, h: KHAYA.BUILDINGS[view.ghost.type].h, level: 1
       };
+      var shade = corners(ghost.x, ghost.y, ghost.w, ghost.h, o);
       ctx.save();
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.34;
+      poly(ctx, [shade.n, shade.e, shade.s, shade.w], gok ? "#7dcea0" : "#e07a6a");
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = gok ? 0.72 : 0.45;
+      if (!gok) {
+        ctx.translate(Math.sin(now / 70) * 2, 0);
+      }
       drawSprite(ctx, buildingFile(ghost, now), ghost, o, now, 0);
       ctx.restore();
-      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#f2c14e" : "#d64545");
+      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#2f6d4f" : "#d64545");
     }
     if (view.selected) ring(ctx, view.selected.x, view.selected.y, view.selected.w, view.selected.h, o, "#f2c14e");
     if (view.hint) {
