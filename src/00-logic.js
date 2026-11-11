@@ -296,7 +296,7 @@ var KHAYA = (function () {
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
-        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - CROPS.maize.grow + 28000 : now, growFor: CROPS.maize.grow },
+        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - Math.round(CROPS.maize.grow * 0.6) : now, growFor: CROPS.maize.grow },
         { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
@@ -396,9 +396,10 @@ var KHAYA = (function () {
   }
 
   function upgradeDuration(b) {
-    if (b && b.type === "home" && (b.level || 1) >= 2) return 25 * MIN;
+    if (b && b.type === "home" && (b.level || 1) >= 2) return 2 * 60 * MIN;
     if (b && b.type === "home") return UPGRADE_MS;
-    return 4 * MIN;
+    if (b && b.type === "spaza") return 50 * MIN;
+    return 45 * MIN;
   }
 
   function upgrade(state, id) {
@@ -1041,8 +1042,8 @@ var KHAYA = (function () {
         level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1),
         stored: clamp(raw.stored, 0, 30),
         prodAcc: clamp(raw.prodAcc, 0, 30 * MIN),
-        buildLeft: clamp(raw.buildLeft, 0, 2 * 60 * MIN),
-        buildTotal: clamp(raw.buildTotal, 0, 2 * 60 * MIN),
+        buildLeft: clamp(raw.buildLeft, 0, 4 * 60 * MIN),
+        buildTotal: clamp(raw.buildTotal, 0, 4 * 60 * MIN),
         pendingLevel: clamp(raw.pendingLevel, 0, def.upgrades ? def.upgrades.length : 1),
         pendingXp: clamp(raw.pendingXp, 0, 100)
       };

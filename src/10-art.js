@@ -9,6 +9,7 @@ var DRAW = (function () {
   var backdropKey = "";
   var markGround = false;
   var groundMarks = [];
+  var lastFace = {};
 
   function catalogFiles() {
     var list = [];
@@ -29,6 +30,12 @@ var DRAW = (function () {
     for (i = 0; i < LOOK.dress.length; i++) add(LOOK.dress[i].file);
     add("tile_grass");
     add("tile_dirt");
+    var crops = [
+      "maize_sown", "maize_growing", "maize_ready",
+      "morogo_sown", "morogo_growing", "morogo_ready", "morogo_ready_basket",
+      "pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"
+    ];
+    for (i = 0; i < crops.length; i++) add(crops[i]);
     return list;
   }
 
@@ -116,16 +123,17 @@ var DRAW = (function () {
     cam = cam || { x: 0, y: 0, z: 1 };
     if (cam.z < 0.55) cam.z = 0.55;
     if (cam.z > 2.2) cam.z = 2.2;
-    var o = layout(w, h, cam);
-    var mid = KHAYA.cellNorth(KHAYA.COLS / 2, KHAYA.ROWS / 2, o.ox, o.oy, o.tw, o.th);
-    var minY = h * 0.36;
-    var maxY = h * 0.62;
-    var minX = w * 0.28;
-    var maxX = w * 0.72;
-    if (mid.y < minY) cam.y += minY - mid.y;
-    if (mid.y > maxY) cam.y -= mid.y - maxY;
-    if (mid.x < minX) cam.x += minX - mid.x;
-    if (mid.x > maxX) cam.x -= mid.x - maxX;
+    var limX = Math.max(40, w * 0.18);
+    var limY = Math.max(28, h * 0.12);
+    if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
+    if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
+    if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
+    if (cam.y < -limY) { cam.y = -limY; cam.vy = 0; }
+    var maxV = 10;
+    if (cam.vx > maxV) cam.vx = maxV;
+    if (cam.vx < -maxV) cam.vx = -maxV;
+    if (cam.vy > maxV) cam.vy = maxV;
+    if (cam.vy < -maxV) cam.vy = -maxV;
     return cam;
   }
 
@@ -718,7 +726,8 @@ var DRAW = (function () {
         var moving = pose === "walk" && !housed && !entry.spot;
         var framed = !!(spec.sheet && img[spec.sheet]);
         var screenRight = dir === 1 || dir === 0;
-        var flip = artScaleX(spec, moving ? screenRight : null);
+        if (moving) lastFace[entry.id] = screenRight;
+        var flip = artScaleX(spec, lastFace[entry.id] == null ? null : (moving ? screenRight : lastFace[entry.id]));
         var bob = 0;
         var squashY = 1;
         if (!framed && entry.id === "hen") {
@@ -823,8 +832,10 @@ var DRAW = (function () {
   }
 
   function render(canvas, state, view, now) {
-    var dprCap = (canvas.clientWidth < 560 ? 1 : 1.25) * ((view && view.sharp) || 1);
-    var dpr = Math.min(dprCap, window.devicePixelRatio || 1);
+    var ratio = Math.min(window.devicePixelRatio || 1, 2);
+    var sharp = (view && view.sharp) || 1;
+    var scale = sharp < 1 ? Math.max(1 / ratio, sharp) : 1;
+    var dpr = ratio * scale;
     var w = canvas.clientWidth;
     var h = canvas.clientHeight;
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -832,6 +843,8 @@ var DRAW = (function () {
       canvas.height = Math.floor(h * dpr);
     }
     var ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = "high";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     var o = layout(w, h, view && view.cam);
     markGround = !!(view && view.ground);
@@ -893,8 +906,8 @@ var DRAW = (function () {
           }
           if (building.type === "bed" && !dragging) {
             var growth = KHAYA.bedView(building, now);
-            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, drawn.y - o.th * 0.95, o.tw * 0.55, growth.progress, "#7dcea0");
-            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, drawn.y - o.th * 1.15, now);
+            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, drawn.y - o.th * 1.55, o.tw * 0.5, growth.progress, "#7dcea0");
+            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, drawn.y - o.th * 1.7, now);
           }
           var prod = KHAYA.produceView(building, state);
           if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);

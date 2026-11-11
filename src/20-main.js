@@ -729,8 +729,8 @@
     if (drag.pan) {
       cam.x += ev.clientX - drag.lx;
       cam.y += ev.clientY - drag.ly;
-      cam.vx = (ev.clientX - drag.lx) * 0.6;
-      cam.vy = (ev.clientY - drag.ly) * 0.6;
+      cam.vx = (ev.clientX - drag.lx) * 0.28;
+      cam.vy = (ev.clientY - drag.ly) * 0.28;
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
@@ -910,7 +910,8 @@
     if (framesSeen > 1) {
       var dt = now - (frame.prev || now);
       dtEma = dtEma * 0.9 + dt * 0.1;
-      if (framesSeen > 45 && dtEma > 26 && sharp > 0.8) sharp = 0.72;
+      if (framesSeen > 120 && dtEma > 22 && sharp > 0.55) sharp = 0.5;
+      if (framesSeen > 200 && dtEma < 18 && sharp < 1) sharp = 1;
     }
     frame.prev = now;
     if (bench) {
@@ -939,8 +940,8 @@
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
-      cam.vx *= 0.9;
-      cam.vy *= 0.9;
+      cam.vx *= 0.78;
+      cam.vy *= 0.78;
       if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
       if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);

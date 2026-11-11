@@ -7,8 +7,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "assets", "sprites", "gen")
 SRC = os.environ.get("ANIM_SRC", "/opt/cursor/artifacts/assets")
 
-# Idle cells that were drawn facing the opposite way from that sheet's walk.
-FLIPS = {"char_jersey_anim": (0, 1)}
+# Idle and walk on these sheets already face the same way.
+FLIPS = {}
 
 SHEETS = [
     ("farmer-walk-sheet.jpg", "char_farmer_anim", 256),
@@ -18,6 +18,10 @@ SHEETS = [
     ("jersey-walk-sheet.jpg", "char_jersey_anim", 256),
     ("basotho-walk-sheet.jpg", "char_basotho_anim", 256),
     ("taxi-walk-sheet.jpg", "char_taxi_anim", 256),
+    ("dog-walk-sheet.jpg", "animal_dog_anim", 120),
+    ("goat-walk-sheet.jpg", "animal_goat_anim", 130),
+    ("cow-walk-sheet.jpg", "animal_cow_anim", 170),
+    ("hen-walk-sheet.jpg", "animal_hen_anim", 96),
 ]
 
 
@@ -267,7 +271,6 @@ def main():
         draw.line((8, y_cursor + 54, 1580, y_cursor + 54), fill=(80, 50, 30, 255))
         draw.text((12, y_cursor + 58), out_name, fill=(40, 24, 16, 255))
         y_cursor += 78
-    hen_sheet()
     preview_path = "/tmp/khaya-anim-preview.png"
     preview.convert("RGB").save(preview_path, "PNG")
     print("preview", preview_path)

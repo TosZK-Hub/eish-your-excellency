@@ -296,7 +296,7 @@ var KHAYA = (function () {
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
-        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - CROPS.maize.grow + 28000 : now, growFor: CROPS.maize.grow },
+        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - Math.round(CROPS.maize.grow * 0.6) : now, growFor: CROPS.maize.grow },
         { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
@@ -396,9 +396,10 @@ var KHAYA = (function () {
   }
 
   function upgradeDuration(b) {
-    if (b && b.type === "home" && (b.level || 1) >= 2) return 25 * MIN;
+    if (b && b.type === "home" && (b.level || 1) >= 2) return 2 * 60 * MIN;
     if (b && b.type === "home") return UPGRADE_MS;
-    return 4 * MIN;
+    if (b && b.type === "spaza") return 50 * MIN;
+    return 45 * MIN;
   }
 
   function upgrade(state, id) {
@@ -1041,8 +1042,8 @@ var KHAYA = (function () {
         level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1),
         stored: clamp(raw.stored, 0, 30),
         prodAcc: clamp(raw.prodAcc, 0, 30 * MIN),
-        buildLeft: clamp(raw.buildLeft, 0, 2 * 60 * MIN),
-        buildTotal: clamp(raw.buildTotal, 0, 2 * 60 * MIN),
+        buildLeft: clamp(raw.buildLeft, 0, 4 * 60 * MIN),
+        buildTotal: clamp(raw.buildTotal, 0, 4 * 60 * MIN),
         pendingLevel: clamp(raw.pendingLevel, 0, def.upgrades ? def.upgrades.length : 1),
         pendingXp: clamp(raw.pendingXp, 0, 100)
       };
@@ -1627,7 +1628,7 @@ var LOOK = {
   world: { tile: 256, house: "home_l1", houseScale: 1.22, houseTiles: 1.9, doorFraction: 0.9, person: 0.6 },
   buildings: {
     home: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [1.12, 0.4], scale: 1.22, yard: 1, levels: ["home_l1", "home_l2", "home_l3"] },
-    bed: { anchor: [0.5, 0.58], offset: [0, 0], shadow: [0.72, 0.28], scale: 1, file: "bed_empty" },
+    bed: { anchor: [1, 1], offset: [0, 0], scale: 1, file: "bed_empty" },
     spaza: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.95, 0.36], scale: 0.9, yard: 1, levels: ["spaza", "spaza"] },
     tank: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.5, 0.2], scale: 0.85, file: "rain_tank" },
     workshop: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.9, 0.34], scale: 0.9, yard: 1, file: "workshop" },
@@ -1647,15 +1648,15 @@ var LOOK = {
   actors: {
     farmer: { file: "char_farmer", sheet: "char_farmer_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
     doek: { file: "char_woman_doek", sheet: "char_doek_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
-    basotho: { file: "char_basotho_elder", sheet: "char_basotho_anim", cells: 8, face: 1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
-    gogo: { file: "char_gogo", sheet: "char_gogo_anim", cells: 8, face: 1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
-    kid: { file: "char_kid", sheet: "char_kid_anim", cells: 8, face: 1, scale: 0.68, shadow: [0.22, 0.1], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
-    jersey: { file: "char_man_jersey", sheet: "char_jersey_anim", cells: 8, face: 1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    basotho: { file: "char_basotho_elder", sheet: "char_basotho_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    gogo: { file: "char_gogo", sheet: "char_gogo_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    kid: { file: "char_kid", sheet: "char_kid_anim", cells: 8, face: -1, scale: 0.68, shadow: [0.22, 0.1], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    jersey: { file: "char_man_jersey", sheet: "char_jersey_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
     taxi: { file: "char_taxi_driver", sheet: "char_taxi_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
-    hen: { file: "animal_hen", sheet: "animal_hen_anim", cells: 2, face: 1, scale: 0.42, shadow: [0.16, 0.08], idle: [0, 0, 0, 1], walk: [0, 1], work: [1, 0] },
-    dog: { file: "animal_dog", scale: 0.42, shadow: [0.2, 0.09] },
-    cow: { file: "animal_cow", scale: 0.88, shadow: [0.36, 0.14] },
-    goat: { file: "animal_goat", scale: 0.7, shadow: [0.24, 0.1] }
+    hen: { file: "animal_hen", sheet: "animal_hen_anim", cells: 8, face: -1, scale: 0.42, shadow: [0.16, 0.08], idle: [0, 6], walk: [2, 3, 4, 5], work: [1, 0] },
+    dog: { file: "animal_dog", sheet: "animal_dog_anim", cells: 8, face: -1, scale: 0.42, shadow: [0.2, 0.09], idle: [0, 1], walk: [2, 3, 4, 5] },
+    cow: { file: "animal_cow", sheet: "animal_cow_anim", cells: 8, face: -1, scale: 0.88, shadow: [0.36, 0.14], idle: [0, 1], walk: [2, 3, 4, 5] },
+    goat: { file: "animal_goat", sheet: "animal_goat_anim", cells: 8, face: -1, scale: 0.7, shadow: [0.24, 0.1], idle: [0, 1], walk: [2, 3, 4, 5] }
   },
   treeScale: { tree_jacaranda: 1.02, tree_acacia: 0.9, tree_marula: 0.84 },
   trees: ["tree_jacaranda", "tree_acacia", "tree_marula"],
@@ -1696,16 +1697,19 @@ var LOOK = {
     { id: "kid", near: "home" },
     { id: "basotho", route: [[2, 4], [3, 4], [3, 5], [2, 5]], speed: 15000 },
     { id: "taxi", route: [[1, 6], [2, 6], [2, 5], [1, 5]], speed: 10000 },
-    { id: "hen", spot: [2.35, 4.55], wobble: 0.22 },
-    { id: "dog", spot: [3.6, 5.4], wobble: 0.2 },
-    { id: "cow", spot: [7.4, 5.5], wobble: 0.08 },
-    { id: "goat", spot: [6.6, 3.3], wobble: 0.16 }
+    { id: "hen", route: [[2.3, 4.4], [3.2, 4.7], [2.6, 5.2], [1.9, 4.8]], speed: 7200 },
+    { id: "dog", route: [[3.4, 5.2], [4.3, 5.6], [3.6, 6.15], [2.8, 5.6]], speed: 6400 },
+    { id: "cow", route: [[8.6, 6.5], [9.5, 6.9], [8.8, 7.4], [7.9, 6.9]], speed: 12000 },
+    { id: "goat", route: [[5.4, 1.25], [6.6, 1.45], [5.8, 1.9], [4.8, 1.55]], speed: 8600 }
   ],
   lineup: ["home_l1", "taxi", "tree_jacaranda", "tree_acacia", "aloe", "char_farmer", "char_kid", "animal_hen", "animal_dog", "animal_cow", "braai_drum", "potjie", "wheelbarrow"],
   first: [
     "tile_grass", "tile_dirt", "home_l1", "home_l2", "home_l3", "bed_empty",
-    "maize_sown", "maize_growing", "maize_ready", "spaza", "workshop", "rain_tank", "solar_stand",
-    "char_farmer", "char_farmer_anim", "animal_hen", "animal_hen_anim", "animal_dog",
+    "maize_sown", "maize_growing", "maize_ready",
+    "morogo_sown", "morogo_growing", "morogo_ready_basket",
+    "pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready",
+    "spaza", "workshop", "rain_tank", "solar_stand",
+    "char_farmer", "char_farmer_anim", "animal_hen", "animal_hen_anim", "animal_dog", "animal_dog_anim",
     "tree_jacaranda", "tree_acacia", "tree_marula",
     "washing_line", "wheelbarrow", "taxi",
     "neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"
@@ -1724,6 +1728,7 @@ var DRAW = (function () {
   var backdropKey = "";
   var markGround = false;
   var groundMarks = [];
+  var lastFace = {};
 
   function catalogFiles() {
     var list = [];
@@ -1744,6 +1749,12 @@ var DRAW = (function () {
     for (i = 0; i < LOOK.dress.length; i++) add(LOOK.dress[i].file);
     add("tile_grass");
     add("tile_dirt");
+    var crops = [
+      "maize_sown", "maize_growing", "maize_ready",
+      "morogo_sown", "morogo_growing", "morogo_ready", "morogo_ready_basket",
+      "pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"
+    ];
+    for (i = 0; i < crops.length; i++) add(crops[i]);
     return list;
   }
 
@@ -1831,16 +1842,17 @@ var DRAW = (function () {
     cam = cam || { x: 0, y: 0, z: 1 };
     if (cam.z < 0.55) cam.z = 0.55;
     if (cam.z > 2.2) cam.z = 2.2;
-    var o = layout(w, h, cam);
-    var mid = KHAYA.cellNorth(KHAYA.COLS / 2, KHAYA.ROWS / 2, o.ox, o.oy, o.tw, o.th);
-    var minY = h * 0.36;
-    var maxY = h * 0.62;
-    var minX = w * 0.28;
-    var maxX = w * 0.72;
-    if (mid.y < minY) cam.y += minY - mid.y;
-    if (mid.y > maxY) cam.y -= mid.y - maxY;
-    if (mid.x < minX) cam.x += minX - mid.x;
-    if (mid.x > maxX) cam.x -= mid.x - maxX;
+    var limX = Math.max(40, w * 0.18);
+    var limY = Math.max(28, h * 0.12);
+    if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
+    if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
+    if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
+    if (cam.y < -limY) { cam.y = -limY; cam.vy = 0; }
+    var maxV = 10;
+    if (cam.vx > maxV) cam.vx = maxV;
+    if (cam.vx < -maxV) cam.vx = -maxV;
+    if (cam.vy > maxV) cam.vy = maxV;
+    if (cam.vy < -maxV) cam.vy = -maxV;
     return cam;
   }
 
@@ -2433,7 +2445,8 @@ var DRAW = (function () {
         var moving = pose === "walk" && !housed && !entry.spot;
         var framed = !!(spec.sheet && img[spec.sheet]);
         var screenRight = dir === 1 || dir === 0;
-        var flip = artScaleX(spec, moving ? screenRight : null);
+        if (moving) lastFace[entry.id] = screenRight;
+        var flip = artScaleX(spec, lastFace[entry.id] == null ? null : (moving ? screenRight : lastFace[entry.id]));
         var bob = 0;
         var squashY = 1;
         if (!framed && entry.id === "hen") {
@@ -2538,8 +2551,10 @@ var DRAW = (function () {
   }
 
   function render(canvas, state, view, now) {
-    var dprCap = (canvas.clientWidth < 560 ? 1 : 1.25) * ((view && view.sharp) || 1);
-    var dpr = Math.min(dprCap, window.devicePixelRatio || 1);
+    var ratio = Math.min(window.devicePixelRatio || 1, 2);
+    var sharp = (view && view.sharp) || 1;
+    var scale = sharp < 1 ? Math.max(1 / ratio, sharp) : 1;
+    var dpr = ratio * scale;
     var w = canvas.clientWidth;
     var h = canvas.clientHeight;
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -2547,6 +2562,8 @@ var DRAW = (function () {
       canvas.height = Math.floor(h * dpr);
     }
     var ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = "high";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     var o = layout(w, h, view && view.cam);
     markGround = !!(view && view.ground);
@@ -2608,8 +2625,8 @@ var DRAW = (function () {
           }
           if (building.type === "bed" && !dragging) {
             var growth = KHAYA.bedView(building, now);
-            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, drawn.y - o.th * 0.95, o.tw * 0.55, growth.progress, "#7dcea0");
-            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, drawn.y - o.th * 1.15, now);
+            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, drawn.y - o.th * 1.55, o.tw * 0.5, growth.progress, "#7dcea0");
+            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, drawn.y - o.th * 1.7, now);
           }
           var prod = KHAYA.produceView(building, state);
           if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
@@ -3741,8 +3758,8 @@ var PLAY = (function () {
     if (drag.pan) {
       cam.x += ev.clientX - drag.lx;
       cam.y += ev.clientY - drag.ly;
-      cam.vx = (ev.clientX - drag.lx) * 0.6;
-      cam.vy = (ev.clientY - drag.ly) * 0.6;
+      cam.vx = (ev.clientX - drag.lx) * 0.28;
+      cam.vy = (ev.clientY - drag.ly) * 0.28;
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
@@ -3922,7 +3939,8 @@ var PLAY = (function () {
     if (framesSeen > 1) {
       var dt = now - (frame.prev || now);
       dtEma = dtEma * 0.9 + dt * 0.1;
-      if (framesSeen > 45 && dtEma > 26 && sharp > 0.8) sharp = 0.72;
+      if (framesSeen > 120 && dtEma > 22 && sharp > 0.55) sharp = 0.5;
+      if (framesSeen > 200 && dtEma < 18 && sharp < 1) sharp = 1;
     }
     frame.prev = now;
     if (bench) {
@@ -3951,8 +3969,8 @@ var PLAY = (function () {
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
-      cam.vx *= 0.9;
-      cam.vy *= 0.9;
+      cam.vx *= 0.78;
+      cam.vy *= 0.78;
       if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
       if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
