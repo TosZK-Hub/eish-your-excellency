@@ -12,20 +12,22 @@ var KHAYA = (function () {
   var STACK_CAP = 99;
   var PACE = 2;
 
+  // One path in the lane: gate, taxi, alongside the house, then the beds.
+  // Locked yards are grass. A fence and a price mark them, not stray tiles.
   var MAP = [
-    "tggggggtggpggggt",
+    "tggggggtgggggggt",
     "gggggggggggggggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ppppggggppppgggg",
-    "gggggggggggggggg",
-    "ggggpgggtggggggg",
+    "ggggppgggggggggg",
     "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "gppppggggggggggg",
+    "ggppgggggggggggg",
+    "ggggggggtggggggg",
+    "gggggggggggggggg",
     "gggggggggggggggt",
     "gggggggggggggggg",
-    "ppppggggggggpggg",
+    "gggggggggggggggg",
     "gggggggggggggggg"
   ];
 
@@ -204,8 +206,8 @@ var KHAYA = (function () {
 
   // Whole-cell yard props. The taxi parks on the path; the others sit on open grass.
   var PROPS = [
-    { id: "wash", file: "washing_line", x: 5, y: 5, w: 1, h: 1 },
-    { id: "barrow", file: "wheelbarrow", x: 3, y: 4, w: 1, h: 1 },
+    { id: "wash", file: "washing_line", x: 5, y: 7, w: 1, h: 1 },
+    { id: "barrow", file: "wheelbarrow", x: 1, y: 0, w: 1, h: 1 },
     { id: "taxi", file: "taxi", x: 1, y: 6, w: 2, h: 1 }
   ];
 
@@ -264,6 +266,21 @@ var KHAYA = (function () {
       p = PROPS[i];
       cells = footprint(p);
       for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], "prop:" + p.id, p.id === "taxi");
+    }
+    var beds = [];
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+    var j, gap;
+    for (i = 0; i < beds.length; i++) {
+      for (j = i + 1; j < beds.length; j++) {
+        gap = Math.max(Math.abs(beds[i].x - beds[j].x), Math.abs(beds[i].y - beds[j].y));
+        if (gap < 2) problems.push("beds at " + beds[i].x + "," + beds[i].y + " and " + beds[j].x + "," + beds[j].y + " need a tile between them");
+      }
+    }
+    var lookRef = typeof LOOK !== "undefined" ? LOOK : (typeof global !== "undefined" ? global.LOOK : null);
+    if (lookRef && lookRef.overlapAudit) {
+      var pix = lookRef.overlapAudit(state, 64);
+      var n;
+      for (n = 0; n < pix.problems.length; n++) problems.push(pix.problems[n]);
     }
     return { ok: problems.length === 0, problems: problems };
   }
@@ -352,7 +369,7 @@ var KHAYA = (function () {
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
         { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - Math.round(CROPS.maize.grow * 0.6) : now, growFor: CROPS.maize.grow },
-        { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
+        { id: 4, type: "bed", x: 7, y: 6, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
   }
@@ -1800,6 +1817,37 @@ var LOOK = {
     { id: "cow", route: [[9.5, 6.5], [10.5, 6.5], [10.5, 7.5], [9.5, 7.5]], speed: 12000 },
     { id: "goat", route: [[9.5, 2.5], [10.5, 2.5], [10.5, 3.5], [9.5, 3.5]], speed: 8600 }
   ],
+  // One clump cut from each crop sheet. Four of these sit inside the bed.
+  plantSpots: [[0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
+  plant: {
+    maize_sown: { x: 88, y: 36, w: 72, h: 52, kind: "sown" },
+    maize_growing: { x: 96, y: 18, w: 64, h: 70, kind: "grow" },
+    maize_ready: { x: 100, y: 6, w: 58, h: 78, kind: "ready" },
+    morogo_sown: { x: 90, y: 34, w: 70, h: 50, kind: "sown" },
+    morogo_growing: { x: 92, y: 22, w: 68, h: 58, kind: "grow" },
+    morogo_ready: { x: 88, y: 12, w: 72, h: 64, kind: "ready" },
+    morogo_ready_basket: { x: 86, y: 8, w: 76, h: 68, kind: "ready" },
+    pumpkin_sown: { x: 90, y: 36, w: 70, h: 52, kind: "sown" },
+    pumpkin_growing: { x: 88, y: 24, w: 74, h: 62, kind: "grow" },
+    pumpkin_fruiting: { x: 84, y: 16, w: 80, h: 70, kind: "ready" },
+    pumpkin_ready: { x: 82, y: 12, w: 84, h: 74, kind: "ready" },
+    aloe: { x: 40, y: 20, w: 110, h: 140, kind: "ready" }
+  },
+  stages: {
+    maize: ["maize_sown", "maize_growing", "maize_ready"],
+    morogo: ["morogo_sown", "morogo_growing", "morogo_ready_basket"],
+    pumpkin: ["pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"],
+    spinach: ["morogo_sown", "morogo_growing", "morogo_ready_basket"],
+    tomato: ["pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"],
+    aloe: ["aloe"]
+  },
+  px: {
+    bed_empty: [256, 167], home_l1: [400, 311], home_l2: [460, 376], home_l3: [560, 431],
+    spaza: [480, 389], workshop: [480, 397], rain_tank: [240, 327], solar_stand: [320, 436],
+    aloe: [190, 270], washing_line: [320, 323], wheelbarrow: [200, 198], soccer_goal: [280, 235],
+    braai_drum: [220, 277], potjie: [190, 201], imbawula: [130, 201], mielie_cart: [240, 329],
+    chicken_coop: [300, 315], pumpkin_patch: [300, 201], kraal: [420, 353], taxi: [360, 326]
+  },
   lineup: ["home_l1", "taxi", "tree_jacaranda", "tree_acacia", "aloe", "char_farmer", "char_kid", "animal_hen", "animal_dog", "animal_cow", "braai_drum", "potjie", "wheelbarrow"],
   first: [
     "tile_grass", "tile_dirt", "home_l1", "home_l2", "home_l3", "bed_empty",
@@ -1812,6 +1860,86 @@ var LOOK = {
     "washing_line", "wheelbarrow", "taxi",
     "neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"
   ]
+};
+
+LOOK.plantDraw = function (file, tw) {
+  var spec = LOOK.plant[file];
+  if (!spec) return null;
+  var capW = spec.kind === "sown" ? 0.10 : spec.kind === "grow" ? 0.13 : 0.15;
+  var capH = spec.kind === "sown" ? 0.08 : spec.kind === "grow" ? 0.11 : 0.13;
+  var dw = tw * capW;
+  var dh = dw * (spec.h / spec.w);
+  if (dh > tw * capH) {
+    dw *= (tw * capH) / dh;
+    dh = tw * capH;
+  }
+  return { dw: dw, dh: dh, spots: LOOK.plantSpots };
+};
+
+LOOK.overlapAudit = function (state, tw) {
+  tw = tw || 64;
+  var problems = [];
+  function at(x, y) {
+    return { x: (x - y) * tw / 2, y: (x + y) * tw / 4 };
+  }
+  function cellAt(sx, sy) {
+    var a = sx / (tw / 2);
+    var b = sy / (tw / 4);
+    return { x: Math.floor((a + b) / 2), y: Math.floor((b - a) / 2) };
+  }
+  function plantsOf(b, file) {
+    var draw = LOOK.plantDraw(file, tw);
+    if (!draw) return [];
+    var out = [];
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = at(b.x + spot[0], b.y + spot[1]);
+      out.push({
+        l: p.x - draw.dw / 2, t: p.y - draw.dh, r: p.x + draw.dw / 2, b: p.y,
+        who: file + " on " + b.x + "," + b.y, x: b.x, y: b.y
+      });
+    }
+    return out;
+  }
+  var beds = [];
+  var i, b, files, f, boxes, n, box, inset, corners, k, hit, a, c, ix, iy;
+  for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+  boxes = [];
+  for (i = 0; i < beds.length; i++) {
+    b = beds[i];
+    files = (LOOK.stages && LOOK.stages[b.crop || "maize"]) || ["maize_ready"];
+    if (!b.crop) files = ["maize_sown", "maize_growing", "maize_ready", "morogo_ready_basket", "pumpkin_ready"];
+    for (f = 0; f < files.length; f++) {
+      var added = plantsOf(b, files[f]);
+      for (n = 0; n < added.length; n++) {
+        box = added[n];
+        boxes.push(box);
+        inset = 3;
+        corners = [
+          [box.l + inset, box.t + inset],
+          [box.r - inset, box.t + inset],
+          [box.l + inset, box.b - inset],
+          [box.r - inset, box.b - inset]
+        ];
+        for (k = 0; k < corners.length; k++) {
+          hit = cellAt(corners[k][0], corners[k][1]);
+          if (hit.x !== b.x || hit.y !== b.y) {
+            problems.push(box.who + " spills onto " + hit.x + "," + hit.y);
+          }
+        }
+      }
+    }
+  }
+  for (a = 0; a < boxes.length; a++) {
+    for (c = a + 1; c < boxes.length; c++) {
+      if (boxes[a].x === boxes[c].x && boxes[a].y === boxes[c].y) continue;
+      ix = Math.min(boxes[a].r, boxes[c].r) - Math.max(boxes[a].l, boxes[c].l);
+      iy = Math.min(boxes[a].b, boxes[c].b) - Math.max(boxes[a].t, boxes[c].t);
+      if (ix > 4 && iy > 4) problems.push(boxes[a].who + " overlaps " + boxes[c].who + " by " + Math.round(ix) + "x" + Math.round(iy));
+    }
+  }
+  return { ok: problems.length === 0, problems: problems };
 };
 
 if (typeof module !== "undefined" && module.exports) module.exports = LOOK;
@@ -1913,38 +2041,37 @@ var DRAW = (function () {
   function layout(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
     var z = cam.z || 1;
-    if (z < 0.55) z = 0.55;
+    if (z < 0.62) z = 0.62;
     if (z > 2.2) z = 2.2;
-    // Fit the opening lane (8 by 8) inside the stage, clear of the top bar and the dock.
-    var marginX = Math.max(14, Math.round(w * 0.04));
-    var marginTop = Math.max(12, Math.round(h * 0.045));
-    var marginBot = Math.max(18, Math.round(h * 0.07));
-    var span = w < 560 ? 8 : 10;
-    var tw = (w - marginX * 2) / span;
+    // The working yard, from the gate and taxi up to the beds. Not the whole map.
+    var x0 = 0.3;
+    var y0 = 1.1;
+    var x1 = 7.6;
+    var y1 = 7.1;
+    var spanW = (x1 - y0 - x0 + y1) / 2;
+    var spanH = (x1 + y1 - x0 - y0) / 4;
+    var marginX = Math.max(8, w * 0.055);
+    var tw = (w - marginX * 2) / spanW;
     var th = tw * 0.5;
-    var plotH = span * th;
-    var room = Math.max(80, h - marginTop - marginBot);
-    if (plotH > room) {
-      var s = room / plotH;
-      tw *= s;
-      th *= s;
-      plotH = span * th;
+    var roof = h * 0.14;
+    if (spanH * tw + roof > h * 0.9) {
+      tw = (h * 0.9 - roof) / spanH;
+      th = tw * 0.5;
     }
     tw *= z;
     th *= z;
-    plotH = span * th;
-    var ox = w / 2 + (cam.x || 0);
-    var oy = marginTop + Math.max(0, (h - marginTop - marginBot - plotH) * 0.46) + (cam.y || 0);
-    var horizon = Math.max(8, oy - th * 0.85);
+    var ox = w / 2 - ((x0 - y1) + (x1 - y0)) * tw / 4 + (cam.x || 0);
+    var oy = roof - (x0 + y0) * th / 2 + (cam.y || 0);
+    var horizon = Math.max(6, oy - th * 0.6);
     return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
   }
 
   function clampCamera(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
-    if (cam.z < 0.55) cam.z = 0.55;
+    if (cam.z < 0.62) cam.z = 0.62;
     if (cam.z > 2.2) cam.z = 2.2;
-    var limX = Math.max(36, w * 0.28);
-    var limY = Math.max(24, h * 0.16);
+    var limX = Math.max(70, w * 1.05);
+    var limY = Math.max(48, h * 0.7);
     if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
     if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
     if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
@@ -2380,6 +2507,36 @@ var DRAW = (function () {
     return { x: mid.x, y: tip.y, top: top, spec: spec };
   }
 
+  var stampCache = {};
+  function plantCanvas(file) {
+    if (stampCache[file]) return stampCache[file];
+    var src = img[file];
+    var spec = LOOK.plant && LOOK.plant[file];
+    if (!src || !spec) { stampCache[file] = null; return null; }
+    var c = document.createElement("canvas");
+    c.width = spec.w;
+    c.height = spec.h;
+    var g = c.getContext("2d");
+    g.drawImage(src, spec.x, spec.y, spec.w, spec.h, 0, 0, spec.w, spec.h);
+    stampCache[file] = c;
+    return c;
+  }
+
+  function drawPlants(ctx, file, b, o) {
+    var draw = LOOK.plantDraw && LOOK.plantDraw(file, o.tw);
+    var canvas = plantCanvas(file);
+    if (!draw || !canvas) return null;
+    var top = 1e9;
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = north(b.x + spot[0], b.y + spot[1], o);
+      ctx.drawImage(canvas, p.x - draw.dw / 2, p.y - draw.dh, draw.dw, draw.dh);
+      if (p.y - draw.dh < top) top = p.y - draw.dh;
+    }
+    return top;
+  }
+
   function barOver(ctx, x, y, w, progress, color) {
     ctx.save();
     ctx.fillStyle = "rgba(255,250,243,.92)";
@@ -2731,7 +2888,12 @@ var DRAW = (function () {
         queue.push({ y: front.y, draw: function () {
           ctx.save();
           if (dragging) ctx.globalAlpha = 0.85;
-          var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          var artFile = buildingFile(drawAt, now);
+          var drawn = drawSprite(ctx, drawAt.type === "bed" ? "bed_empty" : artFile, drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          if (drawAt.type === "bed" && artFile !== "bed_empty") {
+            var plantTop = drawPlants(ctx, artFile, drawAt, o);
+            if (plantTop !== null && plantTop < drawn.top) drawn.top = plantTop;
+          }
           ctx.restore();
           var ly = labelBand(drawn.top, h);
           var job = KHAYA.buildView(building);
@@ -2829,6 +2991,28 @@ var DRAW = (function () {
       ctx.fillRect(0, 0, w, h);
     }
     var pid;
+    for (pid in KHAYA.PLOTS) {
+      if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
+      var fence = KHAYA.PLOTS[pid];
+      var edge = corners(fence.x, fence.y, fence.w, fence.h, o);
+      ctx.save();
+      ctx.strokeStyle = "rgba(92, 58, 32, 0.72)";
+      ctx.lineWidth = Math.max(2, o.tw * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(edge.n.x, edge.n.y);
+      ctx.lineTo(edge.e.x, edge.e.y);
+      ctx.lineTo(edge.s.x, edge.s.y);
+      ctx.lineTo(edge.w.x, edge.w.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = "#6b4524";
+      var post;
+      var posts = [edge.n, edge.e, edge.s, edge.w];
+      for (post = 0; post < posts.length; post++) {
+        ctx.fillRect(posts[post].x - 2, posts[post].y - o.th * 0.18, 4, o.th * 0.22);
+      }
+      ctx.restore();
+    }
     for (pid in KHAYA.PLOTS) {
       if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
       var plot = KHAYA.PLOTS[pid];

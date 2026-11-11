@@ -96,38 +96,37 @@ var DRAW = (function () {
   function layout(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
     var z = cam.z || 1;
-    if (z < 0.55) z = 0.55;
+    if (z < 0.62) z = 0.62;
     if (z > 2.2) z = 2.2;
-    // Fit the opening lane (8 by 8) inside the stage, clear of the top bar and the dock.
-    var marginX = Math.max(14, Math.round(w * 0.04));
-    var marginTop = Math.max(12, Math.round(h * 0.045));
-    var marginBot = Math.max(18, Math.round(h * 0.07));
-    var span = w < 560 ? 8 : 10;
-    var tw = (w - marginX * 2) / span;
+    // The working yard, from the gate and taxi up to the beds. Not the whole map.
+    var x0 = 0.3;
+    var y0 = 1.1;
+    var x1 = 7.6;
+    var y1 = 7.1;
+    var spanW = (x1 - y0 - x0 + y1) / 2;
+    var spanH = (x1 + y1 - x0 - y0) / 4;
+    var marginX = Math.max(8, w * 0.055);
+    var tw = (w - marginX * 2) / spanW;
     var th = tw * 0.5;
-    var plotH = span * th;
-    var room = Math.max(80, h - marginTop - marginBot);
-    if (plotH > room) {
-      var s = room / plotH;
-      tw *= s;
-      th *= s;
-      plotH = span * th;
+    var roof = h * 0.14;
+    if (spanH * tw + roof > h * 0.9) {
+      tw = (h * 0.9 - roof) / spanH;
+      th = tw * 0.5;
     }
     tw *= z;
     th *= z;
-    plotH = span * th;
-    var ox = w / 2 + (cam.x || 0);
-    var oy = marginTop + Math.max(0, (h - marginTop - marginBot - plotH) * 0.46) + (cam.y || 0);
-    var horizon = Math.max(8, oy - th * 0.85);
+    var ox = w / 2 - ((x0 - y1) + (x1 - y0)) * tw / 4 + (cam.x || 0);
+    var oy = roof - (x0 + y0) * th / 2 + (cam.y || 0);
+    var horizon = Math.max(6, oy - th * 0.6);
     return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
   }
 
   function clampCamera(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
-    if (cam.z < 0.55) cam.z = 0.55;
+    if (cam.z < 0.62) cam.z = 0.62;
     if (cam.z > 2.2) cam.z = 2.2;
-    var limX = Math.max(36, w * 0.28);
-    var limY = Math.max(24, h * 0.16);
+    var limX = Math.max(70, w * 1.05);
+    var limY = Math.max(48, h * 0.7);
     if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
     if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
     if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
@@ -563,6 +562,36 @@ var DRAW = (function () {
     return { x: mid.x, y: tip.y, top: top, spec: spec };
   }
 
+  var stampCache = {};
+  function plantCanvas(file) {
+    if (stampCache[file]) return stampCache[file];
+    var src = img[file];
+    var spec = LOOK.plant && LOOK.plant[file];
+    if (!src || !spec) { stampCache[file] = null; return null; }
+    var c = document.createElement("canvas");
+    c.width = spec.w;
+    c.height = spec.h;
+    var g = c.getContext("2d");
+    g.drawImage(src, spec.x, spec.y, spec.w, spec.h, 0, 0, spec.w, spec.h);
+    stampCache[file] = c;
+    return c;
+  }
+
+  function drawPlants(ctx, file, b, o) {
+    var draw = LOOK.plantDraw && LOOK.plantDraw(file, o.tw);
+    var canvas = plantCanvas(file);
+    if (!draw || !canvas) return null;
+    var top = 1e9;
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = north(b.x + spot[0], b.y + spot[1], o);
+      ctx.drawImage(canvas, p.x - draw.dw / 2, p.y - draw.dh, draw.dw, draw.dh);
+      if (p.y - draw.dh < top) top = p.y - draw.dh;
+    }
+    return top;
+  }
+
   function barOver(ctx, x, y, w, progress, color) {
     ctx.save();
     ctx.fillStyle = "rgba(255,250,243,.92)";
@@ -914,7 +943,12 @@ var DRAW = (function () {
         queue.push({ y: front.y, draw: function () {
           ctx.save();
           if (dragging) ctx.globalAlpha = 0.85;
-          var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          var artFile = buildingFile(drawAt, now);
+          var drawn = drawSprite(ctx, drawAt.type === "bed" ? "bed_empty" : artFile, drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          if (drawAt.type === "bed" && artFile !== "bed_empty") {
+            var plantTop = drawPlants(ctx, artFile, drawAt, o);
+            if (plantTop !== null && plantTop < drawn.top) drawn.top = plantTop;
+          }
           ctx.restore();
           var ly = labelBand(drawn.top, h);
           var job = KHAYA.buildView(building);
@@ -1012,6 +1046,28 @@ var DRAW = (function () {
       ctx.fillRect(0, 0, w, h);
     }
     var pid;
+    for (pid in KHAYA.PLOTS) {
+      if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
+      var fence = KHAYA.PLOTS[pid];
+      var edge = corners(fence.x, fence.y, fence.w, fence.h, o);
+      ctx.save();
+      ctx.strokeStyle = "rgba(92, 58, 32, 0.72)";
+      ctx.lineWidth = Math.max(2, o.tw * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(edge.n.x, edge.n.y);
+      ctx.lineTo(edge.e.x, edge.e.y);
+      ctx.lineTo(edge.s.x, edge.s.y);
+      ctx.lineTo(edge.w.x, edge.w.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = "#6b4524";
+      var post;
+      var posts = [edge.n, edge.e, edge.s, edge.w];
+      for (post = 0; post < posts.length; post++) {
+        ctx.fillRect(posts[post].x - 2, posts[post].y - o.th * 0.18, 4, o.th * 0.22);
+      }
+      ctx.restore();
+    }
     for (pid in KHAYA.PLOTS) {
       if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
       var plot = KHAYA.PLOTS[pid];

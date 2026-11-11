@@ -132,6 +132,37 @@ var LOOK = {
     { id: "cow", route: [[9.5, 6.5], [10.5, 6.5], [10.5, 7.5], [9.5, 7.5]], speed: 12000 },
     { id: "goat", route: [[9.5, 2.5], [10.5, 2.5], [10.5, 3.5], [9.5, 3.5]], speed: 8600 }
   ],
+  // One clump cut from each crop sheet. Four of these sit inside the bed.
+  plantSpots: [[0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
+  plant: {
+    maize_sown: { x: 88, y: 36, w: 72, h: 52, kind: "sown" },
+    maize_growing: { x: 96, y: 18, w: 64, h: 70, kind: "grow" },
+    maize_ready: { x: 100, y: 6, w: 58, h: 78, kind: "ready" },
+    morogo_sown: { x: 90, y: 34, w: 70, h: 50, kind: "sown" },
+    morogo_growing: { x: 92, y: 22, w: 68, h: 58, kind: "grow" },
+    morogo_ready: { x: 88, y: 12, w: 72, h: 64, kind: "ready" },
+    morogo_ready_basket: { x: 86, y: 8, w: 76, h: 68, kind: "ready" },
+    pumpkin_sown: { x: 90, y: 36, w: 70, h: 52, kind: "sown" },
+    pumpkin_growing: { x: 88, y: 24, w: 74, h: 62, kind: "grow" },
+    pumpkin_fruiting: { x: 84, y: 16, w: 80, h: 70, kind: "ready" },
+    pumpkin_ready: { x: 82, y: 12, w: 84, h: 74, kind: "ready" },
+    aloe: { x: 40, y: 20, w: 110, h: 140, kind: "ready" }
+  },
+  stages: {
+    maize: ["maize_sown", "maize_growing", "maize_ready"],
+    morogo: ["morogo_sown", "morogo_growing", "morogo_ready_basket"],
+    pumpkin: ["pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"],
+    spinach: ["morogo_sown", "morogo_growing", "morogo_ready_basket"],
+    tomato: ["pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"],
+    aloe: ["aloe"]
+  },
+  px: {
+    bed_empty: [256, 167], home_l1: [400, 311], home_l2: [460, 376], home_l3: [560, 431],
+    spaza: [480, 389], workshop: [480, 397], rain_tank: [240, 327], solar_stand: [320, 436],
+    aloe: [190, 270], washing_line: [320, 323], wheelbarrow: [200, 198], soccer_goal: [280, 235],
+    braai_drum: [220, 277], potjie: [190, 201], imbawula: [130, 201], mielie_cart: [240, 329],
+    chicken_coop: [300, 315], pumpkin_patch: [300, 201], kraal: [420, 353], taxi: [360, 326]
+  },
   lineup: ["home_l1", "taxi", "tree_jacaranda", "tree_acacia", "aloe", "char_farmer", "char_kid", "animal_hen", "animal_dog", "animal_cow", "braai_drum", "potjie", "wheelbarrow"],
   first: [
     "tile_grass", "tile_dirt", "home_l1", "home_l2", "home_l3", "bed_empty",
@@ -144,6 +175,86 @@ var LOOK = {
     "washing_line", "wheelbarrow", "taxi",
     "neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"
   ]
+};
+
+LOOK.plantDraw = function (file, tw) {
+  var spec = LOOK.plant[file];
+  if (!spec) return null;
+  var capW = spec.kind === "sown" ? 0.10 : spec.kind === "grow" ? 0.13 : 0.15;
+  var capH = spec.kind === "sown" ? 0.08 : spec.kind === "grow" ? 0.11 : 0.13;
+  var dw = tw * capW;
+  var dh = dw * (spec.h / spec.w);
+  if (dh > tw * capH) {
+    dw *= (tw * capH) / dh;
+    dh = tw * capH;
+  }
+  return { dw: dw, dh: dh, spots: LOOK.plantSpots };
+};
+
+LOOK.overlapAudit = function (state, tw) {
+  tw = tw || 64;
+  var problems = [];
+  function at(x, y) {
+    return { x: (x - y) * tw / 2, y: (x + y) * tw / 4 };
+  }
+  function cellAt(sx, sy) {
+    var a = sx / (tw / 2);
+    var b = sy / (tw / 4);
+    return { x: Math.floor((a + b) / 2), y: Math.floor((b - a) / 2) };
+  }
+  function plantsOf(b, file) {
+    var draw = LOOK.plantDraw(file, tw);
+    if (!draw) return [];
+    var out = [];
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = at(b.x + spot[0], b.y + spot[1]);
+      out.push({
+        l: p.x - draw.dw / 2, t: p.y - draw.dh, r: p.x + draw.dw / 2, b: p.y,
+        who: file + " on " + b.x + "," + b.y, x: b.x, y: b.y
+      });
+    }
+    return out;
+  }
+  var beds = [];
+  var i, b, files, f, boxes, n, box, inset, corners, k, hit, a, c, ix, iy;
+  for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+  boxes = [];
+  for (i = 0; i < beds.length; i++) {
+    b = beds[i];
+    files = (LOOK.stages && LOOK.stages[b.crop || "maize"]) || ["maize_ready"];
+    if (!b.crop) files = ["maize_sown", "maize_growing", "maize_ready", "morogo_ready_basket", "pumpkin_ready"];
+    for (f = 0; f < files.length; f++) {
+      var added = plantsOf(b, files[f]);
+      for (n = 0; n < added.length; n++) {
+        box = added[n];
+        boxes.push(box);
+        inset = 3;
+        corners = [
+          [box.l + inset, box.t + inset],
+          [box.r - inset, box.t + inset],
+          [box.l + inset, box.b - inset],
+          [box.r - inset, box.b - inset]
+        ];
+        for (k = 0; k < corners.length; k++) {
+          hit = cellAt(corners[k][0], corners[k][1]);
+          if (hit.x !== b.x || hit.y !== b.y) {
+            problems.push(box.who + " spills onto " + hit.x + "," + hit.y);
+          }
+        }
+      }
+    }
+  }
+  for (a = 0; a < boxes.length; a++) {
+    for (c = a + 1; c < boxes.length; c++) {
+      if (boxes[a].x === boxes[c].x && boxes[a].y === boxes[c].y) continue;
+      ix = Math.min(boxes[a].r, boxes[c].r) - Math.max(boxes[a].l, boxes[c].l);
+      iy = Math.min(boxes[a].b, boxes[c].b) - Math.max(boxes[a].t, boxes[c].t);
+      if (ix > 4 && iy > 4) problems.push(boxes[a].who + " overlaps " + boxes[c].who + " by " + Math.round(ix) + "x" + Math.round(iy));
+    }
+  }
+  return { ok: problems.length === 0, problems: problems };
 };
 
 if (typeof module !== "undefined" && module.exports) module.exports = LOOK;

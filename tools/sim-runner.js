@@ -1,6 +1,7 @@
 // Rules for Khaya Lane. Run with: node tools/sim-runner.js
 var KHAYA = require("../src/00-logic.js");
 var LOOK = require("../src/05-catalog.js");
+global.LOOK = LOOK;
 var failed = 0;
 
 function eq(name, got, want) {
@@ -436,8 +437,8 @@ var freshAudit = KHAYA.layoutAudit(KHAYA.fresh(1000));
 truth("fresh yard has no overlap", freshAudit.ok);
 if (!freshAudit.ok) console.error(freshAudit.problems);
 
-eq("prop blocks a bed", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 5, 5).ok, false);
-eq("prop blocks the barrow cell", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 3, 4).ok, false);
+eq("prop blocks a bed", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 5, 7).ok, false);
+eq("prop blocks the barrow cell", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 1, 0).ok, false);
 
 function routeCells(entry) {
   var found = {};
@@ -490,26 +491,25 @@ for (ri = 0; ri < LOOK.cast.length; ri++) {
 var late = KHAYA.fresh(1e15);
 late.plots = { lane: 1, east: 1, south: 1, koppie: 1 };
 var latePlan = [
-  ["spaza", 5, 7, 1, 1],
-  ["workshop", 8, 4, 1, 1],
-  ["tank", 8, 5, 1, 1],
-  ["solar", 8, 1, 1, 1],
-  ["bed", 2, 7, 1, 1],
-  ["bed", 4, 7, 1, 1],
-  ["bed", 0, 7, 1, 1],
-  ["bed", 5, 6, 1, 1],
-  ["bed", 5, 2, 1, 1],
-  ["braai", 1, 0, 1, 1],
-  ["potjie", 1, 7, 1, 1],
-  ["coop", 8, 2, 1, 1],
-  ["kraal", 10, 4, 2, 2],
-  ["aloe_clump", 8, 3, 1, 1],
-  ["patch", 13, 2, 1, 1],
-  ["imbawula", 8, 7, 1, 1],
-  ["mielie", 12, 6, 1, 1],
-  ["palisade", 14, 2, 1, 1],
-  ["barrow", 13, 4, 1, 1],
-  ["wash", 13, 6, 1, 1]
+  ["bed", 0, 6, 1, 1],
+  ["bed", 1, 9, 1, 1],
+  ["bed", 4, 11, 1, 1],
+  ["bed", 6, 13, 1, 1],
+  ["spaza", 8, 0, 1, 1],
+  ["workshop", 15, 1, 1, 1],
+  ["tank", 15, 7, 1, 1],
+  ["solar", 0, 13, 1, 1],
+  ["kraal", 11, 3, 2, 2],
+  ["coop", 11, 8, 1, 1],
+  ["patch", 8, 10, 1, 1],
+  ["braai", 2, 8, 1, 1],
+  ["potjie", 6, 8, 1, 1],
+  ["aloe_clump", 3, 9, 1, 1],
+  ["imbawula", 9, 8, 1, 1],
+  ["mielie", 14, 10, 1, 1],
+  ["palisade", 8, 12, 1, 1],
+  ["barrow", 11, 12, 1, 1],
+  ["wash", 14, 12, 1, 1]
 ];
 var lp;
 for (lp = 0; lp < latePlan.length; lp++) {

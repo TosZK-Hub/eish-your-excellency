@@ -12,20 +12,22 @@ var KHAYA = (function () {
   var STACK_CAP = 99;
   var PACE = 2;
 
+  // One path in the lane: gate, taxi, alongside the house, then the beds.
+  // Locked yards are grass. A fence and a price mark them, not stray tiles.
   var MAP = [
-    "tggggggtggpggggt",
+    "tggggggtgggggggt",
     "gggggggggggggggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ppppggggppppgggg",
-    "gggggggggggggggg",
-    "ggggpgggtggggggg",
+    "ggggppgggggggggg",
     "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "gppppggggggggggg",
+    "ggppgggggggggggg",
+    "ggggggggtggggggg",
+    "gggggggggggggggg",
     "gggggggggggggggt",
     "gggggggggggggggg",
-    "ppppggggggggpggg",
+    "gggggggggggggggg",
     "gggggggggggggggg"
   ];
 
@@ -204,8 +206,8 @@ var KHAYA = (function () {
 
   // Whole-cell yard props. The taxi parks on the path; the others sit on open grass.
   var PROPS = [
-    { id: "wash", file: "washing_line", x: 5, y: 5, w: 1, h: 1 },
-    { id: "barrow", file: "wheelbarrow", x: 3, y: 4, w: 1, h: 1 },
+    { id: "wash", file: "washing_line", x: 5, y: 7, w: 1, h: 1 },
+    { id: "barrow", file: "wheelbarrow", x: 1, y: 0, w: 1, h: 1 },
     { id: "taxi", file: "taxi", x: 1, y: 6, w: 2, h: 1 }
   ];
 
@@ -264,6 +266,21 @@ var KHAYA = (function () {
       p = PROPS[i];
       cells = footprint(p);
       for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], "prop:" + p.id, p.id === "taxi");
+    }
+    var beds = [];
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+    var j, gap;
+    for (i = 0; i < beds.length; i++) {
+      for (j = i + 1; j < beds.length; j++) {
+        gap = Math.max(Math.abs(beds[i].x - beds[j].x), Math.abs(beds[i].y - beds[j].y));
+        if (gap < 2) problems.push("beds at " + beds[i].x + "," + beds[i].y + " and " + beds[j].x + "," + beds[j].y + " need a tile between them");
+      }
+    }
+    var lookRef = typeof LOOK !== "undefined" ? LOOK : (typeof global !== "undefined" ? global.LOOK : null);
+    if (lookRef && lookRef.overlapAudit) {
+      var pix = lookRef.overlapAudit(state, 64);
+      var n;
+      for (n = 0; n < pix.problems.length; n++) problems.push(pix.problems[n]);
     }
     return { ok: problems.length === 0, problems: problems };
   }
@@ -352,7 +369,7 @@ var KHAYA = (function () {
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
         { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - Math.round(CROPS.maize.grow * 0.6) : now, growFor: CROPS.maize.grow },
-        { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
+        { id: 4, type: "bed", x: 7, y: 6, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
   }
