@@ -1,6 +1,6 @@
 /* Service worker for My Tokoloshe.
    Scope is the folder this file lives in (/tokoloshe/ when the repo is served from root). */
-const CACHE = 'my-tokoloshe-v1';
+const CACHE = 'my-tokoloshe-v2';
 const ASSETS = [
   './',
   './index.html',

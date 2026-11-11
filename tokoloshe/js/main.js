@@ -95,6 +95,12 @@
     sleepPaid: false,
     pooIn: 58,
     lookX: 0,
+    lookY: 0,
+    taste: null,
+    tasteT: 0,
+    pop: 0,
+    mischief: null,
+    mischiefIn: 8,
     pointer: null,
     saveIn: 2,
     greeted: false,
@@ -126,7 +132,7 @@
 
   function renderHud() {
     coinNum.textContent = String(data.coins);
-    lvlEl.textContent = 'Lv ' + data.level;
+    lvlEl.textContent = 'Lv ' + data.level + (data.streak ? ' · ' + data.streak + 'd' : '');
     const need = T.xpNeed(data.level);
     xpbar.style.width = Math.max(0, Math.min(100, (data.xp / need) * 100)) + '%';
     ['hunger', 'clean', 'energy', 'fun'].forEach((key) => {
@@ -204,6 +210,19 @@
       eyes = 'happy';
       armR = -2.35;
     }
+    if (session.taste === 'yum') {
+      mouth = 'yum';
+      eyes = 'happy';
+      blush = 0.9;
+    } else if (session.taste === 'yuck') {
+      mouth = 'yuck';
+      eyes = 'open';
+      brow = 'worry';
+    }
+    if (data.fun < 36 && data.energy >= 34 && data.hunger >= 36 && !session.sleeping) {
+      session.lid = 0.35;
+      mouth = mouth === 'grin' ? 'small' : mouth;
+    }
     if (session.scrubbing && room === 'bath') {
       armR = 0.4 + Math.sin(session.t * 16) * 0.45;
     }
@@ -239,10 +258,13 @@
       hold: hold,
       shy: session.shy > 0,
       shake: !reduced && session.giggle > 0 ? 1.4 : 0,
-      squash: session.eat > 0 ? Math.sin(session.eat * 16) * 0.05 : 0,
+      squash: (session.pop || 0) + (session.eat > 0 ? Math.sin(session.eat * 16) * 0.06 : 0),
       lookX: session.lookX,
+      lookY: session.lookY || 0,
       lid: session.lid || 0,
-      lean: 0,
+      lean: session.mischief && session.mischief.type === 'peek' ? 0.22 : 0,
+      crouch: !!(session.mischief && session.mischief.type === 'hide'),
+      chew: session.eat > 0,
       leg: session.t * 8
     });
   }
@@ -253,7 +275,7 @@
       bath: 'Rub me soapy, then rinse. Tap a poo, or use the scoop.',
       stoep: 'Lamp to sleep. Tickle me. Peek under the bed. The wall box drops the lights.',
       shop: 'Wardrobe shop. You have ' + data.coins + ' coins.',
-      play: 'Three short games. Coins, no drama.'
+      play: 'Four short games. Spend coins on boosts.'
     };
     hint.textContent = hints[room] || '';
     if (room === 'kitchen') {
@@ -291,25 +313,44 @@
           '<span class="ico">' + (T.icons.items[item.id] || '') + '</span>' +
           '<span class="nm">' + item.name + '</span>' +
           '<span class="meta ' + metaClass + '">' + meta + '</span></button>';
+      }).join('') + '</div><div class="grid3" style="margin-top:6px">' + T.decor.map((item) => {
+        const owned = data.decorOwned.indexOf(item.id) !== -1;
+        const on = owned && data.decorOn[item.id];
+        const locked = data.level < item.level;
+        const meta = locked ? 'Lv ' + item.level : owned ? (on ? 'In the room' : 'Put it out') : item.price + ' coins';
+        return '<button type="button" class="item' + (on ? ' worn' : '') + (locked ? ' locked' : '') + '" data-decor="' + item.id + '"><span class="nm">' + item.name + '</span><span class="meta">' + meta + '</span></button>';
       }).join('') + '</div>';
-      trayBody.querySelectorAll('.item').forEach((btn) => {
+      trayBody.querySelectorAll('.item[data-item]').forEach((btn) => {
         btn.addEventListener('click', () => onItem(btn.dataset.item));
+      });
+      trayBody.querySelectorAll('[data-decor]').forEach((btn) => {
+        btn.addEventListener('click', () => onDecor(btn.dataset.decor));
       });
     } else if (room === 'play') {
       const cards = [
-        ['hop', 'Hadeda Hop', 'Flap through washing lines and power lines.', '#d9f3c4'],
-        ['taxi', 'Taxi Dodge', 'Drag to miss taxis and goats. Grab coins.', '#f6e2a8'],
-        ['mielie', 'Mielie Catch', 'Catch snacks in the potjie. Dodge chillies.', '#f8d0c4']
+        ['hop', 'Hadeda Hop', 'Flap the lines.', '#d9f3c4'],
+        ['taxi', 'Taxi Dodge', 'Dodge taxis and goats.', '#f6e2a8'],
+        ['mielie', 'Mielie Catch', 'Catch snacks, not chillies.', '#f8d0c4'],
+        ['braai', 'Braai Flip', 'Tap the wors in the glow.', '#f3c7a4']
       ];
-      trayBody.innerHTML = '<div class="cards">' + cards.map((card) => {
+      const marks = { hop: '🐦', taxi: '🚕', mielie: '🌽', braai: '🔥' };
+      const boostRow = '<div class="boosts">' + T.boosts.map((boost) => {
+        const lv = data.upgrades[boost.id] || 0;
+        const meta = lv >= boost.max ? 'Max' : (boost.price * (lv + 1)) + ' coins';
+        return '<button type="button" class="tool" data-boost="' + boost.id + '"><span class="nm">' + boost.name + '</span><span class="meta">Lv ' + lv + ' · ' + meta + '</span></button>';
+      }).join('') + '</div>';
+      trayBody.innerHTML = boostRow + '<div class="cards">' + cards.map((card) => {
         return '<button type="button" class="card" data-game="' + card[0] + '">' +
-          '<span class="mark" style="background:' + card[3] + '">' + (card[0] === 'hop' ? '🐦' : card[0] === 'taxi' ? '🚕' : '🌽') + '</span>' +
+          '<span class="mark" style="background:' + card[3] + '">' + marks[card[0]] + '</span>' +
           '<span class="copy"><b>' + card[1] + '</b><span>' + card[2] + '</span>' +
           '<span class="best">Best ' + (data.best[card[0]] || 0) + '</span></span>' +
           '<span class="playpill">Play</span></button>';
       }).join('') + '</div>';
       trayBody.querySelectorAll('.card').forEach((btn) => {
         btn.addEventListener('click', () => startGame(btn.dataset.game));
+      });
+      trayBody.querySelectorAll('[data-boost]').forEach((btn) => {
+        btn.addEventListener('click', () => onBoost(btn.dataset.boost));
       });
     } else {
       trayBody.innerHTML = '';
@@ -386,6 +427,7 @@
     if (reward) data.coins = Math.min(9999, data.coins + 1);
     const levels = T.state.addXp(food.xp);
     session.eat = 0.8;
+    grant('fed', 'Achievement: first bite');
     T.audio.munch();
     say(food.sweet ? pick(lines.eatSweet) : pick(lines.eatGood));
     floaters.push({ text: '+' + food.hunger, x: anchors.mouth.x, y: anchors.mouth.y, life: 0.9, color: '#d4652f' });
@@ -417,6 +459,7 @@
       onLevel(T.state.addXp(10));
     }
     T.audio.splash();
+    grant('bath', 'Achievement: squeaky clean');
     say(pick(lines.clean));
     const hx = anchors.head ? anchors.head.x : W / 2;
     const hy = anchors.head ? anchors.head.y : 70;
@@ -513,6 +556,61 @@
     session.lampOn = false;
     say(pick(lines.shed));
     T.audio.flicker();
+  }
+
+  function grant(id, label) {
+    if (!data.achievements) data.achievements = [];
+    if (data.achievements.indexOf(id) !== -1) return;
+    data.achievements.push(id);
+    toast(label);
+  }
+
+  function onDecor(id) {
+    const item = T.decor.find((entry) => entry.id === id);
+    if (!item) return;
+    T.audio.unlock();
+    if (data.level < item.level) {
+      say('Level ' + item.level + ' for that. Almost!');
+      return;
+    }
+    if (data.decorOwned.indexOf(id) === -1) {
+      if (data.coins < item.price) {
+        say(pick(lines.poor));
+        return;
+      }
+      data.coins -= item.price;
+      data.decorOwned.push(id);
+      data.decorOn[id] = true;
+      say('Lekker, ' + item.name + ' is in.');
+      T.audio.coin();
+    } else {
+      data.decorOn[id] = !data.decorOn[id];
+      say(data.decorOn[id] ? 'Out it goes.' : 'Tucked away.');
+    }
+    bumpSave();
+    renderTray();
+  }
+
+  function onBoost(id) {
+    const boost = T.boosts.find((entry) => entry.id === id);
+    if (!boost) return;
+    const lv = data.upgrades[id] || 0;
+    if (lv >= boost.max) {
+      say('That one is maxed. Sharp.');
+      return;
+    }
+    const price = boost.price * (lv + 1);
+    if (data.coins < price) {
+      say(pick(lines.poor));
+      return;
+    }
+    data.coins -= price;
+    data.upgrades[id] = lv + 1;
+    say(boost.name + ', level ' + (lv + 1) + '.');
+    T.audio.coin();
+    grant('boost', 'Achievement: first boost');
+    bumpSave();
+    renderTray();
   }
 
   function onItem(id) {
@@ -659,14 +757,17 @@
     if (id === 'lamp') { toggleSleep(); return; }
     if (id === 'power') { triggerShed(); return; }
     if (id === 'under') { toggleHide(); return; }
-    if (id === 'jars') {
+    if (id === 'jar-salt' || id === 'jar-sugar' || id === 'jars') {
       data.saltSwapped = !data.saltSwapped;
+      session.taste = id === 'jar-sugar' ? 'yum' : 'yuck';
+      session.tasteT = 1.25;
       data.fun = T.clamp(data.fun + 3, 0, 100);
-      say(data.saltSwapped ? 'Hehe. I swapped the labels.' : 'Ag, you fixed it.');
+      say(session.taste === 'yum' ? 'Lekker, that is sugar!' : 'Yoh, salt! Yuck.');
       bumpSave();
       return;
     }
     if (id === 'pet') {
+      session.pop = 0.12;
       if (room === 'stoep') {
         if (session.hiding) toggleHide();
         else if (session.sleeping) toggleSleep();
@@ -732,6 +833,25 @@
       if (toastTimer <= 0) toastEl.hidden = true;
     }
     if (session.eat > 0) session.eat -= dt;
+    if (session.pop > 0) session.pop = Math.max(0, session.pop - dt * 0.35);
+    if (session.tasteT > 0) {
+      session.tasteT -= dt;
+      if (session.tasteT <= 0) session.taste = null;
+    }
+    if (!session.mischief && session.mischiefIn != null) {
+      session.mischiefIn -= dt;
+      if (session.mischiefIn <= 0 && !session.sleeping && session.shedding <= 0) {
+        const kinds = ['peek', 'giggle', 'hide'];
+        const type = kinds[Math.floor(Math.random() * kinds.length)];
+        session.mischief = { type: type, t: 0 };
+        session.mischiefIn = 16 + Math.random() * 10;
+        if (type === 'giggle') session.giggle = 0.8;
+      }
+    }
+    if (session.mischief) {
+      session.mischief.t += dt;
+      if (session.mischief.t > 1.5) session.mischief = null;
+    }
     if (session.giggle > 0) session.giggle -= dt;
     if (session.rinsing > 0) session.rinsing -= dt;
     if (session.shy > 0) session.shy = Math.max(0, session.shy - dt);
@@ -770,9 +890,12 @@
     }
     if (anchors.head && session.pointer) {
       const target = T.clamp((session.pointer.x - anchors.head.x) / 70, -2.4, 2.4);
+      const targetY = T.clamp((session.pointer.y - anchors.head.y) / 80, -2, 2);
       session.lookX += (target - session.lookX) * Math.min(1, dt * 8);
+      session.lookY += (targetY - session.lookY) * Math.min(1, dt * 8);
     } else {
       session.lookX += (0 - session.lookX) * Math.min(1, dt * 4);
+      session.lookY += (0 - session.lookY) * Math.min(1, dt * 4);
     }
 
     if (app.dataset.mode === 'live') {
@@ -844,7 +967,8 @@
       shedding: session.shedding,
       prank: session.prank,
       dragging: session.dragging,
-      lampOn: session.lampOn
+      lampOn: session.lampOn,
+      decor: data.decorOn
     };
     T.draw.frame(ctx, W, H, env);
     particles.forEach((p) => {
@@ -943,6 +1067,7 @@
     document.getElementById('go-coins').textContent = String(result.coins);
     gameover.hidden = false;
     if (result.coins) T.audio.coin();
+    grant('played', 'Achievement: first game');
     bumpSave();
   };
 
@@ -991,7 +1116,13 @@
     T.audio.unlock();
     if (currentModal && currentModal.id === 'intro') data.seenIntro = true;
     if (currentModal && currentModal.id === 'gift') {
+      const prev = data.lastGift;
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const ykey = y.getFullYear() + '-' + (y.getMonth() + 1) + '-' + y.getDate();
+      data.streak = prev === ykey ? (data.streak || 0) + 1 : 1;
       data.lastGift = T.todayKey();
+      if (data.streak >= 2) grant('streak', 'Achievement: ' + data.streak + ' day streak');
       data.coins = Math.min(9999, data.coins + 30);
       data.hunger = T.clamp(data.hunger + 14, 0, 100);
       T.audio.chime();

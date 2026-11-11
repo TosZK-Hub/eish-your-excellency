@@ -14,7 +14,22 @@
     { id: 'apron', name: 'Braai apron', slot: 'top', price: 40, level: 3 },
     { id: 'beads', name: 'Lucky beads', slot: 'charm', price: 35, level: 3 },
     { id: 'vellies', name: 'Vellies', slot: 'shoes', price: 35, level: 3 },
-    { id: 'pebble', name: 'Pebble charm', slot: 'charm', price: 40, level: 4 }
+    { id: 'pebble', name: 'Pebble charm', slot: 'charm', price: 40, level: 4 },
+    { id: 'doek', name: 'Doek', slot: 'hat', price: 30, level: 2 },
+    { id: 'scarf', name: 'Supporter scarf', slot: 'neck', price: 30, level: 2 },
+    { id: 'vuvu', name: 'Vuvuzela', slot: 'extra', price: 25, level: 1 }
+  ];
+
+  const DECOR = [
+    { id: 'kettle', name: 'Kettle', price: 20, level: 1 },
+    { id: 'hadeda', name: 'Hadeda visitor', price: 15, level: 1 },
+    { id: 'braai', name: 'Braai stand', price: 35, level: 2 }
+  ];
+
+  const BOOSTS = [
+    { id: 'magnet', name: 'Coin magnet', max: 3, price: 30 },
+    { id: 'shield', name: 'Soft shield', max: 2, price: 40 },
+    { id: 'heart', name: 'Extra life', max: 2, price: 35 }
   ];
 
   const FOODS = [
@@ -38,8 +53,13 @@
       xp: 0,
       level: 1,
       owned: [],
-      worn: { hat: null, top: null, shoes: null, face: null, charm: null },
-      best: { hop: 0, taxi: 0, mielie: 0 },
+      worn: { hat: null, top: null, shoes: null, face: null, charm: null, neck: null, extra: null },
+      best: { hop: 0, taxi: 0, mielie: 0, braai: 0 },
+      upgrades: { magnet: 0, shield: 0, heart: 0 },
+      decorOwned: ['kettle'],
+      decorOn: { kettle: true, hadeda: false, braai: false },
+      achievements: [],
+      streak: 0,
       lastGift: null,
       seenIntro: false,
       poos: [0],
@@ -81,17 +101,28 @@
         if (item && d.owned.indexOf(id) !== -1) d.worn[slot] = id;
       });
     }
-    d.best = {
-      hop: 0,
-      taxi: 0,
-      mielie: 0
-    };
+    d.best = { hop: 0, taxi: 0, mielie: 0, braai: 0 };
     if (p.best && typeof p.best === 'object') {
-      ['hop', 'taxi', 'mielie'].forEach((key) => {
+      ['hop', 'taxi', 'mielie', 'braai'].forEach((key) => {
         const n = Number(p.best[key]);
         if (Number.isFinite(n)) d.best[key] = Math.max(0, Math.min(99999, Math.floor(n)));
       });
     }
+    if (p.upgrades && typeof p.upgrades === 'object') {
+      ['magnet', 'shield', 'heart'].forEach((key) => {
+        const n = Number(p.upgrades[key]);
+        if (Number.isFinite(n)) d.upgrades[key] = Math.max(0, Math.min(3, Math.floor(n)));
+      });
+    }
+    d.decorOwned = Array.isArray(p.decorOwned) ? p.decorOwned.filter((id) => DECOR.some((item) => item.id === id)) : ['kettle'];
+    if (!d.decorOwned.length) d.decorOwned = ['kettle'];
+    if (p.decorOn && typeof p.decorOn === 'object') {
+      DECOR.forEach((item) => {
+        if (d.decorOwned.indexOf(item.id) !== -1) d.decorOn[item.id] = !!p.decorOn[item.id];
+      });
+    }
+    d.achievements = Array.isArray(p.achievements) ? p.achievements.filter((id) => typeof id === 'string').slice(0, 24) : [];
+    d.streak = Math.max(0, Math.min(999, Math.floor(num(p, 'streak', 0, 999, 0))));
     if (Array.isArray(p.poos)) {
       d.poos = p.poos.filter((n) => n === 0 || n === 1 || n === 2).slice(0, 3);
     } else if (typeof p.poos === 'number') {
@@ -154,6 +185,8 @@
     return Math.max(a, Math.min(b, v));
   };
   T.items = ITEMS;
+  T.decor = DECOR;
+  T.boosts = BOOSTS;
   T.foods = FOODS;
   T.xpNeed = xpNeed;
   T.todayKey = todayKey;

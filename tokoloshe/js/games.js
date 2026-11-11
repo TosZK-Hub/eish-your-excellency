@@ -32,6 +32,9 @@
     if (g.kind === 'taxi') {
       view.extraLabel = 'lives';
       view.extra = g.lives;
+    } else if (g.combo > 1) {
+      view.extraLabel = 'combo';
+      view.extra = g.combo;
     } else {
       view.extraLabel = 'best';
       view.extra = g.best;
@@ -44,22 +47,28 @@
     let xp = 12;
     let title = 'Lekker';
     let body = '';
+    const boost = 1 + Math.min(g.bestCombo || g.combo || 0, 8) * 0.1;
     if (g.kind === 'hop') {
-      coins = g.score * 2;
+      coins = Math.round(g.score * 2 * boost);
       xp = Math.min(36, 12 + g.score);
       if (reason === 'crash') title = 'Eish, clipped it';
       else if (reason === 'clear') title = 'Lekker landing';
       else title = 'Sharp, that is enough';
     } else if (g.kind === 'taxi') {
-      coins = g.coins;
+      coins = Math.round(g.coins * boost);
       if (g.coins === 0 && g.elapsed > 8) coins = 1;
       xp = Math.min(36, 12 + g.coins * 2);
       title = reason === 'lives' ? 'Ag, the street won' : 'Lekker dodging';
-    } else {
+    } else if (g.kind === 'mielie') {
       const raw = Math.max(0, g.catches - g.chillies);
-      coins = g.catches > 0 ? Math.max(1, raw) : 0;
+      coins = g.catches > 0 ? Math.max(1, Math.round(raw * boost)) : 0;
       xp = Math.min(36, 12 + g.catches);
       title = 'Potjie time';
+    } else {
+      coins = Math.round((g.perfect || 0) * boost) + Math.floor((g.ok || 0) * 0.5);
+      xp = Math.min(36, 12 + (g.perfect || 0));
+      title = 'Lekker braai';
+      g.score = g.perfect || 0;
     }
     if (reason === 'back' && g.kind !== 'hop') title = 'Sharp, that is enough';
     const bestKey = g.kind;
@@ -208,6 +217,82 @@
       lean: clamp(-g.vy / 900, -0.35, 0.4)
     });
     T.draw.pet(ctx, g.px, g.y + 50 * scale, scale, anim);
+    if (g.near > 0) {
+      ctx.fillStyle = '#d4652f';
+      ctx.font = '800 16px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Close!', g.px, g.y - 36);
+    }
+  }
+
+  function drawBraai(ctx, w, h) {
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, '#f8e2cf');
+    sky.addColorStop(1, '#e7b184');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, w, h);
+    const gy = h * 0.58;
+    T.draw.box(ctx, 20, gy, w - 40, 22, 6, '#3a3330');
+    T.draw.box(ctx, 28, gy + 26, w - 56, 10, 3, '#f0a040');
+    ctx.strokeStyle = 'rgba(255,244,210,.95)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(w * 0.42, gy - 18, w * 0.16, 28);
+    (g.bits || []).forEach((bit) => {
+      if (bit.done) return;
+      T.draw.box(ctx, bit.x - 18, gy - 8, 36, 14, 6, '#c46a45');
+      T.draw.box(ctx, bit.x - 14, gy - 5, 28, 4, 2, '#8a4030');
+    });
+    if (g.near > 0) {
+      ctx.fillStyle = '#d4652f';
+      ctx.font = '800 16px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Close!', w * 0.5, gy - 36);
+    }
+  }
+
+  function updateBraai(dt, w) {
+    if (!g.started || g.over) return;
+    g.elapsed += dt;
+    if (g.near > 0) g.near -= dt;
+    const speed = 80 + Math.min(160, g.elapsed * 5 + (g.perfect || 0) * 2);
+    g.spawn -= dt;
+    if (g.spawn <= 0) {
+      g.bits.push({ x: -24, done: false });
+      g.spawn = Math.max(0.42, 0.95 - g.elapsed * 0.01);
+    }
+    g.bits.forEach((bit) => {
+      if (!bit.done) bit.x += speed * dt;
+    });
+    g.bits = g.bits.filter((bit) => !bit.done && bit.x < w + 30);
+    if (g.elapsed >= g.dur) finish('clear');
+  }
+
+  function tapBraai(w) {
+    g.started = true;
+    let best = null;
+    let bestD = 999;
+    (g.bits || []).forEach((bit) => {
+      if (bit.done) return;
+      const d = Math.abs(bit.x - w * 0.5);
+      if (d < bestD) {
+        best = bit;
+        bestD = d;
+      }
+    });
+    if (!best || bestD > w * 0.22) return;
+    best.done = true;
+    if (bestD < w * 0.07) {
+      g.perfect += 1;
+      g.combo += 1;
+      g.bestCombo = Math.max(g.bestCombo, g.combo);
+      T.audio.coin();
+    } else {
+      g.ok += 1;
+      g.near = 0.35;
+      g.combo = 0;
+      T.audio.blip();
+    }
+    g.score = g.perfect;
   }
 
   function updateHop(dt, w, h) {
@@ -223,6 +308,8 @@
     const scale = clamp(h / 700, 0.48, 0.66);
     const top = 24 + 88 * scale;
     const bot = h - 28;
+    if (g.invuln > 0) g.invuln -= dt;
+    if (g.near > 0) g.near -= dt;
     if (g.y < top) {
       g.y = top;
       g.vy = 20;
@@ -239,14 +326,34 @@
       if (!o.passed && o.x + o.w < g.px - 8) {
         o.passed = true;
         g.score += 1;
+        g.combo = (g.combo || 0) + 1;
+        g.bestCombo = Math.max(g.bestCombo || 0, g.combo);
         T.audio.coin();
       }
       const r = 12;
       const inset = 14;
-      if (hits(g.px, g.y, r, o.x + inset, 0, o.w - inset * 2, o.gapY - 6) ||
-          hits(g.px, g.y, r, o.x + inset, o.gapY + o.gapH + 6, o.w - inset * 2, h)) {
-        g.shake = 0.35;
-        finish('crash');
+      const hitTop = hits(g.px, g.y, r, o.x + inset, 0, o.w - inset * 2, o.gapY - 6);
+      const hitBot = hits(g.px, g.y, r, o.x + inset, o.gapY + o.gapH + 6, o.w - inset * 2, h);
+      if ((hitTop || hitBot) && g.invuln <= 0) {
+        if (g.shieldLeft > 0) {
+          g.shieldLeft -= 1;
+          g.invuln = 0.9;
+          g.shake = 0.25;
+          g.combo = 0;
+          T.audio.hit();
+        } else {
+          g.shake = 0.35;
+          g.combo = 0;
+          finish('crash');
+        }
+      } else if (!o.grazed && o.x < g.px && o.x + o.w > g.px) {
+        const edge = Math.min(Math.abs(g.y - o.gapY), Math.abs(g.y - (o.gapY + o.gapH)));
+        if (edge < 28) {
+          o.grazed = true;
+          g.combo += 1;
+          g.bestCombo = Math.max(g.bestCombo, g.combo);
+          g.near = 0.4;
+        }
       }
     });
     if (g.over) return;
@@ -311,7 +418,7 @@
       kind: kind,
       x: x,
       y: -40,
-      vy: kind === 'goat' ? 150 : kind === 'coin' ? 170 : 200 + Math.random() * 40,
+      vy: (kind === 'goat' ? 150 : kind === 'coin' ? 170 : 200 + Math.random() * 40) + Math.min(120, (g.elapsed || 0) * 6),
       hw: size.w,
       hh: size.h
     });
@@ -333,14 +440,20 @@
     g.ents.forEach((ent) => { ent.y += ent.vy * dt; });
     g.ents = g.ents.filter((ent) => ent.y < h + 60);
     if (g.invuln > 0) g.invuln -= dt;
+    const magnet = (T.state.data.upgrades && T.state.data.upgrades.magnet) || 0;
     g.ents.forEach((ent) => {
       if (g.over || ent.y > h + 40) return;
+      if (magnet && ent.kind === 'coin' && Math.abs(ent.x - g.px) < 30 + magnet * 34 && ent.y > h * 0.3) {
+        ent.x += (g.px - ent.x) * Math.min(1, dt * (1.5 + magnet));
+      }
       const hit = Math.abs(ent.x - g.px) < (ent.hw + 28 * scale) * 0.45 &&
         Math.abs(ent.y - bodyY) < (ent.hh + 36 * scale) * 0.42;
       if (!hit) return;
       if (ent.kind === 'coin') {
         ent.y = h + 80;
         g.coins += 1;
+        g.combo = (g.combo || 0) + 1;
+        g.bestCombo = Math.max(g.bestCombo || 0, g.combo);
         g.score = g.coins * 10 + Math.floor(g.elapsed);
         T.audio.coin();
         return;
@@ -386,7 +499,7 @@
         vy: 150 + Math.random() * 70,
         rot: Math.random() * 3
       });
-      g.spawn = 0.52;
+      g.spawn = Math.max(0.32, 0.55 - g.elapsed * 0.006);
     }
     const mouth = h - 48;
     g.items.forEach((item) => {
@@ -416,6 +529,7 @@
       g = {
         kind: 'hop', t: 0, elapsed: 0, dur: 48, started: false, over: false, settled: false,
         score: 0, y: h * 0.46, vy: 0, px: w * 0.28, obs: [], best: best, shake: 0,
+        combo: 0, bestCombo: 0, shieldLeft: (T.state.data.upgrades && T.state.data.upgrades.shield) || 0, invuln: 0, near: 0,
         banner: 'Tap to flap', reason: ''
       };
       let x = Math.round(w * 0.72);
@@ -428,13 +542,21 @@
     } else if (kind === 'taxi') {
       g = {
         kind: 'taxi', t: 0, elapsed: 0, dur: 42, started: false, over: false, settled: false,
-        score: 0, coins: 0, lives: 3, px: w / 2, ents: [], spawn: 0.4, best: best,
+        score: 0, coins: 0, lives: 3 + ((T.state.data.upgrades && T.state.data.upgrades.heart) || 0), px: w / 2, ents: [], spawn: 0.4, best: best,
+        combo: 0, bestCombo: 0,
         shake: 0, invuln: 0, banner: 'Drag left and right', scroll: 0, lastX: w / 2, reason: ''
+      };
+    } else if (kind === 'braai') {
+      g = {
+        kind: 'braai', t: 0, elapsed: 0, dur: 45, started: false, over: false, settled: false,
+        score: 0, perfect: 0, ok: 0, px: w / 2, bits: [], spawn: 0.4, best: best,
+        combo: 0, bestCombo: 0, near: 0, shake: 0, banner: 'Tap in the glow', reason: ''
       };
     } else {
       g = {
         kind: 'mielie', t: 0, elapsed: 0, dur: 40, started: false, over: false, settled: false,
         score: 0, catches: 0, chillies: 0, px: w / 2, items: [], spawn: 0.35, best: best,
+        combo: 0, bestCombo: 0,
         shake: 0, banner: 'Catch the snacks', reason: ''
       };
     }
@@ -464,11 +586,13 @@
     },
     update: function (dt, w, h) {
       if (!g) return;
+      g.viewW = w;
       g.t += dt;
       if (g.shake > 0) g.shake = Math.max(0, g.shake - dt);
       if (!g.over) {
         if (g.kind === 'hop') updateHop(dt, w, h);
         else if (g.kind === 'taxi') updateTaxi(dt, w, h);
+        else if (g.kind === 'braai') updateBraai(dt, w);
         else updateMielie(dt, w, h);
       }
       syncView();
@@ -479,6 +603,7 @@
       if (g.shake > 0 && !reduced) ctx.translate(Math.sin(g.t * 42) * g.shake * 8, 0);
       if (g.kind === 'hop') drawHop(ctx, w, h);
       else if (g.kind === 'taxi') drawTaxiGame(ctx, w, h);
+      else if (g.kind === 'braai') drawBraai(ctx, w, h);
       else drawMielie(ctx, w, h);
       ctx.restore();
     },
@@ -489,6 +614,11 @@
         g.started = true;
         g.vy = -340;
         T.audio.flap();
+        return;
+      }
+      if (g.kind === 'braai') {
+        if (type !== 'down') return;
+        tapBraai(g.viewW || 360);
         return;
       }
       g.px = x;

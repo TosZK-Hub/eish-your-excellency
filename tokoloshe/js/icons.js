@@ -81,7 +81,10 @@
     takkies: svg('<ellipse cx="24" cy="42" rx="12" ry="7" fill="#f7f4ef"/><ellipse cx="44" cy="42" rx="12" ry="7" fill="#f7f4ef"/><path d="M14 40h18M34 40h18" stroke="#2a6f7f" stroke-width="3"/><rect x="28" y="30" width="6" height="8" rx="2" fill="#d4652f"/><rect x="46" y="30" width="6" height="8" rx="2" fill="#d4652f"/>'),
     shades: svg('<circle cx="22" cy="32" r="10" fill="#243038"/><circle cx="42" cy="32" r="10" fill="#243038"/><path d="M32 32h0" stroke="#e6b341" stroke-width="3"/><path d="M12 32h2M50 32h2" stroke="#e6b341" stroke-width="3" stroke-linecap="round"/><circle cx="18" cy="28" r="2" fill="#fff" opacity=".4"/>'),
     beads: svg('<path d="M12 36c8 10 32 10 40 0" stroke="#e6d2c0" stroke-width="2" fill="none"/><circle cx="18" cy="34" r="4" fill="#e07a3d"/><circle cx="28" cy="40" r="4" fill="#2a6f7f"/><circle cx="38" cy="40" r="4" fill="#e6b341"/><circle cx="48" cy="34" r="4" fill="#f4efe6" stroke="#e2d3bf"/>'),
-    pebble: svg('<path d="M24 22c8 8 8 8 16 0" stroke="#8a7568" stroke-width="2" fill="none"/><ellipse cx="32" cy="38" rx="12" ry="10" fill="#9aabb3"/><ellipse cx="27" cy="34" rx="4" ry="2" fill="#fff" opacity=".55"/>')
+    pebble: svg('<path d="M24 22c8 8 8 8 16 0" stroke="#8a7568" stroke-width="2" fill="none"/><ellipse cx="32" cy="38" rx="12" ry="10" fill="#9aabb3"/><ellipse cx="27" cy="34" rx="4" ry="2" fill="#fff" opacity=".55"/>'),
+    doek: svg('<path d="M14 36c4-16 32-16 36 0" fill="#d4652f"/><path d="M16 36h32" stroke="#f4efe6" stroke-width="4"/><path d="M34 28c8-6 12 2 8 8" fill="#2a6f7f"/>'),
+    scarf: svg('<path d="M18 28h28v8H18z" fill="#1f6b3a"/><path d="M18 32h28" stroke="#e6b341" stroke-width="3"/><path d="M34 36h8v16h-8z" fill="#1f6b3a"/>'),
+    vuvu: svg('<path d="M20 44c8-6 16-20 18-28" stroke="#f0c14a" stroke-width="8" fill="none" stroke-linecap="round"/><circle cx="40" cy="16" r="6" fill="#f0c14a"/>')
   };
 
   function tab(path) {
