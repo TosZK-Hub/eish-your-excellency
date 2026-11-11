@@ -79,7 +79,7 @@ var LOOK = {
     imbawula: { shadow: [0.28, 0.14], scale: 0.5, file: "imbawula", smoke: "coal" },
     barrow: { shadow: [0.4, 0.16], scale: 0.5, file: "wheelbarrow" },
     mielie: { shadow: [0.46, 0.18], scale: 0.48, file: "mielie_cart", smoke: "braai" },
-    wash: { shadow: [0.55, 0.2], scale: 0.72, file: "washing_line" },
+    wash: { shadow: [0.55, 0.2], scale: 0.34, file: "washing_line" },
     coop: { fit: 1, shadow: [0.6, 0.22], scale: 0.85, file: "chicken_coop" },
     patch: { fit: 1, shadow: [0.62, 0.24], scale: 0.9, file: "pumpkin_patch" },
     kraal: { fit: 1, shadow: [1.05, 0.38], scale: 1, yard: 1, file: "kraal" }
@@ -120,17 +120,17 @@ var LOOK = {
   },
   // Cell centres. Consecutive points are neighbours, so the walk stays on free tiles.
   cast: [
-    { id: "farmer", route: [[4.5, 2.5], [4.5, 3.5], [4.5, 4.5], [4.5, 5.5]], speed: 11000 },
-    { id: "doek", route: [[7.5, 2.5], [7.5, 3.5], [7.5, 4.5], [7.5, 5.5]], speed: 11000 },
-    { id: "jersey", route: [[5.5, 0.5], [6.5, 0.5], [6.5, 1.5], [5.5, 1.5]], speed: 8000 },
-    { id: "gogo", route: [[0.5, 4.5], [0.5, 5.5]], speed: 13000 },
-    { id: "kid", at: [0.5, 2.5] },
-    { id: "basotho", route: [[2.5, 4.5], [2.5, 5.5]], speed: 15000 },
-    { id: "taxi", route: [[3.5, 6.5], [4.5, 6.5]], speed: 10000 },
-    { id: "hen", route: [[2.5, 0.5], [3.5, 0.5], [4.5, 0.5], [4.5, 1.5], [3.5, 1.5], [2.5, 1.5]], speed: 7200 },
-    { id: "dog", route: [[6.5, 3.5], [6.5, 4.5]], speed: 6400 },
-    { id: "cow", route: [[9.5, 6.5], [10.5, 6.5], [10.5, 7.5], [9.5, 7.5]], speed: 12000 },
-    { id: "goat", route: [[9.5, 2.5], [10.5, 2.5], [10.5, 3.5], [9.5, 3.5]], speed: 8600 }
+    { id: "farmer", route: [[7.5, 1.5], [6.5, 1.5]], speed: 11000 },
+    { id: "doek", route: [[3.5, 6.5], [2.5, 6.5]], speed: 11000 },
+    { id: "jersey", route: [[4.5, 0.5], [5.5, 0.5]], speed: 8000 },
+    { id: "gogo", route: [[1.5, 5.5], [2.5, 5.5]], speed: 13000 },
+    { id: "kid", at: [4.5, 6.5] },
+    { id: "basotho", route: [[3.5, 7.5], [4.5, 7.5]], speed: 15000 },
+    { id: "taxi", route: [[15.5, 9.5], [14.5, 9.5]], speed: 10000 },
+    { id: "hen", route: [[7.5, 3.5], [7.5, 4.5]], speed: 7200 },
+    { id: "dog", route: [[4.5, 1.5], [5.5, 1.5]], speed: 6400 },
+    { id: "cow", route: [[9.5, 4.5], [10.5, 4.5]], speed: 12000 },
+    { id: "goat", route: [[10.5, 0.5], [11.5, 0.5]], speed: 8600 }
   ],
   // One clump cut from each crop sheet. Four of these sit inside the bed.
   plantSpots: [[0.50, 0.50], [0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
@@ -189,6 +189,24 @@ LOOK.plantDraw = function (file, tw) {
     dh = tw * capH;
   }
   return { dw: dw, dh: dh, spots: LOOK.plantSpots };
+};
+
+LOOK.actorPx = {
+  farmer: [171, 256], doek: [116, 256], gogo: [146, 256], kid: [122, 215],
+  jersey: [129, 256], basotho: [139, 256], taxi: [173, 256],
+  hen: [67, 96], dog: [93, 120], cow: [175, 170], goat: [106, 130]
+};
+
+LOOK.spriteBox = function (file, ax, ay, scale, pivot, tw) {
+  var size = (LOOK.px && LOOK.px[file]) || [256, 256];
+  var k = (tw / 256) * (scale || 1);
+  var dw = size[0] * k;
+  var dh = size[1] * k;
+  var fx = pivot ? pivot[0] : 0.5;
+  var fy = pivot ? pivot[1] : 1;
+  var left = ax - fx * dw;
+  var top = ay - fy * dh;
+  return { l: left, t: top, r: left + dw, b: top + dh, dw: dw, dh: dh };
 };
 
 LOOK.overlapAudit = function (state, tw) {
@@ -252,6 +270,77 @@ LOOK.overlapAudit = function (state, tw) {
       ix = Math.min(boxes[a].r, boxes[c].r) - Math.max(boxes[a].l, boxes[c].l);
       iy = Math.min(boxes[a].b, boxes[c].b) - Math.max(boxes[a].t, boxes[c].t);
       if (ix > 4 && iy > 4) problems.push(boxes[a].who + " overlaps " + boxes[c].who + " by " + Math.round(ix) + "x" + Math.round(iy));
+    }
+  }
+  var khaya = typeof KHAYA !== "undefined" ? KHAYA : (typeof global !== "undefined" ? global.KHAYA : null);
+  var tall = [];
+  var labels = [];
+  function overlaps(box, other) {
+    var ox = Math.min(box.r, other.r) - Math.max(box.l, other.l);
+    var oy = Math.min(box.b, other.b) - Math.max(box.t, other.t);
+    return ox > 4 && oy > 4;
+  }
+  function pushTall(who, box) {
+    box.who = who;
+    tall.push(box);
+  }
+  var spec, file, pivot, tiles, scale, anchor, home;
+  for (i = 0; i < state.buildings.length; i++) {
+    b = state.buildings[i];
+    spec = (LOOK.buildings && LOOK.buildings[b.type]) || {};
+    file = spec.file || b.type;
+    if (spec.levels) file = spec.levels[Math.max(0, Math.min(spec.levels.length, b.level || 1) - 1)];
+    if (b.type === "bed") file = "bed_empty";
+    pivot = (LOOK.pivot && LOOK.pivot[file]) || [0.5, 1, 256];
+    tiles = ((b.w || 1) + (b.h || 1)) / 2;
+    scale = spec.fit ? (tiles * 256) / (pivot[2] || 256) : Math.min(spec.scale || 1, (tiles * 0.72 * 256) / (pivot[2] || 256));
+    anchor = spec.fit ? at(b.x + b.w, b.y + b.h) : at(b.x + b.w / 2, b.y + b.h / 2);
+    pushTall(b.type + "@" + b.x + "," + b.y, LOOK.spriteBox(file, anchor.x, anchor.y, scale, pivot, tw));
+    if (b.type === "bed") {
+      var top = anchor.y - (pivot[1] || 1) * (LOOK.spriteBox(file, anchor.x, anchor.y, scale, pivot, tw).dh);
+      var mid = at(b.x + b.w / 2, b.y + b.h / 2);
+      var ly = top - 10;
+      if (ly < 10) ly = 10;
+      labels.push({ l: mid.x - 18, t: ly - 12, r: mid.x + 18, b: ly + 8, who: "label@" + b.x + "," + b.y, owner: b.x + "," + b.y });
+    }
+  }
+  var props = khaya && khaya.PROPS ? khaya.PROPS : [];
+  for (i = 0; i < props.length; i++) {
+    var prop = props[i];
+    pivot = (LOOK.pivot && LOOK.pivot[prop.file]) || [0.5, 1, 256];
+    if (prop.id === "taxi") {
+      scale = (0.95 * 256) / (pivot[2] || 327);
+      anchor = at(prop.x + prop.w, prop.y + prop.h);
+    } else {
+      spec = (LOOK.buildings && LOOK.buildings[prop.id]) || {};
+      tiles = ((prop.w || 1) + (prop.h || 1)) / 2;
+      scale = Math.min(spec.scale || 1, (tiles * 0.72 * 256) / (pivot[2] || 256));
+      anchor = at(prop.x + prop.w / 2, prop.y + prop.h / 2);
+    }
+    pushTall(prop.id, LOOK.spriteBox(prop.file, anchor.x, anchor.y, scale, pivot, tw));
+  }
+  var cast = LOOK.cast || [];
+  for (i = 0; i < cast.length; i++) {
+    var entry = cast[i];
+    var actor = LOOK.actors && LOOK.actors[entry.id];
+    var stand = entry.at || (entry.route && entry.route[0]);
+    if (!actor || !stand) continue;
+    var ap = LOOK.actorPx[entry.id] || [140, 256];
+    LOOK.px[entry.id] = ap;
+    var foot = at(stand[0], stand[1]);
+    pushTall(entry.id + " at rest", LOOK.spriteBox(entry.id, foot.x, foot.y, actor.scale || 0.7, [0.5, 1], tw));
+  }
+  for (a = 0; a < tall.length; a++) {
+    for (c = a + 1; c < tall.length; c++) {
+      if (overlaps(tall[a], tall[c])) problems.push(tall[a].who + " covers " + tall[c].who);
+    }
+    for (n = 0; n < boxes.length; n++) {
+      if (tall[a].who.indexOf("bed@") === 0 && boxes[n].who.indexOf(" on " + tall[a].who.slice(4)) > -1) continue;
+      if (overlaps(tall[a], boxes[n])) problems.push(tall[a].who + " covers " + boxes[n].who);
+    }
+    for (n = 0; n < labels.length; n++) {
+      if (tall[a].who.indexOf("@" + labels[n].owner) === 0) continue;
+      if (overlaps(tall[a], labels[n])) problems.push(tall[a].who + " covers " + labels[n].who);
     }
   }
   return { ok: problems.length === 0, problems: problems };

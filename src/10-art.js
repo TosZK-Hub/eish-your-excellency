@@ -98,26 +98,24 @@ var DRAW = (function () {
     var z = cam.z || 1;
     if (z < 0.62) z = 0.62;
     if (z > 2.2) z = 2.2;
-    // The working yard, from the gate and taxi up to the beds. Not the whole map.
-    var x0 = 0.3;
-    var y0 = 1.1;
-    var x1 = 7.6;
-    var y1 = 7.1;
-    var spanW = (x1 - y0 - x0 + y1) / 2;
-    var spanH = (x1 + y1 - x0 - y0) / 4;
-    var marginX = Math.max(8, w * 0.055);
-    var tw = (w - marginX * 2) / spanW;
+    // Working homestead only. Its width is about 85% of the stage.
+    // The south corner of the open lane sits near the bottom, so the locked fields fall off.
+    var tw = w * 0.172;
     var th = tw * 0.5;
-    var roof = h * 0.14;
-    if (spanH * tw + roof > h * 0.9) {
-      tw = (h * 0.9 - roof) / spanH;
+    var northLimit = Math.max(12, h * 0.04);
+    if ((6.2) * th + northLimit > h * 0.9) {
+      tw = (h * 0.9 - northLimit) / 6.2 * 2;
       th = tw * 0.5;
     }
     tw *= z;
     th *= z;
-    var ox = w / 2 - ((x0 - y1) + (x1 - y0)) * tw / 4 + (cam.x || 0);
-    var oy = roof - (x0 + y0) * th / 2 + (cam.y || 0);
-    var horizon = Math.max(6, oy - th * 0.6);
+    var focusX = 3.2;
+    var focusY = 3.6;
+    var ox = w / 2 - (focusX - focusY) * tw / 2 + (cam.x || 0);
+    var oy = h * 0.86 - (8 + 8) * th / 2 + (cam.y || 0);
+    var houseTop = oy + (1 + 1.2) * th / 2 - th * 1.6;
+    if (houseTop < northLimit) oy += northLimit - houseTop;
+    var horizon = Math.max(4, oy + (0 + 0) * th / 2 - th);
     return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
   }
 
@@ -927,6 +925,7 @@ var DRAW = (function () {
     var origin = north(0, 0, o);
     ctx.drawImage(plated.canvas, origin.x - plated.ox, origin.y - plated.oy, plated.w, plated.h);
     var queue = [];
+    var labels = [];
     var i;
     var barW = Math.min(o.tw * 0.42, 56);
     for (i = 0; i < state.buildings.length; i++) {
@@ -952,17 +951,12 @@ var DRAW = (function () {
           ctx.restore();
           var ly = labelBand(drawn.top, h);
           var job = KHAYA.buildView(building);
-          if (job && !dragging) {
-            barOver(ctx, drawn.x, ly, barW, job.progress, "#7eb6e0");
-            puff(ctx, drawn.x, ly - 4, now, "steam");
-          }
-          if (building.type === "bed" && !dragging) {
-            var growth = KHAYA.bedView(building, now);
-            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, ly, barW, growth.progress, "#7dcea0");
-            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, ly, now);
-          }
+          var growth = building.type === "bed" ? KHAYA.bedView(building, now) : null;
           var prod = KHAYA.produceView(building, state);
-          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, ly, now);
+          if (!dragging && (job || (growth && growth.phase !== "empty") || (prod && prod.ready))) {
+            labels.push({ x: drawn.x, y: ly, job: job, growth: growth, prod: prod });
+          }
+          if (job && !dragging) puff(ctx, drawn.x, ly - 4, now, "steam");
           if (dragging) {
             var okMove = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
             ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, okMove ? "#f2c14e" : "#d64545");
@@ -994,24 +988,28 @@ var DRAW = (function () {
     queueActors(queue, state, o, now, ctx);
     (function () {
       var orders = state.orders || {};
-      var tx = 1;
-      var ty = 6;
+      var parked = { x: 0, y: 7, w: 2, h: 1 };
+      var piTaxi;
+      var propsNow = KHAYA.PROPS || [];
+      for (piTaxi = 0; piTaxi < propsNow.length; piTaxi++) if (propsNow[piTaxi].id === "taxi") parked = propsNow[piTaxi];
+      var tx = parked.x;
+      var ty = parked.y;
       var since = now - (orders.at || now);
       var drive = 0;
       if (orders.phase === "here" && since < 2800) {
         drive = easeInOut(Math.min(1, since / 2800));
-        tx = -2 + 3 * drive;
+        tx = parked.x - 3 + 3 * drive;
       } else if (orders.phase === "away" && since < 2600) {
         drive = easeInOut(Math.min(1, since / 2600));
-        tx = 1 + drive * 4;
+        tx = parked.x + drive * 4;
       }
       var movingTaxi = (orders.phase === "here" && since < 2800) || (orders.phase === "away" && since < 2600);
       var bounce = movingTaxi ? Math.sin(since / 90) * 0.04 * (1 - Math.min(1, since / 2600)) : 0;
       if (!movingTaxi && orders.phase === "here" && since < 3400) bounce = Math.sin((since - 2800) / 600 * Math.PI) * 0.03;
       var pivot = (LOOK.pivot && LOOK.pivot.taxi) || [0.5, 1, 327];
-      var scale = pivot[2] ? (1.5 * 256) / pivot[2] : 1;
-      var tip = north(tx + 2, ty + 1 + bounce, o);
-      var front = north(tx + 1.5, ty + 0.5, o);
+      var scale = pivot[2] ? (0.95 * 256) / pivot[2] : 1;
+      var tip = north(tx + parked.w, ty + parked.h + bounce, o);
+      var front = north(tx + parked.w - 0.5, ty + parked.h - 0.5, o);
       queue.push({ y: front.y, draw: function () {
         blitPivot(ctx, img.taxi, tip.x, tip.y, o.tw, scale, pivot);
         if (movingTaxi) puff(ctx, tip.x - o.tw * 0.2, tip.y - o.th * 0.2, now, "steam");
@@ -1043,6 +1041,13 @@ var DRAW = (function () {
     for (i = 0; i < queue.length; i++) {
       if (queue[i].y < -o.th * 3 || queue[i].y > h + o.th * 2) continue;
       queue[i].draw();
+    }
+    for (i = 0; i < labels.length; i++) {
+      var mark = labels[i];
+      if (mark.job) barOver(ctx, mark.x, mark.y, barW, mark.job.progress, "#7eb6e0");
+      if (mark.growth && mark.growth.phase === "growing") barOver(ctx, mark.x, mark.y, barW, mark.growth.progress, "#7dcea0");
+      if (mark.growth && mark.growth.phase === "ready") readyMark(ctx, mark.x, mark.y, now);
+      if (mark.prod && mark.prod.ready) coinBadge(ctx, mark.x, mark.y, now);
     }
     if (VEIL[phase]) {
       ctx.fillStyle = VEIL[phase];

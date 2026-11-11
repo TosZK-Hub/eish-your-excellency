@@ -22,7 +22,7 @@ var KHAYA = (function () {
     "ggggpggggggggggg",
     "ggggpggggggggggg",
     "gppppggggggggggg",
-    "ggppgggggggggggg",
+    "ppgggggggggggggg",
     "ggggggggtggggggg",
     "gggggggggggggggg",
     "gggggggggggggggt",
@@ -206,9 +206,9 @@ var KHAYA = (function () {
 
   // Whole-cell yard props. The taxi parks on the path; the others sit on open grass.
   var PROPS = [
-    { id: "wash", file: "washing_line", x: 5, y: 7, w: 1, h: 1 },
-    { id: "barrow", file: "wheelbarrow", x: 1, y: 0, w: 1, h: 1 },
-    { id: "taxi", file: "taxi", x: 1, y: 6, w: 2, h: 1 }
+    { id: "wash", file: "washing_line", x: 2, y: 0, w: 1, h: 1 },
+    { id: "barrow", file: "wheelbarrow", x: 3, y: 0, w: 1, h: 1 },
+    { id: "taxi", file: "taxi", x: 0, y: 7, w: 2, h: 1 }
   ];
 
   function propAt(x, y) {

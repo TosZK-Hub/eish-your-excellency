@@ -2,6 +2,7 @@
 var KHAYA = require("../src/00-logic.js");
 var LOOK = require("../src/05-catalog.js");
 global.LOOK = LOOK;
+global.KHAYA = KHAYA;
 var failed = 0;
 
 function eq(name, got, want) {
@@ -437,8 +438,8 @@ var freshAudit = KHAYA.layoutAudit(KHAYA.fresh(1000));
 truth("fresh yard has no overlap", freshAudit.ok);
 if (!freshAudit.ok) console.error(freshAudit.problems);
 
-eq("prop blocks a bed", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 5, 7).ok, false);
-eq("prop blocks the barrow cell", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 1, 0).ok, false);
+eq("prop blocks a bed", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 2, 0).ok, false);
+eq("prop blocks the barrow cell", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 3, 0).ok, false);
 
 function routeCells(entry) {
   var found = {};
@@ -491,7 +492,6 @@ for (ri = 0; ri < LOOK.cast.length; ri++) {
 var late = KHAYA.fresh(1e15);
 late.plots = { lane: 1, east: 1, south: 1, koppie: 1 };
 var latePlan = [
-  ["bed", 0, 6, 1, 1],
   ["bed", 1, 9, 1, 1],
   ["bed", 4, 11, 1, 1],
   ["bed", 6, 13, 1, 1],
@@ -502,7 +502,7 @@ var latePlan = [
   ["kraal", 11, 3, 2, 2],
   ["coop", 11, 8, 1, 1],
   ["patch", 8, 10, 1, 1],
-  ["braai", 2, 8, 1, 1],
+  ["braai", 6, 10, 1, 1],
   ["potjie", 6, 8, 1, 1],
   ["aloe_clump", 3, 9, 1, 1],
   ["imbawula", 9, 8, 1, 1],
