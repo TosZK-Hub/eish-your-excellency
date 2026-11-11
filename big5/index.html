@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F0A020">
+  <meta name="description" content="Big 5, a South African lodge pet. Feed, splash, and play.">
+  <title>Big 5</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+  <div id="app" data-room="kitchen" data-mode="live">
+    <header id="hud">
+      <div id="hud-live">
+        <div class="top">
+          <div class="who">
+            <b id="pet-name">Big 5</b>
+            <span id="pet-stage">Choose a cub</span>
+          </div>
+          <button id="mute" class="icon-btn" type="button" aria-label="Mute sound"><i class="kicon audio"></i></button>
+          <div class="coins" id="coins" aria-label="Coins"><i class="kicon coin"></i><b id="coin-num">0</b></div>
+        </div>
+        <div class="xp-row">
+          <div id="lvl">Lv 1</div>
+          <div class="xp" aria-hidden="true"><span id="xpbar"></span></div>
+        </div>
+        <div class="meters" id="meters"></div>
+      </div>
+      <div id="hud-play" hidden>
+        <button id="exit-game" type="button">Back</button>
+        <div class="gstat"><b id="g-score">0</b><span>score</span></div>
+        <div class="gstat"><b id="g-time">0</b><span>sec</span></div>
+        <div class="gstat"><b id="g-extra">0</b><span id="g-extra-label">best</span></div>
+      </div>
+    </header>
+    <main id="stage">
+      <canvas id="view"></canvas>
+      <canvas id="fx"></canvas>
+      <div id="speech" hidden aria-live="polite"></div>
+      <div id="toast" hidden></div>
+      <div id="banner" hidden></div>
+    </main>
+    <section id="tray">
+      <p id="hint"></p>
+      <div id="tray-body"></div>
+    </section>
+    <nav id="dock" aria-label="Rooms">
+      <button class="tab" type="button" data-room="kitchen" aria-selected="true"><span class="ico"></span>Lodge</button>
+      <button class="tab" type="button" data-room="bath" aria-selected="false"><span class="ico"></span>Water</button>
+      <button class="tab play" type="button" data-room="play" aria-selected="false"><span class="ico"></span>Play</button>
+      <button class="tab" type="button" data-room="boma" aria-selected="false"><span class="ico"></span>Boma</button>
+      <button class="tab" type="button" data-room="shop" aria-selected="false"><span class="ico"></span>Shop</button>
+    </nav>
+    <div id="picker" hidden>
+      <p class="kicker">The lodge</p>
+      <h1 id="pick-title">Lion cub</h1>
+      <div class="spot">
+        <button class="nav prev" id="pick-prev" type="button" aria-label="Previous animal">‹</button>
+        <canvas id="pick-view"></canvas>
+        <button class="nav next" id="pick-next" type="button" aria-label="Next animal">‹</button>
+      </div>
+      <p id="pick-person"></p>
+      <div class="dots" id="pick-dots"></div>
+      <label class="field">Name
+        <input id="pick-name" maxlength="16" autocomplete="off" enterkeyhint="done">
+      </label>
+      <button id="pick-ok" class="btn" type="button">This is the one</button>
+    </div>
+    <div id="sheet" hidden>
+      <div class="burst" aria-hidden="true"></div>
+      <div class="card-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <div id="chest-art" hidden>
+          <svg viewBox="0 0 120 90">
+            <g id="chest-lid">
+              <path d="M18 48 V32 Q60 8 102 32 V48 Z" fill="#E07A3C" stroke="#3A271C" stroke-width="4"/>
+              <rect x="50" y="34" width="20" height="10" rx="3" fill="#F0A020" stroke="#3A271C" stroke-width="3"/>
+            </g>
+            <path d="M14 46 H106 V78 Q60 88 14 78 Z" fill="#C45A1A" stroke="#3A271C" stroke-width="4"/>
+            <rect x="50" y="54" width="20" height="14" rx="3" fill="#F0A020" stroke="#3A271C" stroke-width="3"/>
+          </svg>
+        </div>
+        <p class="kicker" id="sheet-kicker"></p>
+        <h2 id="sheet-title"></h2>
+        <p id="sheet-body"></p>
+        <div class="go-stats" id="sheet-stats" hidden>
+          <div><b id="go-score">0</b><span>score</span></div>
+          <div><b id="go-best">0</b><span>best</span></div>
+          <div><b id="go-coins">0</b><span>coins</span></div>
+        </div>
+        <div class="sheet-actions">
+          <button id="sheet-alt" class="btn teal" type="button" hidden>Done</button>
+          <button id="sheet-ok" class="btn" type="button">Lekker</button>
+        </div>
+      </div>
+    </div>
+    <div id="qa" hidden></div>
+  </div>
+  <noscript><p>Big 5 needs JavaScript.</p></noscript>
+  <script src="js/audio.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/rig.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/games.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

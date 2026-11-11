@@ -1,0 +1,13 @@
+{
+  "name": "Big 5",
+  "short_name": "Big 5",
+  "description": "A South African lodge pet. Choose a cub and grow up together.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFF6E8",
+  "theme_color": "#F0A020",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
