@@ -1,6 +1,6 @@
 # Credits
 
-Big 5 is an original lodge pet. Characters, rooms, dock icons, meter icons, and food icons are drawn for this project. No AI-generated images are used.
+Big 5 is an original lodge pet. The animal sprites and the four room paintings in `assets/art/` are original project art for this game (see `assets/art/STYLE_BIBLE.md`). Dock, meter, and food icons are original vector drawings in the same ink. No third-party character art is used.
 
 ## Kenney (CC0 1.0)
 

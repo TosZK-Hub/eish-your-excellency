@@ -2,7 +2,7 @@
 (function (B) {
   'use strict';
 
-  const INK = '#3A271C';
+  const INK = '#3B2416';
   const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   let g = null;
 
@@ -203,12 +203,10 @@
   }
 
   function drawDash(ctx, w, h) {
-    const sky = ctx.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, '#8EC7EA');
-    sky.addColorStop(1, '#F6E2A8');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#8FBF72';
+    const plate = B.art.gamePlate('play', w, h);
+    if (plate) ctx.drawImage(plate, 0, 0, w, h);
+    else { ctx.fillStyle = '#E7C49A'; ctx.fillRect(0, 0, w, h); }
+    ctx.fillStyle = 'rgba(90, 140, 60, 0.35)';
     ctx.fillRect(0, h * 0.78, w, h);
     ctx.fillStyle = '#C9A06A';
     ctx.fillRect(0, h * 0.78, w, 8);
@@ -277,12 +275,10 @@
   }
 
   function drawFruit(ctx, w, h) {
-    const sky = ctx.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, '#F6E2A8');
-    sky.addColorStop(1, '#C9D98A');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#8FBF72';
+    const plate = B.art.gamePlate('play', w, h);
+    if (plate) ctx.drawImage(plate, 0, 0, w, h);
+    else { ctx.fillStyle = '#E7C49A'; ctx.fillRect(0, 0, w, h); }
+    ctx.fillStyle = 'rgba(90, 140, 60, 0.28)';
     ctx.fillRect(0, h - 70, w, 70);
     g.items.forEach(function (item) { fruit(ctx, item.kind, item.x, item.y); });
     const scale = clamp(h / 700, 0.4, 0.58);
@@ -330,18 +326,9 @@
   }
 
   function drawSplash(ctx, w, h) {
-    const sky = ctx.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, '#9FD4E8');
-    sky.addColorStop(1, '#E7F4C8');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#2E9A90';
-    ctx.beginPath();
-    ctx.ellipse(w * 0.55, h * 0.58, w * 0.48, h * 0.28, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = INK;
-    ctx.stroke();
+    const plate = B.art.gamePlate('bath', w, h);
+    if (plate) ctx.drawImage(plate, 0, 0, w, h);
+    else { ctx.fillStyle = '#9FD4E8'; ctx.fillRect(0, 0, w, h); }
     g.targets.forEach(function (t) {
       ctx.beginPath();
       ctx.arc(t.x, t.y, 16 + (1 - t.life) * 10, 0, Math.PI * 2);
@@ -376,8 +363,9 @@
   }
 
   function drawPounce(ctx, w, h) {
-    ctx.fillStyle = '#F6E2C4';
-    ctx.fillRect(0, 0, w, h);
+    const plate = B.art.gamePlate('play', w, h);
+    if (plate) ctx.drawImage(plate, 0, 0, w, h);
+    else { ctx.fillStyle = '#F6E2C4'; ctx.fillRect(0, 0, w, h); }
     ctx.fillStyle = '#C9A06A';
     const y = h * 0.58;
     ctx.fillRect(16, y - 18, w - 32, 36);

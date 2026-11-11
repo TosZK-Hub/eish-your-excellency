@@ -28,7 +28,7 @@
 }
 
 :root {
-  --ink: #3A271C;
+  --ink: #3B2416;
   --ink-soft: #8A6A52;
   --cream: #FFF6E8;
   --paper: #F6E7C8;
@@ -110,9 +110,11 @@ button, input { font: inherit; }
 .icon-btn {
   width: 42px;
   height: 42px;
-  border: 0;
+  border: 3px solid var(--ink);
   padding: 0;
-  background: url("../assets/ui/btn-gold-round.png") center / 100% 100% no-repeat;
+  border-radius: 50%;
+  background: #F0C14A;
+  box-shadow: 0 3px 0 var(--ink);
   display: grid;
   place-items: center;
   transition: transform .12s cubic-bezier(.2, 1.5, .3, 1);
@@ -140,7 +142,10 @@ button, input { font: inherit; }
   min-width: 72px;
   height: 36px;
   padding: 0 10px 0 8px;
-  background: url("../assets/ui/btn-gold.png") center / 100% 100% no-repeat;
+  background: #FFF8EC;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 0 3px 0 var(--ink);
   font-family: "Fredoka", sans-serif;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -226,13 +231,15 @@ button, input { font: inherit; }
 [hidden] { display: none !important; }
 
 #exit-game {
-  border: solid transparent;
-  border-width: 10px 14px;
-  border-image: url("../assets/ui/btn-sand.png") 32 40 fill stretch;
-  background: none;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: #FFF8EC;
+  box-shadow: 0 3px 0 var(--ink);
   font-family: "Fredoka", sans-serif;
   font-weight: 700;
   color: var(--ink);
+  min-height: 44px;
+  padding: 0 12px;
 }
 .gstat { flex: 1; text-align: center; }
 .gstat b {
@@ -369,17 +376,18 @@ button, input { font: inherit; }
 .grid3 { grid-template-columns: repeat(3, 1fr); }
 
 .food, .tool, .item, .card, .boost {
-  border: solid transparent;
-  border-width: 12px 12px;
-  border-image: url("../assets/ui/btn-sand.png") 36 44 fill stretch;
-  background: none;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: linear-gradient(#fffdf8, #f6e4c4);
+  box-shadow: 0 4px 0 var(--ink);
   color: var(--ink);
   font-family: "Fredoka", "Nunito", sans-serif;
   font-weight: 600;
-  transition: transform .12s cubic-bezier(.2, 1.5, .3, 1);
+  transition: transform .12s cubic-bezier(.2, 1.5, .3, 1), box-shadow .12s ease;
 }
-.food:active, .tool:active, .item:active, .card:active, .boost:active, .btn:active {
+.food:active, .tool:active, .item:active, .card:active, .boost:active, .btn:active, .icon-btn:active, .tab.play:active {
   transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--ink);
 }
 .food, .tool, .item {
   min-height: 74px;
@@ -395,7 +403,7 @@ button, input { font: inherit; }
 }
 .food .ico, .tool .ico { width: 32px; height: 32px; }
 .food .ico svg, .tool .ico svg, .tab svg { width: 100%; height: 100%; display: block; }
-.item.worn { border-image-source: url("../assets/ui/btn-gold.png"); }
+.item.worn { background: linear-gradient(#ffe7a8, #f0c14a); }
 .item .meta { color: var(--ink-soft); font-family: Nunito, sans-serif; font-size: 10px; font-weight: 800; }
 .item .meta.price { color: #A86B12; }
 
@@ -414,8 +422,11 @@ button, input { font: inherit; }
 .playpill {
   grid-row: 1 / span 2;
   grid-column: 2;
-  background: url("../assets/ui/btn-gold.png") center / 100% 100% no-repeat;
-  padding: 10px 12px;
+  background: #F0C14A;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 0 3px 0 var(--ink);
+  padding: 8px 12px;
   font-family: "Fredoka", sans-serif;
   font-weight: 700;
 }
@@ -459,10 +470,11 @@ button, input { font: inherit; }
   min-height: 74px;
   margin: -28px auto 0;
   border-radius: 50%;
-  background: url("../assets/ui/btn-gold-round.png") center / 100% 100% no-repeat;
+  border: 3px solid var(--ink);
+  background: radial-gradient(circle at 35% 30%, #ffe7a8, #f0c14a 58%, #e09a2a);
   color: var(--ink);
   justify-content: center;
-  box-shadow: 0 6px 0 rgba(58, 39, 24, .12);
+  box-shadow: 0 4px 0 var(--ink);
 }
 .tab.play[aria-selected="true"] { background-color: transparent; }
 .tab.play:active { transform: translateY(3px) scale(.98); }
@@ -529,17 +541,17 @@ button, input { font: inherit; }
 .sheet-actions { display: flex; gap: 8px; }
 .sheet-actions .btn { flex: 1; }
 .btn {
-  border: solid transparent;
-  border-width: 12px 16px;
-  border-image: url("../assets/ui/btn-gold.png") 36 48 fill stretch;
-  background: none;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: linear-gradient(#ffe7a8, #f0b44a);
+  box-shadow: 0 4px 0 var(--ink);
   color: var(--ink);
   font-family: "Fredoka", sans-serif;
   font-weight: 700;
   font-size: 18px;
   min-height: 52px;
 }
-.btn.teal { border-image-source: url("../assets/ui/btn-teal.png"); color: #14302C; }
+.btn.teal { background: linear-gradient(#d8f3ef, #7ecfc6); color: #14302C; }
 .go-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
 .go-stats div {
   background: #fff;
@@ -583,8 +595,10 @@ button, input { font: inherit; }
 .nav {
   width: 48px;
   height: 48px;
-  border: 0;
-  background: url("../assets/ui/btn-gold-round.png") center / 100% 100% no-repeat;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: #F0C14A;
+  box-shadow: 0 3px 0 var(--ink);
   font-family: "Fredoka", sans-serif;
   font-size: 22px;
   font-weight: 700;
@@ -609,10 +623,9 @@ button, input { font: inherit; }
   display: block;
   width: 100%;
   margin-top: 4px;
-  border: solid transparent;
-  border-width: 12px 16px;
-  border-image: url("../assets/ui/input.png") 36 48 fill stretch;
-  background: none;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: #fff;
   font-family: "Fredoka", sans-serif;
   font-size: 20px;
   font-weight: 700;

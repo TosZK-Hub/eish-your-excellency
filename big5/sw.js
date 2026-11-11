@@ -1,5 +1,5 @@
 /* Offline cache for Big 5. Scope is this folder. */
-const CACHE = 'big5-lodge-v1';
+const CACHE = 'big5-lodge-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -32,7 +32,11 @@ const ASSETS = [
   './assets/fx/star.png',
   './assets/fx/circle.png',
   './assets/fx/spark.png',
-  './assets/fx/twirl.png'
+  './assets/fx/twirl.png',
+  './assets/art/bg/lodge_kitchen.webp',
+  './assets/art/bg/waterhole_bath.webp',
+  './assets/art/bg/boma_bedroom.webp',
+  './assets/art/bg/savanna_play.webp'
 ];
 
 self.addEventListener('install', (event) => {

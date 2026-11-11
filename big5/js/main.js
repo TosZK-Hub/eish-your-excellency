@@ -2,6 +2,12 @@
 (function (B) {
   'use strict';
 
+  if (new URLSearchParams(location.search).get('reset') === '1') {
+    try { localStorage.removeItem('big5-lodge-v1'); } catch (err) { /* ignore */ }
+    location.replace('./index.html?chest=0');
+    return;
+  }
+
   const app = document.getElementById('app');
   const stageEl = document.getElementById('stage');
   const canvas = document.getElementById('view');
@@ -78,6 +84,7 @@
 
   const session = {
     t: 0, foam: 0, sleeping: false, shedding: 0, shedIn: 40, lampOn: true,
+    cheer: 0, flash: 0,
     eat: 0, giggle: 0, scrubbing: false, scrubDist: 0, lastSqueak: 0,
     lookX: 0, lookY: 0, pop: 0, pointer: null, saveIn: 2, pooIn: 50,
     speech: 0, shift: 0, prevRoom: null, greeted: false
@@ -151,31 +158,28 @@
     return pick(lines.greet);
   }
 
+  function moodNow() {
+    if (session.sleeping || session.shedding > 0 || data.energy < 40) return 'sleepy';
+    if ((session.cheer || 0) > 0 || session.eat > 0 || session.giggle > 0) return 'happy';
+    if (data.hunger < 42) return 'hungry';
+    return '';
+  }
+
   function buildAnim() {
-    let eyes = 'open';
-    let mouth = 'smile';
-    if (session.sleeping || data.energy < 38) eyes = data.energy < 38 && !session.sleeping ? 'open' : 'shut';
-    if (session.sleeping) mouth = 'sleep';
-    if (data.fun > 70 && data.hunger > 50 && !session.sleeping) mouth = 'grin';
-    if (session.giggle > 0) { eyes = 'happy'; mouth = 'open'; }
-    if (session.eat > 0) { mouth = 'open'; eyes = 'happy'; }
+    const mood = moodNow();
     return {
       species: species(),
       stage: stage(),
       legend: legend(),
       t: session.t,
-      eyes: eyes,
-      mouth: mouth,
-      lid: !session.sleeping && data.energy < 40 ? 0.45 : 0,
-      lookX: session.lookX,
-      lookY: session.lookY,
-      dirt: B.clamp((48 - data.clean) / 48, 0, 1),
+      mood: mood,
+      eyes: mood === 'sleepy' ? 'shut' : 'open',
+      mouth: mood === 'happy' ? 'grin' : 'smile',
       foam: session.foam,
       worn: data.worn,
-      hold: session.shedding > 0 ? 'candle' : null,
-      happy: session.giggle > 0,
+      eat: session.eat,
       squash: session.pop || 0,
-      pose: (room === 'bath' || room === 'boma') ? 'sit' : 'stand',
+      flash: session.flash || 0,
       alpha: 1
     };
   }
@@ -185,7 +189,7 @@
     const hints = {
       kitchen: 'Drag a snack onto the mouth.',
       bath: 'Rub until it foams, then rinse. Tap a pile or use the scoop.',
-      boma: 'Lamp for a nap. The little box drops the lights.',
+      boma: 'Lamp for a nap. Lights for load shedding.',
       shop: 'Curio stall. Wear what you like.',
       play: 'Short games. Upgrades stay.'
     };
@@ -246,6 +250,15 @@
       }).join('') + '</div>';
       trayBody.querySelectorAll('[data-game]').forEach((btn) => btn.addEventListener('click', () => startGame(btn.dataset.game)));
       trayBody.querySelectorAll('[data-boost]').forEach((btn) => btn.addEventListener('click', () => onBoost(btn.dataset.boost)));
+    } else if (room === 'boma') {
+      trayBody.innerHTML = '<div class="grid3">' +
+        '<button type="button" class="tool" data-tool="lamp">Lamp</button>' +
+        '<button type="button" class="tool" data-tool="power">Lights</button>' +
+        '<button type="button" class="tool" data-tool="pet">Tickle</button>' +
+        '</div>';
+      trayBody.querySelector('[data-tool="lamp"]').addEventListener('click', toggleSleep);
+      trayBody.querySelector('[data-tool="power"]').addEventListener('click', triggerShed);
+      trayBody.querySelector('[data-tool="pet"]').addEventListener('click', tickle);
     } else trayBody.innerHTML = '';
   }
 
@@ -300,6 +313,8 @@
     data.energy = B.clamp(data.energy + (food.energy || 0), 0, 100);
     data.coins = Math.min(9999, data.coins + 1);
     session.eat = 0.7;
+    session.cheer = 7;
+    session.pop = 0.35;
     B.audio.munch();
     say(food.sweet ? pick(lines.sweet) : pick(lines.eat));
     flyCoins(cx, cy, 1);
@@ -315,6 +330,7 @@
     data.fun = B.clamp(data.fun + 4, 0, 100);
     session.foam = 0;
     session.giggle = 0.4;
+    session.cheer = 5;
     data.coins = Math.min(9999, data.coins + 2);
     B.audio.splash();
     say(pick(lines.clean));
@@ -345,10 +361,15 @@
 
   function tickle() {
     session.giggle = 0.7;
+    session.cheer = 5;
+    session.pop = 0.3;
     data.fun = B.clamp(data.fun + 6, 0, 100);
     say(pick(lines.tickle));
     B.audio.giggle();
-    grantXp(2);
+    if ((session.tickleXp || 0) < 8) {
+      session.tickleXp = (session.tickleXp || 0) + 1;
+      grantXp(2);
+    }
     B.state.save();
   }
 
@@ -467,6 +488,7 @@
     sheetMode = next;
     sheet.hidden = false;
     sheet.classList.toggle('evo', next.mode === 'evo');
+    if (next.mode === 'evo') session.flash = 0.45;
     sheet.classList.toggle('chest-open', next.mode === 'chest');
     document.getElementById('chest-art').hidden = next.mode !== 'chest';
     document.getElementById('sheet-stats').hidden = next.mode !== 'over';
@@ -689,7 +711,9 @@
       if (toastTimer <= 0) toastEl.hidden = true;
     }
     if (session.eat > 0) session.eat -= dt;
-    if (session.pop > 0) session.pop = Math.max(0, session.pop - dt * 0.4);
+    if (session.cheer > 0) session.cheer -= dt;
+    if (session.flash > 0) session.flash = Math.max(0, session.flash - dt * 0.85);
+    if (session.pop > 0) session.pop = Math.max(0, session.pop - dt * 0.8);
     if (session.giggle > 0) session.giggle -= dt;
     if (session.shedding > 0) {
       session.shedding -= dt;
@@ -764,7 +788,7 @@
     ctx.font = '700 16px Fredoka, Nunito, sans-serif';
     if (lineup === 'adults') {
       const ids = ['lion', 'leopard', 'elephant', 'rhino', 'buffalo'];
-      const scale = Math.min(0.85, (W / ids.length) / 150);
+      const scale = (W / ids.length) / 360;
       ids.forEach((id, i) => {
         const x = (i + 0.5) * W / ids.length;
         B.art.drawPet(ctx, x, H * 0.74, scale, {
@@ -779,7 +803,7 @@
     const labels = ['Baby', 'Youngster', 'Adult'];
     [1, 2, 3].forEach((st, i) => {
       const x = (i + 0.5) * W / 3;
-      B.art.drawPet(ctx, x, H * 0.72, Math.min(0.95, W / 3 / 160), {
+      B.art.drawPet(ctx, x, H * 0.72, (W / 3) / 400, {
         species: id, stage: st, t: session.t, eyes: 'open', mouth: 'smile', worn: {}
       });
       ctx.fillStyle = '#3A271C';
@@ -791,7 +815,7 @@
     const rect = pickCanvas.getBoundingClientRect();
     const animal = B.animals[pickIndex];
     pickCtx.clearRect(0, 0, rect.width, rect.height);
-    B.art.drawPet(pickCtx, rect.width / 2, rect.height * 0.86, Math.min(rect.width, rect.height) / 280, {
+    B.art.drawPet(pickCtx, rect.width / 2, rect.height * 0.9, Math.min(rect.width, rect.height) / 460, {
       species: animal.id, stage: 1, t: session.t, eyes: 'open', mouth: 'smile', worn: {}
     });
   }
@@ -874,6 +898,7 @@
     if (!result) return;
     if (result.isBest) data.best[result.kind] = result.score;
     if (result.coins) data.coins = Math.min(9999, data.coins + result.coins);
+    session.cheer = 6;
     if (result.xp) grantXp(result.xp);
     else renderHud();
     B.state.save();
@@ -901,6 +926,16 @@
         el.textContent = frames + ' fps';
         frames = 0;
         fpsAcc = 0;
+      }
+    }
+    if (B.art.preload) {
+      if (app.dataset.mode === 'pick') {
+        B.art.preload(B.animals[pickIndex].id, 1, 'kitchen');
+        B.art.preload(B.animals[(pickIndex + 1) % B.animals.length].id, 1);
+      } else if (lineup === 'adults') {
+        B.animals.forEach(function (animal) { B.art.preload(animal.id, 3, 'play'); });
+      } else {
+        B.art.preload(species(), stage(), app.dataset.mode === 'play' && B.games.kind() === 'splash' ? 'bath' : room);
       }
     }
     if (app.dataset.mode === 'pick') {
