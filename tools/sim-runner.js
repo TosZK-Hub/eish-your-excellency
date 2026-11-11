@@ -1,5 +1,6 @@
 // Rules for Khaya Lane. Run with: node tools/sim-runner.js
 var KHAYA = require("../src/00-logic.js");
+var LOOK = require("../src/05-catalog.js");
 var failed = 0;
 
 function eq(name, got, want) {
@@ -430,6 +431,117 @@ for (h = 0; h < 4; h++) {
 var feast = KHAYA.claimBraai(braai, "2026-11-07");
 eq("braai day pays", feast.notes, 16);
 eq("braai once", KHAYA.claimBraai(braai, "2026-11-07").ok, false);
+
+var freshAudit = KHAYA.layoutAudit(KHAYA.fresh(1000));
+truth("fresh yard has no overlap", freshAudit.ok);
+if (!freshAudit.ok) console.error(freshAudit.problems);
+
+eq("prop blocks a bed", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 5, 5).ok, false);
+eq("prop blocks the barrow cell", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 3, 4).ok, false);
+
+function routeCells(entry) {
+  var found = {};
+  function add(x, y) {
+    var cx = Math.floor(x);
+    var cy = Math.floor(y);
+    found[cx + "," + cy] = [cx, cy];
+  }
+  if (entry.at) add(entry.at[0], entry.at[1]);
+  var route = entry.route || [];
+  var i, a, b, t, steps;
+  for (i = 0; i < route.length; i++) {
+    a = route[i];
+    b = route[(i + 1) % route.length];
+    steps = 12;
+    for (t = 0; t <= steps; t++) add(a[0] + (b[0] - a[0]) * t / steps, a[1] + (b[1] - a[1]) * t / steps);
+  }
+  return found;
+}
+
+function occupiedMap(state) {
+  var used = {};
+  var i, b, cells, c, p;
+  for (i = 0; i < state.buildings.length; i++) {
+    b = state.buildings[i];
+    cells = KHAYA.footprint(b);
+    for (c = 0; c < cells.length; c++) used[cells[c][0] + "," + cells[c][1]] = b.type;
+  }
+  for (i = 0; i < KHAYA.PROPS.length; i++) {
+    p = KHAYA.PROPS[i];
+    cells = KHAYA.footprint(p);
+    for (c = 0; c < cells.length; c++) used[cells[c][0] + "," + cells[c][1]] = "prop:" + p.id;
+  }
+  return used;
+}
+
+var seenRoute = {};
+var ri, entry, cells, key, walker;
+for (ri = 0; ri < LOOK.cast.length; ri++) {
+  entry = LOOK.cast[ri];
+  cells = routeCells(entry);
+  for (key in cells) {
+    if (seenRoute[key]) truth(entry.id + " route avoids " + seenRoute[key], false);
+    seenRoute[key] = entry.id;
+    var cell = cells[key];
+    truth(entry.id + " stays on the grid", cell[0] >= 0 && cell[1] >= 0 && cell[0] < KHAYA.COLS && cell[1] < KHAYA.ROWS);
+  }
+}
+
+var late = KHAYA.fresh(1e15);
+late.plots = { lane: 1, east: 1, south: 1, koppie: 1 };
+var latePlan = [
+  ["spaza", 5, 7, 1, 1],
+  ["workshop", 8, 4, 1, 1],
+  ["tank", 8, 5, 1, 1],
+  ["solar", 8, 1, 1, 1],
+  ["bed", 2, 7, 1, 1],
+  ["bed", 4, 7, 1, 1],
+  ["bed", 0, 7, 1, 1],
+  ["bed", 5, 6, 1, 1],
+  ["bed", 5, 2, 1, 1],
+  ["braai", 1, 0, 1, 1],
+  ["potjie", 1, 7, 1, 1],
+  ["coop", 8, 2, 1, 1],
+  ["kraal", 10, 4, 2, 2],
+  ["aloe_clump", 8, 3, 1, 1],
+  ["patch", 13, 2, 1, 1],
+  ["imbawula", 8, 7, 1, 1],
+  ["mielie", 12, 6, 1, 1],
+  ["palisade", 14, 2, 1, 1],
+  ["barrow", 13, 4, 1, 1],
+  ["wash", 13, 6, 1, 1]
+];
+var lp;
+for (lp = 0; lp < latePlan.length; lp++) {
+  late.buildings.push({
+    id: late.nextId++,
+    type: latePlan[lp][0],
+    x: latePlan[lp][1],
+    y: latePlan[lp][2],
+    w: latePlan[lp][3],
+    h: latePlan[lp][4],
+    level: latePlan[lp][0] === "home" ? 3 : 2
+  });
+}
+var lateAudit = KHAYA.layoutAudit(late);
+truth("late yard has no overlap", lateAudit.ok);
+if (!lateAudit.ok) console.error(lateAudit.problems);
+
+var lateUsed = occupiedMap(late);
+for (key in seenRoute) {
+  truth("route " + seenRoute[key] + " avoids late yard at " + key, !lateUsed[key]);
+}
+var freshUsed = occupiedMap(KHAYA.fresh(1000));
+for (key in seenRoute) {
+  truth("route " + seenRoute[key] + " avoids the starter yard at " + key, !freshUsed[key]);
+}
+
+var piled = KHAYA.fresh(1000);
+piled.buildings.push({ id: 99, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1 });
+truth("stacked beds fail the audit", KHAYA.layoutAudit(piled).ok === false);
+var outside = KHAYA.fresh(1000);
+outside.buildings.push({ id: 98, type: "bed", x: 20, y: 2, w: 1, h: 1, level: 1 });
+truth("off-grid bed fails the audit", KHAYA.layoutAudit(outside).ok === false);
 
 var oldBoard = KHAYA.sanitize({ v: 1, notes: 10, buildings: [{ type: "home", x: 1, y: 2, level: 1 }] });
 truth("old save still loads", !!oldBoard);

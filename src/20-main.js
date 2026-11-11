@@ -374,6 +374,7 @@
       cam: cam,
       squash: squash,
       ground: q.get("ground") === "1",
+      align: q.get("align") === "1",
       light: q.get("light") || "",
       calm: reduceMotion,
       hint: hint,

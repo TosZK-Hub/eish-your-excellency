@@ -202,6 +202,26 @@ var KHAYA = (function () {
     return !!(state.plots && state.plots[p.id]);
   }
 
+  // Whole-cell yard props. The taxi parks on the path; the others sit on open grass.
+  var PROPS = [
+    { id: "wash", file: "washing_line", x: 5, y: 5, w: 1, h: 1 },
+    { id: "barrow", file: "wheelbarrow", x: 3, y: 4, w: 1, h: 1 },
+    { id: "taxi", file: "taxi", x: 1, y: 6, w: 2, h: 1 }
+  ];
+
+  function propAt(x, y) {
+    var i, p, dx, dy;
+    for (i = 0; i < PROPS.length; i++) {
+      p = PROPS[i];
+      for (dy = 0; dy < p.h; dy++) {
+        for (dx = 0; dx < p.w; dx++) {
+          if (p.x + dx === x && p.y + dy === y) return p;
+        }
+      }
+    }
+    return null;
+  }
+
   function cellBlock(state, x, y, ignoreId) {
     var land = terrainAt(x, y);
     if (land === "out") return { ok: false, reason: "That sits outside the lane." };
@@ -209,8 +229,43 @@ var KHAYA = (function () {
     if (plot && !plotOpen(state, x, y)) return { ok: false, reason: "Unlock the " + plot.name.toLowerCase() + " first." };
     if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
     if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+    if (propAt(x, y)) return { ok: false, reason: "Something is already there." };
     if (occupied(state, x, y, ignoreId)) return { ok: false, reason: "Something is already there." };
     return { ok: true };
+  }
+
+  function layoutAudit(state) {
+    var used = {};
+    var problems = [];
+    function take(x, y, who, allowPath) {
+      if (x !== (x | 0) || y !== (y | 0)) {
+        problems.push(who + " is off the tile grid at " + x + "," + y);
+        return;
+      }
+      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) {
+        problems.push(who + " is outside the lane at " + x + "," + y);
+        return;
+      }
+      var land = terrainAt(x, y);
+      if (land === "out" || land === "tree" || (land === "path" && !allowPath)) {
+        problems.push(who + " sits on " + land + " at " + x + "," + y);
+      }
+      var key = x + "," + y;
+      if (used[key]) problems.push(who + " overlaps " + used[key] + " at " + key);
+      else used[key] = who;
+    }
+    var i, b, cells, c, p;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      cells = footprint(b);
+      for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], (b.type || "building") + "#" + b.id, false);
+    }
+    for (i = 0; i < PROPS.length; i++) {
+      p = PROPS[i];
+      cells = footprint(p);
+      for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], "prop:" + p.id, p.id === "taxi");
+    }
+    return { ok: problems.length === 0, problems: problems };
   }
 
   function footprint(b) {
@@ -1551,6 +1606,8 @@ var KHAYA = (function () {
     occupied: occupied,
     buildingById: buildingById,
     footprint: footprint,
+    PROPS: PROPS,
+    layoutAudit: layoutAudit,
     cellNorth: cellNorth,
     pickCell: pickCell,
     afford: afford,

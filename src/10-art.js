@@ -28,6 +28,9 @@ var DRAW = (function () {
     for (i = 0; i < LOOK.trees.length; i++) add(LOOK.trees[i]);
     for (i = 0; i < LOOK.neighbours.length; i++) add(LOOK.neighbours[i]);
     for (i = 0; i < LOOK.dress.length; i++) add(LOOK.dress[i].file);
+    if (typeof KHAYA !== "undefined" && KHAYA.PROPS) {
+      for (i = 0; i < KHAYA.PROPS.length; i++) add(KHAYA.PROPS[i].file);
+    }
     add("tile_grass");
     add("tile_dirt");
     var crops = [
@@ -95,27 +98,27 @@ var DRAW = (function () {
     var z = cam.z || 1;
     if (z < 0.55) z = 0.55;
     if (z > 2.2) z = 2.2;
-    var phone = w < 560;
-    var cols = phone ? 6.5 : 8;
-    var rows = phone ? 6.5 : 8;
-    var horizon = phone ? Math.max(20, h * 0.08) : Math.max(64, h * 0.22);
-    var availW = w * (phone ? 1.04 : 0.96);
-    var availH = Math.max(80, (h - horizon) * (phone ? 1.02 : 0.98));
-    var tw = availW / ((cols + rows) / 2);
+    // Fit the opening lane (8 by 8) inside the stage, clear of the top bar and the dock.
+    var marginX = Math.max(14, Math.round(w * 0.04));
+    var marginTop = Math.max(12, Math.round(h * 0.045));
+    var marginBot = Math.max(18, Math.round(h * 0.07));
+    var span = w < 560 ? 8 : 10;
+    var tw = (w - marginX * 2) / span;
     var th = tw * 0.5;
-    var plotH = (cols + rows) * th / 2;
-    var need = plotH + th * 2.4;
-    if (need > availH) {
-      var s = availH / need;
+    var plotH = span * th;
+    var room = Math.max(80, h - marginTop - marginBot);
+    if (plotH > room) {
+      var s = room / plotH;
       tw *= s;
       th *= s;
-      plotH = (cols + rows) * th / 2;
+      plotH = span * th;
     }
     tw *= z;
     th *= z;
-    var plotW = (cols + rows) * tw / 2;
-    var ox = (w - plotW) / 2 + rows * tw / 2 + (cam.x || 0);
-    var oy = horizon + Math.max(th / z, (h - horizon - plotH * z) * 0.42) + (cam.y || 0);
+    plotH = span * th;
+    var ox = w / 2 + (cam.x || 0);
+    var oy = marginTop + Math.max(0, (h - marginTop - marginBot - plotH) * 0.46) + (cam.y || 0);
+    var horizon = Math.max(8, oy - th * 0.85);
     return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
   }
 
@@ -123,8 +126,8 @@ var DRAW = (function () {
     cam = cam || { x: 0, y: 0, z: 1 };
     if (cam.z < 0.55) cam.z = 0.55;
     if (cam.z > 2.2) cam.z = 2.2;
-    var limX = Math.max(40, w * 0.18);
-    var limY = Math.max(28, h * 0.12);
+    var limX = Math.max(36, w * 0.28);
+    var limY = Math.max(24, h * 0.16);
     if (cam.x > limX) { cam.x = limX; cam.vx = 0; }
     if (cam.x < -limX) { cam.x = -limX; cam.vx = 0; }
     if (cam.y > limY) { cam.y = limY; cam.vy = 0; }
@@ -346,16 +349,49 @@ var DRAW = (function () {
     ctx.restore();
   }
 
-  function blitFoot(ctx, image, footX, footY, tw, scale) {
+  function blitPivot(ctx, image, footX, footY, tw, scale, pivot) {
     var size = image ? srcSize(image) : { w: 0, h: 0 };
-    if (!image || !size.w) return;
-    var px = (tw / 256) * (scale || 1);
-    var dw = size.w * px;
-    var dh = size.h * px;
-    var row = contact && contact.get(image);
-    if (row === undefined || row === null) row = size.h - 1;
-    ctx.drawImage(image, footX - dw / 2, footY - (row + 1) * px, dw, dh);
+    if (!image || !size.w) return null;
+    var k = (tw / 256) * (scale || 1);
+    var dw = size.w * k;
+    var dh = size.h * k;
+    var fx = pivot ? pivot[0] : 0.5;
+    var fy = pivot ? pivot[1] : null;
+    if (fy === null || fy === undefined) {
+      var row = contact && contact.get(image);
+      if (row === undefined || row === null) row = size.h - 1;
+      fy = (row + 1) / size.h;
+    }
+    var left = footX - fx * dw;
+    var top = footY - fy * dh;
+    ctx.drawImage(image, left, top, dw, dh);
     if (markGround) groundMarks.push(footX, footY);
+    return { left: left, top: top, dw: dw, dh: dh };
+  }
+
+  function blitFoot(ctx, image, footX, footY, tw, scale) {
+    return blitPivot(ctx, image, footX, footY, tw, scale, null);
+  }
+
+  function paintTile(ctx, file, x, y, o) {
+    var image = img[file];
+    if (!image) return;
+    var pivot = (LOOK.pivot && LOOK.pivot[file]) || [0.5, 1, 256];
+    var scale = pivot[2] ? 256 / pivot[2] : 1;
+    var tip = north(x + 1, y + 1, o);
+    blitPivot(ctx, image, tip.x, tip.y, o.tw, scale, pivot);
+  }
+
+  function southTip(b, o) {
+    return north(b.x + b.w, b.y + b.h, o);
+  }
+
+  function frontPoint(b, o) {
+    return north(b.x + b.w - 0.5, b.y + b.h - 0.5, o);
+  }
+
+  function footprintCenter(b, o) {
+    return north(b.x + b.w / 2, b.y + b.h / 2, o);
   }
 
   function hash(x, y) {
@@ -367,9 +403,8 @@ var DRAW = (function () {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
     var open = !state || KHAYA.plotOpen(state, x, y);
-    var midCell = north(x + 0.5, y + 0.5, o);
-    if (img.tile_grass) ctx.drawImage(img.tile_grass, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
-    if (kind === "path" && img.tile_dirt) ctx.drawImage(img.tile_dirt, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    paintTile(ctx, "tile_grass", x, y, o);
+    if (kind === "path") paintTile(ctx, "tile_dirt", x, y, o);
     if (!img.tile_grass && !(kind === "path" && img.tile_dirt)) {
       var fill = kind === "path" ? "#c47a45" : "#c6a84a";
       poly(ctx, [c.n, c.e, c.s, c.w], fill);
@@ -429,10 +464,11 @@ var DRAW = (function () {
     return spec.file || b.type;
   }
 
-  function placePoint(b, o) {
-    var spec = LOOK.buildings[b.type] || { anchor: [0.5, 0.55], offset: [0, 0] };
-    var p = north(b.x + b.w * spec.anchor[0], b.y + b.h * spec.anchor[1], o);
-    return { x: p.x + (spec.offset[0] || 0), y: p.y + (spec.offset[1] || 0), spec: spec };
+  function labelBand(top, canvasH) {
+    var y = top - 10;
+    if (y < 10) y = 10;
+    if (canvasH && y > canvasH - 28) y = canvasH - 28;
+    return y;
   }
 
   function puff(ctx, x, y, now, kind) {
@@ -478,8 +514,15 @@ var DRAW = (function () {
   var grewAt = {};
 
   function drawSprite(ctx, name, b, o, now, pop, squash) {
-    var spot = placePoint(b, o);
-    var scale = spot.spec.scale || 1;
+    var spec = LOOK.buildings[b.type] || {};
+    var tip = southTip(b, o);
+    var pivot = (LOOK.pivot && LOOK.pivot[name]) || [0.5, 0.99, 256];
+    var baseName = b.type === "bed" ? "bed_empty" : name;
+    var base = (LOOK.pivot && LOOK.pivot[baseName] && LOOK.pivot[baseName][2]) || pivot[2] || 256;
+    var tiles = ((b.w || 1) + (b.h || 1)) / 2;
+    var widest = (LOOK.pivot && LOOK.pivot[name] && LOOK.pivot[name][2]) || base;
+    var cap = (tiles * 0.72 * 256) / widest;
+    var scale = spec.fit ? (tiles * 256) / base : Math.min(spec.scale || 1, cap);
     var sc = scale;
     var sx = 1;
     var sy = 1;
@@ -503,15 +546,21 @@ var DRAW = (function () {
       sy *= 1 - land * 0.12;
       sc = scale * (0.92 + Math.min(1, u / 0.3) * 0.08);
     }
+    var mid = footprintCenter(b, o);
+    var world = spec.fit ? tip : mid;
+    var image = img[name];
+    var size = image ? srcSize(image) : { h: 0 };
+    var k = (o.tw / 256) * sc;
+    var top = (world.y - drop) - (pivot[1] || 1) * size.h * k * sy;
     ctx.save();
-    groundShadow(ctx, spot.x, spot.y, o.tw, spot.spec.shadow);
-    ctx.translate(spot.x, spot.y - drop);
+    groundShadow(ctx, mid.x, mid.y, o.tw * (spec.fit ? tiles : 0.45), spec.shadow);
+    ctx.translate(world.x, world.y - drop);
     ctx.scale(sx, sy);
-    ctx.translate(-spot.x, -spot.y);
-    blitFoot(ctx, img[name], spot.x, spot.y, o.tw, sc);
+    ctx.translate(-world.x, -world.y);
+    blitPivot(ctx, image, world.x, world.y, o.tw, sc, pivot);
     ctx.restore();
-    if (spot.spec.smoke) puff(ctx, spot.x, spot.y - o.th * 0.9, now, spot.spec.smoke);
-    return spot;
+    if (spec.smoke) puff(ctx, mid.x, tip.y - o.th * 0.9, now, spec.smoke);
+    return { x: mid.x, y: tip.y, top: top, spec: spec };
   }
 
   function barOver(ctx, x, y, w, progress, color) {
@@ -642,14 +691,17 @@ var DRAW = (function () {
     var bi;
     var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
     if (housed) {
-      x = housed.x + housed.w * 0.35;
-      y = housed.y + housed.h + 0.2;
+      x = housed.x + 0.5;
+      y = housed.y + housed.h + 0.5;
+      if (KHAYA.occupied(state, Math.floor(x), Math.floor(y))) {
+        x = housed.x + housed.w + 0.5;
+        y = housed.y + housed.h - 0.5;
+      }
       pose = "idle";
-    } else if (entry.near === "home") {
-      var home = null;
-      for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
-      if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
-      pose = Math.floor(now / 2800) % 4 === 0 ? "work" : "idle";
+    } else if (entry.at) {
+      x = entry.at[0];
+      y = entry.at[1];
+      pose = "idle";
     } else if (entry.spot) {
       x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
       y = entry.spot[1] + Math.cos(now / 1100) * (entry.wobble || 0) * 0.6;
@@ -659,20 +711,7 @@ var DRAW = (function () {
       x = step.x;
       y = step.y;
       dir = step.dir;
-      if (entry.id === "farmer") {
-        for (bi = 0; bi < state.buildings.length; bi++) {
-          var bed = state.buildings[bi];
-          if (bed.type !== "bed" || !bed.phase || bed.phase === "empty") continue;
-          var dx = x - (bed.x + 0.55);
-          var dy = y - (bed.y + 0.55);
-          if (dx * dx + dy * dy < 0.1) pose = "work";
-        }
-      }
-      if (entry.id === "doek") {
-        var spaza = null;
-        for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
-        if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; pose = "work"; }
-      }
+      pose = "walk";
     }
     return { x: x, y: y, dir: dir, pose: pose, housed: housed };
   }
@@ -737,7 +776,7 @@ var DRAW = (function () {
           bob = Math.sin(now / 900 + y) * o.th * 0.01;
         }
         var sprite = actorImage(spec, now, moving ? "walk" : pose);
-        queue.push({ y: n.y, draw: function () {
+        queue.push({ y: n.y + 0.5, draw: function () {
           ctx.save();
           groundShadow(ctx, n.x, n.y, o.tw, spec.shadow);
           ctx.translate(n.x, n.y + bob);
@@ -859,30 +898,8 @@ var DRAW = (function () {
     var origin = north(0, 0, o);
     ctx.drawImage(plated.canvas, origin.x - plated.ox, origin.y - plated.oy, plated.w, plated.h);
     var queue = [];
-    var feet = importantFeet(state, o, now);
-    var x, y, i;
-    for (y = 0; y < KHAYA.ROWS; y++) for (x = 0; x < KHAYA.COLS; x++) {
-      if (KHAYA.terrainAt(x, y) !== "tree") continue;
-      if (LOOK.treeSkip && LOOK.treeSkip[x + "," + y]) continue;
-      (function (tx, ty) {
-        var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
-        var nudge = (LOOK.treeNudge && LOOK.treeNudge[tx + "," + ty]) || [0, 0];
-        var n = north(tx + 0.5 + nudge[0], ty + 0.5 + nudge[1], o);
-        var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
-        var fade = treeCovers(n, file, treeScale, o, feet);
-        queue.push({ y: n.y, draw: function () {
-          ctx.save();
-          if (fade) ctx.globalAlpha = 0.38;
-          if (!calm) {
-            ctx.translate(n.x, n.y);
-            ctx.rotate(Math.sin(now / 1400 + tx) * 0.012);
-            ctx.translate(-n.x, -n.y);
-          }
-          blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
-          ctx.restore();
-        } });
-      })(x, y);
-    }
+    var i;
+    var barW = Math.min(o.tw * 0.42, 56);
     for (i = 0; i < state.buildings.length; i++) {
       (function (building) {
         var dragging = view.drag && view.drag.id === building.id;
@@ -893,24 +910,25 @@ var DRAW = (function () {
             w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt, id: building.id
           };
         }
-        var spot = placePoint(drawAt, o);
-        queue.push({ y: spot.y, draw: function () {
+        var front = frontPoint(drawAt, o);
+        queue.push({ y: front.y, draw: function () {
           ctx.save();
           if (dragging) ctx.globalAlpha = 0.85;
           var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
           ctx.restore();
+          var ly = labelBand(drawn.top, h);
           var job = KHAYA.buildView(building);
           if (job && !dragging) {
-            barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
-            puff(ctx, drawn.x + o.tw * 0.1, drawn.y - o.th * 0.35, now, "steam");
+            barOver(ctx, drawn.x, ly, barW, job.progress, "#7eb6e0");
+            puff(ctx, drawn.x, ly - 4, now, "steam");
           }
           if (building.type === "bed" && !dragging) {
             var growth = KHAYA.bedView(building, now);
-            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, drawn.y - o.th * 1.55, o.tw * 0.5, growth.progress, "#7dcea0");
-            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, drawn.y - o.th * 1.7, now);
+            if (growth && growth.phase === "growing") barOver(ctx, drawn.x, ly, barW, growth.progress, "#7dcea0");
+            if (growth && growth.phase === "ready") readyMark(ctx, drawn.x, ly, now);
           }
           var prod = KHAYA.produceView(building, state);
-          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
+          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, ly, now);
           if (dragging) {
             var okMove = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
             ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, okMove ? "#f2c14e" : "#d64545");
@@ -918,60 +936,64 @@ var DRAW = (function () {
         } });
       })(state.buildings[i]);
     }
-    var di;
-    for (di = 0; di < LOOK.dress.length; di++) {
+    var props = KHAYA.PROPS || [];
+    var pi;
+    for (pi = 0; pi < props.length; pi++) {
+      if (props[pi].id === "taxi") continue;
       (function (piece) {
-        var n = north(piece.x, piece.y, o);
-        if (piece.file === "taxi") return;
-        var tree = piece.file.indexOf("tree_") === 0;
-        var fade = tree && treeCovers(n, piece.file, piece.scale || 1, o, feet);
-        var sway = tree || piece.file === "washing_line";
-        queue.push({ y: n.y, draw: function () {
+        var fake = { type: piece.id, x: piece.x, y: piece.y, w: piece.w, h: piece.h };
+        var front = frontPoint(fake, o);
+        queue.push({ y: front.y, draw: function () {
+          var sway = piece.file === "washing_line" && !calm;
           ctx.save();
-          if (fade) ctx.globalAlpha = 0.38;
-          if (sway && !calm) {
-            ctx.translate(n.x, n.y);
-            ctx.rotate(Math.sin(now / (tree ? 1600 : 900) + piece.x) * (tree ? 0.012 : 0.03));
-            ctx.translate(-n.x, -n.y);
+          if (sway) {
+            var tip = southTip(fake, o);
+            ctx.translate(tip.x, tip.y);
+            ctx.rotate(Math.sin(now / 900 + piece.x) * 0.02);
+            ctx.translate(-tip.x, -tip.y);
           }
-          blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
+          drawSprite(ctx, piece.file, fake, o, now);
           ctx.restore();
         } });
-      })(LOOK.dress[di]);
+      })(props[pi]);
     }
     queueActors(queue, state, o, now, ctx);
     (function () {
       var orders = state.orders || {};
-      var spot = { x: 1.35, y: 6.35 };
+      var tx = 1;
+      var ty = 6;
       var since = now - (orders.at || now);
       var drive = 0;
       if (orders.phase === "here" && since < 2800) {
         drive = easeInOut(Math.min(1, since / 2800));
-        spot = { x: -1.4 + (1.35 + 1.4) * drive, y: 6.35 };
+        tx = -2 + 3 * drive;
       } else if (orders.phase === "away" && since < 2600) {
         drive = easeInOut(Math.min(1, since / 2600));
-        spot = { x: 1.35 + drive * 5, y: 6.35 };
+        tx = 1 + drive * 4;
       }
       var movingTaxi = (orders.phase === "here" && since < 2800) || (orders.phase === "away" && since < 2600);
-      var bounce = movingTaxi ? Math.sin(since / 90) * 0.035 * (1 - Math.min(1, since / 2600)) : 0;
+      var bounce = movingTaxi ? Math.sin(since / 90) * 0.04 * (1 - Math.min(1, since / 2600)) : 0;
       if (!movingTaxi && orders.phase === "here" && since < 3400) bounce = Math.sin((since - 2800) / 600 * Math.PI) * 0.03;
-      var n = north(spot.x, spot.y + bounce, o);
-      queue.push({ y: n.y, draw: function () {
-        blitFoot(ctx, img.taxi, n.x, n.y, o.tw, 0.85);
-        if (movingTaxi) puff(ctx, n.x - o.tw * 0.18, n.y - o.th * 0.15, now, "steam");
+      var pivot = (LOOK.pivot && LOOK.pivot.taxi) || [0.5, 1, 327];
+      var scale = pivot[2] ? (1.5 * 256) / pivot[2] : 1;
+      var tip = north(tx + 2, ty + 1 + bounce, o);
+      var front = north(tx + 1.5, ty + 0.5, o);
+      queue.push({ y: front.y, draw: function () {
+        blitPivot(ctx, img.taxi, tip.x, tip.y, o.tw, scale, pivot);
+        if (movingTaxi) puff(ctx, tip.x - o.tw * 0.2, tip.y - o.th * 0.2, now, "steam");
       } });
       var ev = state.laneEvent && state.laneEvent.current;
       if (ev && ev.type === "goat") {
-        var gx = 5.2 + Math.sin(now / 180) * 0.8;
-        var gy = 4.2 + Math.cos(now / 220) * 0.35;
+        var gx = 4.5 + Math.sin(now / 180) * 0.12;
+        var gy = 3.5;
         var gn = north(gx, gy, o);
-        queue.push({ y: gn.y, draw: function () {
+        queue.push({ y: gn.y + 0.5, draw: function () {
           blitFoot(ctx, img.animal_goat, gn.x, gn.y, o.tw, LOOK.actors.goat.scale);
         } });
       }
       if (ev && ev.type === "ball") {
-        var bn = north(4.2, 5.6, o);
-        queue.push({ y: bn.y, draw: function () {
+        var bn = north(4.5, 5.5, o);
+        queue.push({ y: bn.y + 0.5, draw: function () {
           ctx.save();
           ctx.fillStyle = "#f4f1ea";
           ctx.beginPath();
@@ -1056,7 +1078,73 @@ var DRAW = (function () {
       }
       ctx.restore();
     }
+    if (view && view.align) paintAlign(ctx, state, o, now);
     return o;
+  }
+
+  function strokeDiamond(ctx, c, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(c.n.x, c.n.y);
+    ctx.lineTo(c.e.x, c.e.y);
+    ctx.lineTo(c.s.x, c.s.y);
+    ctx.lineTo(c.w.x, c.w.y);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  function paintAlign(ctx, state, o, now) {
+    ctx.save();
+    var x, y, c, i, b, p, cells, spot, front, order;
+    for (y = 0; y < KHAYA.ROWS; y++) {
+      for (x = 0; x < KHAYA.COLS; x++) {
+        c = corners(x, y, 1, 1, o);
+        strokeDiamond(ctx, c, "rgba(255,255,255,0.28)", 1);
+      }
+    }
+    order = [];
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      c = corners(b.x, b.y, b.w, b.h, o);
+      strokeDiamond(ctx, c, "#e2a53a", 2);
+      front = frontPoint(b, o);
+      order.push({ x: front.x, y: front.y, label: b.type });
+      var tip = southTip(b, o);
+      ctx.strokeStyle = "#ff2d55";
+      ctx.beginPath();
+      ctx.moveTo(tip.x - 6, tip.y);
+      ctx.lineTo(tip.x + 6, tip.y);
+      ctx.moveTo(tip.x, tip.y - 6);
+      ctx.lineTo(tip.x, tip.y + 6);
+      ctx.stroke();
+    }
+    cells = KHAYA.PROPS || [];
+    for (i = 0; i < cells.length; i++) {
+      p = cells[i];
+      c = corners(p.x, p.y, p.w, p.h, o);
+      strokeDiamond(ctx, c, "#7eb6e0", 2);
+      front = frontPoint(p, o);
+      order.push({ x: front.x, y: front.y, label: p.id });
+    }
+    for (i = 0; i < LOOK.cast.length; i++) {
+      spot = actorWhere(LOOK.cast[i], state, now);
+      if (!spot) continue;
+      var foot = north(spot.x, spot.y, o);
+      order.push({ x: foot.x, y: foot.y + 0.5, label: LOOK.cast[i].id });
+      ctx.strokeStyle = "#7dcea0";
+      ctx.beginPath();
+      ctx.arc(foot.x, foot.y, 3, 0, 7);
+      ctx.stroke();
+    }
+    order.sort(function (a, b) { return a.y - b.y; });
+    ctx.font = "700 10px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#1a120c";
+    for (i = 0; i < order.length; i++) {
+      ctx.fillText(String(i), order[i].x, order[i].y - 8);
+    }
+    ctx.restore();
   }
 
   function lineup(canvas) {
