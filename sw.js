@@ -1,4 +1,4 @@
-var C = "ewg-khaya-5";
+var C = "ewg-khaya-6";
 var F = ["./","index.html","style.css","game.js","icon.svg","manifest.webmanifest"];
 self.addEventListener("install", function (e) {
   self.skipWaiting();

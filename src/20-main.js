@@ -20,7 +20,12 @@
 
   var now0 = Date.now();
   var state = q.get("fresh") ? KHAYA.fresh(now0) : (load() || KHAYA.fresh(now0));
-  KHAYA.tick(state, now0);
+  var bootTick = KHAYA.tick(state, now0);
+  var pendingAway = KHAYA.awayLine(bootTick && bootTick.away);
+  var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var sharp = 1;
+  var dtEma = 16;
+  var framesSeen = 0;
   var selectedId = null;
   var ghost = null;
   var stopGame = null;
@@ -147,7 +152,12 @@
       modal.hidden = true;
       sheet.classList.remove("shut");
       sheet.setAttribute("aria-hidden", "true");
-    }, 160);
+      if (pendingAway) {
+        var line = pendingAway;
+        pendingAway = "";
+        toast(line);
+      }
+    }, 180);
   }
 
   function openModal(title, html) {
@@ -178,7 +188,7 @@
     for (ck in state.crops) if (state.crops[ck]) cropSig += ck + state.crops[ck];
     var ordersN = state.orders && state.orders.phase === "here" && state.orders.list ? state.orders.list.length : 0;
     var st = state.stats || {};
-    var sig = state.notes + "|" + state.seeds + "|" + state.water + "|" + state.timber + "|" + state.bricks + "|" + cropSig + "|" + KHAYA.playerXp(state) + "|" + ordersN + "|" + (st.harvested || 0) + "|" + (st.placed || 0);
+    var sig = state.notes + "|" + state.seeds + "|" + state.water + "|" + state.timber + "|" + state.bricks + "|" + cropSig + "|" + KHAYA.playerXp(state) + "|" + ordersN + "|" + (st.harvested || 0) + "|" + (st.placed || 0) + "|" + (selectedId || 0);
     if (sig === hudSig) return;
     hudSig = sig;
     notesEl.innerHTML = icon("coin") + "<b>" + state.notes + "</b>";
@@ -198,8 +208,10 @@
     var lv = KHAYA.playerLevel(state);
     var ordersBtn = document.getElementById("orders");
     if (ordersBtn) {
+      var showOrders = (state.stats.harvested || 0) > 0;
+      ordersBtn.hidden = !showOrders;
       var list = state.orders && state.orders.phase === "here" ? state.orders.list : [];
-      ordersBtn.textContent = list && list.length ? "Orders " + list.length : "Orders";
+      ordersBtn.textContent = showOrders && list && list.length ? "Orders " + list.length : "Orders";
     }
     if (levelEl) levelEl.textContent = String(lv);
     if (xpFill) {
@@ -208,16 +220,15 @@
       xpFill.style.transform = "scaleX(" + pct + ")";
     }
     if (goalEl) {
-      var open = KHAYA.tasks(state).filter(function (t) { return !t.done; }).slice(0, 3);
-      if (!open.length) open = [{ done: true, text: "The lane is underway. Keep growing it." }];
+      var open = selected() ? KHAYA.tasks(state).filter(function (t) { return !t.done; }).slice(0, 1) : [];
       goalEl.innerHTML = open.map(function (t) {
-        return "<li" + (t.done ? " class=\"done\"" : "") + ">" + t.text + "</li>";
+        return "<li>" + t.text + "</li>";
       }).join("");
     }
     var laneBtn = document.querySelector("[data-act=more]");
     if (laneBtn) {
       var badges = KHAYA.unseenFolk(state);
-      if (!state.daily || state.daily.last !== KHAYA.dayKey(new Date())) badges += 1;
+      if ((state.stats.harvested || 0) > 0 && (!state.daily || state.daily.last !== KHAYA.dayKey(new Date()))) badges += 1;
       laneBtn.innerHTML = "Lane" + (badges ? "<span class=\"badge\">" + badges + "</span>" : "");
     }
   }
@@ -270,63 +281,104 @@
     }
   }
 
+  var cardSig = "";
   function paintCard() {
     var b = selected();
+    var now = Date.now();
+    var html = "";
+    var sig = "";
     if (ghost) {
       var def = KHAYA.BUILDINGS[ghost.type];
       var check = KHAYA.canPlace(state, ghost.type, ghost.x, ghost.y);
-      card.innerHTML = "<b>Placing " + def.name + "</b><p>" + (check.ok ? "Tap the lane to build it." : check.reason) + "</p>";
-      return;
-    }
-    if (!b) {
-      card.innerHTML = "<b>Khaya Lane</b><p>Tap a bed to plant, or open Build.</p>";
-      return;
-    }
-    var spec = KHAYA.BUILDINGS[b.type];
-    var html = "<b>" + spec.name + "</b>";
-    if (b.type === "bed") {
-      var view = KHAYA.bedView(b, Date.now());
-      if (view.phase === "empty") {
-        html += "<p>Choose a crop.</p><div class=\"row\">";
-        Object.keys(KHAYA.CROPS).forEach(function (k) {
-          var c = KHAYA.CROPS[k];
-          if (c.offer === false) return;
-          var locked = KHAYA.farmLevel(state) < c.level;
-          html += "<button type=\"button\" data-sow=\"" + k + "\"" + (locked || state.seeds < 1 ? " disabled" : "") + ">" + c.name + (locked ? " · lv " + c.level : "") + "</button>";
-        });
-        html += "</div>";
-      } else if (view.phase === "sown") {
-        var waterCost = KHAYA.CROPS[b.crop].water;
-        html += "<p>" + KHAYA.CROPS[b.crop].name + " is in. It needs " + waterCost + " water.</p>";
-        html += "<button type=\"button\" class=\"hot\" data-do=\"water\"" + (state.water < waterCost ? " disabled" : "") + ">Water</button>";
-      } else if (view.phase === "growing") {
-        html += "<p>" + KHAYA.CROPS[b.crop].name + " · " + Math.ceil(view.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + view.progress + ")\"></span></div>";
-      } else {
-        html += "<p>" + KHAYA.CROPS[b.crop].name + " is ready.</p><button type=\"button\" class=\"hot\" data-do=\"harvest\">Harvest</button>";
-      }
+      sig = "g" + ghost.type + ghost.x + "," + ghost.y + (check.ok ? 1 : 0);
+      html = "<b>Placing " + def.name + "</b><p>" + (check.ok ? "Tap the grass to build it." : check.reason) + "</p>";
+    } else if (!b) {
+      var guide = KHAYA.coach(state, now);
+      sig = "c" + (guide ? guide.act + guide.title + (guide.sow || "") : "quiet") + state.seeds + state.water;
+      if (guide) {
+        html = "<b>" + guide.title + "</b><p>" + guide.text + "</p>";
+        if (guide.act === "water") html += "<button type=\"button\" class=\"hot\" data-coach=\"water\" data-id=\"" + guide.id + "\">Water</button>";
+        else if (guide.act === "harvest") html += "<button type=\"button\" class=\"hot\" data-coach=\"harvest\" data-id=\"" + guide.id + "\">Pick</button>";
+        else if (guide.act === "sow") html += "<button type=\"button\" class=\"hot\" data-coach=\"sow\" data-id=\"" + guide.id + "\">Sow maize</button>";
+        else if (guide.act === "build") html += "<button type=\"button\" class=\"hot\" data-coach=\"build\">Build a spaza</button>";
+        else if (guide.sow) html += "<button type=\"button\" class=\"hot\" data-coach=\"sow\" data-id=\"" + guide.sow + "\">Sow maize</button>";
+      } else html = "<b>Khaya Lane</b><p>Tap a bed, or open Build.</p>";
     } else {
-      html += "<p>" + spec.blurb + "</p>";
-      var job = KHAYA.buildView(b);
-      if (job) {
-        html += "<p>Building · " + Math.ceil(job.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + job.progress + ")\"></span></div>";
-      }
-      var prod = KHAYA.produceView(b);
-      if (prod) {
-        html += "<p>" + (prod.ready ? prod.stored + " notes ready" : "Next note in " + Math.ceil(prod.left / 1000) + "s") + "</p>";
-        html += "<div class=\"meter\"><span style=\"transform:scaleX(" + prod.progress + ")\"></span></div>";
-        if (prod.ready) html += "<button type=\"button\" class=\"hot\" data-do=\"collect\">Collect</button>";
-      }
-      if (!job) {
-        var up = KHAYA.canUpgrade(state, b.id);
-        var price = KHAYA.upgradeCost(state, b);
-        if (price) {
-          html += "<p class=\"fine\">" + costLine(price) + "</p>";
-          html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
-          if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
-        } else html += "<p class=\"fine\">Fully built.</p>";
+      var spec = KHAYA.BUILDINGS[b.type];
+      html = "<b>" + spec.name + "</b>";
+      sig = "b" + b.id + b.level + (b.phase || "") + (b.crop || "") + (b.stored || 0) + (b.buildLeft || 0) + state.water + state.seeds + state.notes;
+      if (b.type === "bed") {
+        var view = KHAYA.bedView(b, now);
+        sig += view.phase + Math.round((view.progress || 0) * 20);
+        if (view.phase === "empty") {
+          html += "<p>Choose a crop.</p><div class=\"row\">";
+          Object.keys(KHAYA.CROPS).forEach(function (k) {
+            var c = KHAYA.CROPS[k];
+            if (c.offer === false) return;
+            var locked = KHAYA.farmLevel(state) < c.level;
+            html += "<button type=\"button\" data-sow=\"" + k + "\"" + (locked || state.seeds < 1 ? " disabled" : "") + ">" + c.name + (locked ? " · lv " + c.level : "") + "</button>";
+          });
+          html += "</div>";
+        } else if (view.phase === "sown") {
+          var waterCost = KHAYA.CROPS[b.crop].water;
+          html += "<p>" + KHAYA.CROPS[b.crop].name + " is in. It needs " + waterCost + " water.</p>";
+          html += "<button type=\"button\" class=\"hot\" data-do=\"water\"" + (state.water < waterCost ? " disabled" : "") + ">Water</button>";
+        } else if (view.phase === "growing") {
+          html += "<p>" + KHAYA.CROPS[b.crop].name + " · ready in " + KHAYA.formatSpan(view.left) + "</p><div class=\"meter\"><span style=\"transform:scaleX(" + view.progress + ")\"></span></div>";
+        } else {
+          html += "<p>" + KHAYA.CROPS[b.crop].name + " is ready.</p><button type=\"button\" class=\"hot\" data-do=\"harvest\">Pick</button>";
+        }
+      } else {
+        html += "<p>" + spec.blurb + "</p>";
+        var job = KHAYA.buildView(b);
+        if (job) {
+          sig += Math.round(job.progress * 20);
+          html += "<p>Building · " + KHAYA.formatSpan(job.left) + " left</p><div class=\"meter\"><span style=\"transform:scaleX(" + job.progress + ")\"></span></div>";
+        }
+        var prod = KHAYA.produceView(b, state);
+        if (prod) {
+          sig += Math.round(prod.progress * 20);
+          html += "<p>" + (prod.ready ? prod.stored + " notes ready" : "Next note in " + KHAYA.formatSpan(prod.left)) + "</p>";
+          html += "<div class=\"meter\"><span style=\"transform:scaleX(" + prod.progress + ")\"></span></div>";
+          if (prod.ready) html += "<button type=\"button\" class=\"hot\" data-do=\"collect\">Collect</button>";
+        }
+        if (!job) {
+          var up = KHAYA.canUpgrade(state, b.id);
+          var price = KHAYA.upgradeCost(state, b);
+          if (price) {
+            html += "<p class=\"fine\">" + costLine(price) + "</p>";
+            html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade · " + KHAYA.formatSpan(KHAYA.upgradeDuration(b)) + "</button>";
+            if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
+          } else html += "<p class=\"fine\">Fully built.</p>";
+        }
       }
     }
+    if (sig === cardSig) return;
+    cardSig = sig;
     card.innerHTML = html;
+  }
+
+  function scene(dragging) {
+    var hint = null;
+    var guide = !selectedId && !ghost ? KHAYA.coach(state, Date.now()) : null;
+    if (guide && guide.id && (state.stats.harvested || 0) < 1) {
+      var target = KHAYA.buildingById(state, guide.id);
+      if (target) hint = { x: target.x, y: target.y, w: target.w, h: target.h };
+    }
+    return {
+      ghost: ghost,
+      selected: selected(),
+      born: born,
+      floats: floats,
+      drag: dragging,
+      cam: cam,
+      squash: squash,
+      ground: q.get("ground") === "1",
+      light: q.get("light") || "",
+      calm: reduceMotion,
+      hint: hint,
+      sharp: sharp
+    };
   }
 
   function cellPoint(b) {
@@ -341,7 +393,7 @@
     placingEl.hidden = !ghost;
     if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, Date.now());
+    DRAW.render(canvas, state, scene(dragging), Date.now());
   }
 
   function act(result) {
@@ -360,6 +412,14 @@
     if (result.level && focus) {
       born[focus.id] = Date.now();
       chime("place");
+    }
+    if (result.sown && focus) {
+      var sownAt = cellPoint(focus);
+      floats.push({ x: sownAt.x, y: sownAt.y, t: Date.now(), text: "Sown", color: "#2f6d4f" });
+    }
+    if (result.grow && focus) {
+      var wet = cellPoint(focus);
+      floats.push({ x: wet.x, y: wet.y, t: Date.now(), text: "Watered", color: "#2f6d8f", kind: "water" });
     }
     if (result.amount) {
       chime(result.crit ? "place" : "harvest");
@@ -428,7 +488,7 @@
       return "<h3>" + label + " · level " + lv + "</h3><div class=\"meter\"><span style=\"transform:scaleX(" + pct + ")\"></span></div><p class=\"fine\">" + xp + " xp" + (info.max ? " · practised" : " · " + (info.next - xp) + " to the next level") + "</p>";
     }
     var html = block("Farming", state.farmXp, KHAYA.FARM_STEPS) + block("Building", state.buildXp, KHAYA.BUILD_STEPS);
-    html += "<ul class=\"unlocks\"><li>Maize and spinach from the start</li><li>Tomatoes at farming level 2</li><li>Aloe at farming level 3</li><li>Solar stand at building level 2</li><li>Home’s last step at building level 2</li></ul>";
+    html += "<ul class=\"unlocks\"><li>Maize and morogo from the start. The first ones are quick.</li><li>Pumpkin at farming level 2</li><li>Aloe at farming level 3</li><li>Solar stand at building level 2</li><li>The face-brick home at building level 2</li></ul>";
     openModal("Skills", html);
   }
 
@@ -733,6 +793,13 @@
   card.addEventListener("click", function (ev) {
     var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
     var todo = ev.target.getAttribute && ev.target.getAttribute("data-do");
+    var coachAct = ev.target.getAttribute && ev.target.getAttribute("data-coach");
+    var coachId = Number(ev.target.getAttribute && ev.target.getAttribute("data-id"));
+    if (coachAct === "build") { openBuild(); return; }
+    if (coachAct === "water" || coachAct === "harvest" || coachAct === "sow") selectedId = coachId;
+    if (coachAct === "water") act(KHAYA.water(state, coachId, Date.now()));
+    if (coachAct === "harvest") act(KHAYA.harvest(state, coachId, Date.now()));
+    if (coachAct === "sow") act(KHAYA.sow(state, coachId, "maize"));
     if (sow) act(KHAYA.sow(state, selectedId, sow));
     if (todo === "water") act(KHAYA.water(state, selectedId, Date.now()));
     if (todo === "harvest") act(KHAYA.harvest(state, selectedId, Date.now()));
@@ -763,7 +830,9 @@
   window.addEventListener("resize", paint);
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) {
-      KHAYA.tick(state, Date.now());
+      var returned = KHAYA.tick(state, Date.now());
+      var line = KHAYA.awayLine(returned && returned.away);
+      if (line) toast(line);
       save();
       paint();
     }
@@ -773,7 +842,17 @@
   if (!state.welcomed) {
     state.welcomed = true;
     save();
-    openModal("Welcome to Khaya Lane", "<p class=\"rules\">Sow a bed, water it, and harvest. The spaza earns notes while you are away — tap the coin to collect. Drag a building to move it. Upgrade the home when you can. Notes stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
+    openModal("Khaya Lane", "<p class=\"rules\">Thabo left mielies growing. Water the morogo, then pick the mielies when the bed says Pick.</p><button type=\"button\" class=\"hot\" id=\"welcomeGo\">Start with the morogo</button>");
+    var welcomeGo = document.getElementById("welcomeGo");
+    if (welcomeGo) welcomeGo.addEventListener("click", function () {
+      var guide = KHAYA.coach(state, Date.now());
+      if (guide && guide.id) selectedId = guide.id;
+      closeModal();
+      paint();
+    });
+  } else if (pendingAway) {
+    toast(pendingAway);
+    pendingAway = "";
   }
 
   var muteBtn = document.getElementById("mute");
@@ -827,6 +906,13 @@
   var benchDts = [];
   function frame() {
     var now = Date.now();
+    framesSeen += 1;
+    if (framesSeen > 1) {
+      var dt = now - (frame.prev || now);
+      dtEma = dtEma * 0.9 + dt * 0.1;
+      if (framesSeen > 45 && dtEma > 26 && sharp > 0.8) sharp = 0.72;
+    }
+    frame.prev = now;
     if (bench) {
       if (!benchStart) benchStart = now;
       if (benchLast) benchDts.push(now - benchLast);
@@ -862,7 +948,7 @@
     if (now - hudAt > 350) {
       KHAYA.setToday(state, KHAYA.dayKey(new Date()));
       var ticked = KHAYA.tick(state, now);
-      if (ticked.hoot && state.orders) {
+      if (ticked.hoot && state.orders && (state.stats.harvested || 0) > 0) {
         tone(440, 0.08, "square", 0.04);
         setTimeout(function () { tone(330, 0.12, "square", 0.04); }, 120);
         state.orders.hoot = 0;
@@ -896,7 +982,7 @@
     for (fi = 0; fi < fn; fi++) {
       if (now - floats[fi].t >= 1000) { floats.splice(fi, 1); fi -= 1; fn -= 1; }
     }
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, now);
+    DRAW.render(canvas, state, scene(dragging), now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -922,7 +1008,7 @@
       if (!bed) return;
       state.stats.harvested = 5;
       KHAYA.sow(state, bed.id, "maize");
-      KHAYA.water(state, bed.id, Date.now() - 20000);
+      KHAYA.water(state, bed.id, Date.now() - 120000);
       act(KHAYA.harvest(state, bed.id, Date.now()));
     }, 10200);
     setTimeout(function () { openPlay(); }, 12800);
@@ -943,10 +1029,13 @@ DRAW.load(function () {
     return;
   }
   paint();
+  var bootEl = document.getElementById("boot");
+  if (bootEl) bootEl.hidden = true;
 });
 window.__EISH_OK = true;
-  var boot = document.getElementById("boot");
-  if (boot) boot.hidden = true;
-  paint();
+setTimeout(function () {
+  var bootEl = document.getElementById("boot");
+  if (bootEl) bootEl.hidden = true;
+}, 4000);
   save();
 })();

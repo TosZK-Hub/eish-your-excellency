@@ -35,14 +35,14 @@ var LOOK = {
     kraal: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [1.05, 0.38], scale: 1, yard: 1, file: "kraal" }
   },
   actors: {
-    farmer: { file: "char_farmer", scale: 0.71, shadow: [0.28, 0.12] },
-    doek: { file: "char_woman_doek", scale: 0.71, shadow: [0.28, 0.12] },
-    basotho: { file: "char_basotho_elder", scale: 0.71, shadow: [0.28, 0.12] },
-    gogo: { file: "char_gogo", scale: 0.71, shadow: [0.28, 0.12] },
-    kid: { file: "char_kid", scale: 0.68, shadow: [0.22, 0.1] },
-    jersey: { file: "char_man_jersey", scale: 0.71, shadow: [0.28, 0.12] },
-    taxi: { file: "char_taxi_driver", scale: 0.71, shadow: [0.28, 0.12] },
-    hen: { file: "animal_hen", scale: 0.42, shadow: [0.16, 0.08] },
+    farmer: { file: "char_farmer", sheet: "char_farmer_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    doek: { file: "char_woman_doek", sheet: "char_doek_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    basotho: { file: "char_basotho_elder", sheet: "char_basotho_anim", cells: 8, face: 1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    gogo: { file: "char_gogo", sheet: "char_gogo_anim", cells: 8, face: 1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    kid: { file: "char_kid", sheet: "char_kid_anim", cells: 8, face: 1, scale: 0.68, shadow: [0.22, 0.1], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    jersey: { file: "char_man_jersey", sheet: "char_jersey_anim", cells: 8, face: 1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    taxi: { file: "char_taxi_driver", sheet: "char_taxi_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    hen: { file: "animal_hen", sheet: "animal_hen_anim", cells: 2, face: 1, scale: 0.42, shadow: [0.16, 0.08], idle: [0, 0, 0, 1], walk: [0, 1], work: [1, 0] },
     dog: { file: "animal_dog", scale: 0.42, shadow: [0.2, 0.09] },
     cow: { file: "animal_cow", scale: 0.88, shadow: [0.36, 0.14] },
     goat: { file: "animal_goat", scale: 0.7, shadow: [0.24, 0.1] }
@@ -79,7 +79,7 @@ var LOOK = {
     "15,10": "tree_marula"
   },
   cast: [
-    { id: "farmer", route: [[2, 4], [3, 5], [2, 5], [1, 5]], speed: 9000 },
+    { id: "farmer", route: [[2, 4], [5, 4], [6, 5], [5, 4], [2, 5], [1, 5]], speed: 14000 },
     { id: "doek", route: [[7, 3], [7, 4], [7, 2], [6, 1]], speed: 11000 },
     { id: "jersey", route: [[4, 5], [3, 6], [2, 6], [1, 6]], speed: 8000 },
     { id: "gogo", route: [[1, 4], [1, 5], [2, 5], [2, 4]], speed: 13000 },
@@ -95,7 +95,7 @@ var LOOK = {
   first: [
     "tile_grass", "tile_dirt", "home_l1", "home_l2", "home_l3", "bed_empty",
     "maize_sown", "maize_growing", "maize_ready", "spaza", "workshop", "rain_tank", "solar_stand",
-    "char_farmer", "animal_hen", "animal_dog",
+    "char_farmer", "char_farmer_anim", "animal_hen", "animal_hen_anim", "animal_dog",
     "tree_jacaranda", "tree_acacia", "tree_marula",
     "washing_line", "wheelbarrow", "taxi",
     "neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"
