@@ -360,7 +360,7 @@
     session.dragging = true;
   }
 
-  function tryFeed(food, cx, cy) {
+  function tryFeed(food, cx, cy, ax, ay) {
     if (!anchors.mouth) {
       say(pick(lines.miss));
       return;
@@ -368,7 +368,8 @@
     const rect = canvas.getBoundingClientRect();
     const mx = rect.left + anchors.mouth.x;
     const my = rect.top + anchors.mouth.y;
-    if (Math.hypot(cx - mx, cy - my) > 58) {
+    const near = (x, y) => Math.hypot(x - mx, y - my) < 96;
+    if (!near(cx, cy) && !(ax != null && near(ax, ay))) {
       say(pick(lines.miss));
       T.audio.no();
       return;
@@ -1049,21 +1050,26 @@
   canvas.addEventListener('pointercancel', onStageUp);
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  window.addEventListener('pointermove', (e) => {
-    if (!drag || e.pointerId !== drag.pid) return;
+  function moveGhost(e) {
+    if (!drag) return;
     drag.ghost.style.left = (e.clientX - drag.dx) + 'px';
     drag.ghost.style.top = (e.clientY - drag.dy) + 'px';
-  });
+    drag.px = e.clientX;
+    drag.py = e.clientY;
+  }
+  window.addEventListener('pointermove', moveGhost);
   window.addEventListener('pointerup', (e) => {
-    if (!drag || e.pointerId !== drag.pid) return;
+    if (!drag) return;
     const ghost = drag.ghost;
     const food = drag.food;
     const rect = ghost.getBoundingClientRect();
+    const gx = rect.left + rect.width / 2;
+    const gy = rect.top + rect.height / 2;
     ghost.remove();
     document.querySelectorAll('.food.dim').forEach((el) => el.classList.remove('dim'));
     drag = null;
     session.dragging = false;
-    tryFeed(food, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    tryFeed(food, e.clientX || gx, e.clientY || gy, gx, gy);
   });
   window.addEventListener('pointercancel', () => {
     if (!drag) return;
