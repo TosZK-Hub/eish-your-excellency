@@ -1,3 +1,18 @@
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/nunito-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../assets/fonts/nunito-800.woff2") format("woff2");
+}
+
 :root {
   --ink: #2a2118;
   --muted: #7d6a5c;
@@ -25,7 +40,7 @@ body {
   display: flex;
   justify-content: center;
   background: #231c18;
-  font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+  font-family: "Nunito", "Avenir Next", "Segoe UI", sans-serif;
   color: var(--ink);
   -webkit-tap-highlight-color: transparent;
 }
@@ -355,11 +370,12 @@ button { font: inherit; cursor: pointer; }
 
 .food, .tool, .item, .card {
   appearance: none;
-  border: 1px solid var(--line);
-  background: #fff;
-  border-radius: 14px;
+  border: 0;
+  background: linear-gradient(180deg, #fffdf8 0%, #f3e2cf 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,.8) inset, 0 8px 16px rgba(80, 40, 20, 0.08), 0 1px 2px rgba(60,30,10,.12);
+  border-radius: 16px;
   color: var(--ink);
-  font-weight: 750;
+  font-weight: 800;
 }
 
 .food { touch-action: none; }
@@ -461,13 +477,14 @@ button { font: inherit; cursor: pointer; }
 }
 .playpill {
   margin-left: auto;
-  background: var(--terra);
+  background: linear-gradient(180deg, #f08a4a, #c4511f);
   color: white;
   border-radius: 999px;
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 800;
   flex: 0 0 auto;
+  box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 6px 12px rgba(180, 60, 20, 0.25);
 }
 
 #tabs {

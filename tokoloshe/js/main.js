@@ -218,6 +218,7 @@
       mouth = 'yuck';
       eyes = 'open';
       brow = 'worry';
+      if (!reduced) session.shakeHold = 0.35;
     }
     if (data.fun < 36 && data.energy >= 34 && data.hunger >= 36 && !session.sleeping) {
       session.lid = 0.35;
@@ -257,7 +258,7 @@
       worn: worn,
       hold: hold,
       shy: session.shy > 0,
-      shake: !reduced && session.giggle > 0 ? 1.4 : 0,
+      shake: !reduced && (session.giggle > 0 || session.taste === 'yuck') ? 1.6 : 0,
       squash: (session.pop || 0) + (session.eat > 0 ? Math.sin(session.eat * 16) * 0.06 : 0),
       lookX: session.lookX,
       lookY: session.lookY || 0,

@@ -208,6 +208,7 @@
     const flap = g.vy < 0;
     const anim = T.makeAnim(g.t, {
       worn: T.state.data.worn,
+      sprite: 'happy',
       pose: 'stand',
       eyes: g.over && g.reason === 'crash' ? 'open' : 'happy',
       mouth: g.over && g.reason === 'crash' ? 'oh' : 'grin',
@@ -216,7 +217,7 @@
       blush: 0.55,
       lean: clamp(-g.vy / 900, -0.35, 0.4)
     });
-    T.draw.pet(ctx, g.px, g.y + 50 * scale, scale, anim);
+    T.draw.pet(ctx, g.px, g.y + 198 * scale * 0.46, scale, anim);
     if (g.near > 0) {
       ctx.fillStyle = '#d4652f';
       ctx.font = '800 16px "Segoe UI", sans-serif';
@@ -395,6 +396,7 @@
     const scale = clamp(h / 760, 0.42, 0.64);
     const anim = T.makeAnim(g.t, {
       worn: T.state.data.worn,
+      sprite: 'happy',
       pose: 'run',
       leg: g.t * 10,
       eyes: g.invuln > 0 ? 'open' : 'happy',

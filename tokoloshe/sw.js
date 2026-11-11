@@ -1,6 +1,6 @@
 /* Service worker for My Tokoloshe.
    Scope is the folder this file lives in (/tokoloshe/ when the repo is served from root). */
-const CACHE = 'my-tokoloshe-v2';
+const CACHE = 'my-tokoloshe-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -13,7 +13,17 @@ const ASSETS = [
   './js/main.js',
   './manifest.webmanifest',
   './icon.svg',
-  './sw.js'
+  './sw.js',
+  './assets/happy.webp',
+  './assets/hungry.webp',
+  './assets/sleepy.webp',
+  './assets/dirty.webp',
+  './assets/yum.webp',
+  './assets/bg-kitchen.webp',
+  './assets/bg-bath.webp',
+  './assets/bg-stoep.webp',
+  './assets/fonts/nunito-700.woff2',
+  './assets/fonts/nunito-800.woff2'
 ];
 
 self.addEventListener('install', (event) => {

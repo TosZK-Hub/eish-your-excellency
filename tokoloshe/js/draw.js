@@ -342,8 +342,9 @@
     }
   }
 
-  function drawPet(ctx, x, y, scale, anim, out) {
-    const worn = (anim && anim.worn) || {};
+function drawPet(ctx, x, y, scale, anim, out) {
+  if (photoReady('happy')) return drawPhotoPet(ctx, x, y, scale, anim, out);
+  const worn = (anim && anim.worn) || {};
     const anchors = { mouth: { x: x, y: y - 84 * scale }, head: { x: x, y: y - 108 * scale }, hand: null };
     ctx.save();
     ctx.translate(x, y + Math.sin((anim.t || 0) * 2.2) * (anim.crouch ? 0.4 : 1.6));
@@ -798,7 +799,125 @@
     }
   }
 
+  const art = {};
+  let fadeMood = 'happy';
+  let fadeFrom = 'happy';
+  let fadeStart = 0;
+
+  function loadArt(name, src) {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = src;
+    art[name] = img;
+  }
+  ['happy', 'hungry', 'sleepy', 'dirty', 'yum'].forEach((name) => {
+    loadArt(name, 'assets/' + name + '.webp');
+  });
+  loadArt('bg-kitchen', 'assets/bg-kitchen.webp');
+  loadArt('bg-bath', 'assets/bg-bath.webp');
+  loadArt('bg-stoep', 'assets/bg-stoep.webp');
+
+  function photoReady(name) {
+    const img = art[name];
+    return !!(img && img.complete && img.naturalWidth);
+  }
+
+  function coverBottom(ctx, img, w, h) {
+    const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    const dw = img.naturalWidth * scale;
+    const dh = img.naturalHeight * scale;
+    ctx.drawImage(img, (w - dw) / 2, h - dh, dw, dh);
+    return { dx: (w - dw) / 2, dy: h - dh, dw: dw, dh: dh };
+  }
+
+  function spriteFor(anim) {
+    if (!anim) return 'happy';
+    if (anim.sprite) return anim.sprite;
+    if (anim.chew || anim.mouth === 'yum') return 'yum';
+    if (anim.mouth === 'yuck') return 'hungry';
+    if (anim.eyes === 'shut' || (anim.lid || 0) > 0.45) return 'sleepy';
+    if (anim.mouth === 'frown' || anim.brow === 'worry') return 'hungry';
+    if ((anim.dirt || 0) > 0.35) return 'dirty';
+    return 'happy';
+  }
+
+  function drawPhotoPet(ctx, x, y, scale, anim, out) {
+    const mood = spriteFor(anim);
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+    if (mood !== fadeMood) {
+      fadeFrom = fadeMood;
+      fadeMood = mood;
+      fadeStart = now;
+    }
+    const u = clamp((now - fadeStart) / 0.28, 0, 1);
+    const bob = Math.sin((anim.t || 0) * 2.1) * 5;
+    const hop = mood === 'happy' ? Math.abs(Math.sin((anim.t || 0) * 2.4)) * -6 : 0;
+    const br = 1 + Math.sin((anim.t || 0) * 2.5) * 0.018;
+    const sq = anim.squash || 0;
+    const sway = Math.sin((anim.t || 0) * 1.3) * 0.03 + (anim.lean || 0);
+    const dh = 198 * (scale || 1);
+    const img = art[mood] && art[mood].naturalWidth ? art[mood] : art.happy;
+    const dw = dh * (img.naturalWidth / img.naturalHeight);
+    const anchors = {
+      mouth: { x: x, y: y - dh * 0.60 },
+      head: { x: x, y: y - dh * 0.74 },
+      hand: { x: x + dw * 0.28, y: y - dh * 0.42 }
+    };
+    ctx.save();
+    ctx.translate(x, y + bob + hop);
+    ctx.rotate(sway + (anim.shake || 0) * Math.sin((anim.t || 0) * 36) * 0.04);
+    ctx.scale((1 + sq) * (anim.crouch ? 1.04 : 1), (br - sq * 0.65) * (anim.crouch ? 0.92 : 1));
+    oval(ctx, 0, 2, dw * 0.28, 8, 'rgba(40,24,12,0.28)');
+    const drawOne = (image, alpha) => {
+      if (!image || !image.naturalWidth || alpha < 0.02) return;
+      ctx.save();
+      ctx.globalAlpha = alpha * (anim.alpha == null ? 1 : anim.alpha);
+      const wimg = dh * (image.naturalWidth / image.naturalHeight);
+      ctx.drawImage(image, -wimg / 2, -dh, wimg, dh);
+      ctx.restore();
+    };
+    if (u < 1 && photoReady(fadeFrom)) drawOne(art[fadeFrom], 1 - u);
+    drawOne(img, u < 1 ? u : 1);
+    if ((anim.blink || 0) > 0.45 && mood !== 'sleepy' && mood !== 'yum') {
+      ctx.fillStyle = 'rgba(196, 138, 104, 0.92)';
+      const shut = Math.min(1, (anim.blink - 0.45) / 0.4);
+      [-0.13, 0.14].forEach((side) => {
+        ctx.beginPath();
+        ctx.ellipse(side * dw, -dh * 0.735, dw * 0.07, dh * 0.035 * shut, 0, 0, TAU);
+        ctx.fill();
+      });
+    }
+    ctx.restore();
+    if (out) {
+      out.mouth = anchors.mouth;
+      out.head = anchors.head;
+      out.hand = anchors.hand;
+    }
+    return anchors;
+  }
+
   function kitchen(ctx, w, h, env) {
+    if (photoReady('bg-kitchen')) {
+      coverBottom(ctx, art['bg-kitchen'], w, h);
+      const shelfY = Math.min(h * 0.34, 150);
+      drawJar(ctx, 46, shelfY, env.swapped ? 'SUGAR' : 'SALT', '#f7f4ee');
+      drawJar(ctx, 98, shelfY, env.swapped ? 'SALT' : 'SUGAR', '#f6d7a8');
+      const s = clamp(h / 430, 0.72, 1.25);
+      placePet(ctx, w * 0.62, h - 4, s, env.anim, env);
+      env.hotspots.push({ id: 'jar-salt', x: 22, y: shelfY - 58, w: 48, h: 62 });
+      env.hotspots.push({ id: 'jar-sugar', x: 74, y: shelfY - 58, w: 50, h: 62 });
+      if (env.decor && env.decor.hadeda) {
+        const hx = ((env.t * 26) % (w + 50)) - 30;
+        oval(ctx, hx, h - 28, 14, 8, '#5c6563');
+        ctx.strokeStyle = '#e07a3d';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(hx + 10, h - 30);
+        ctx.lineTo(hx + 22, h - 28);
+        ctx.stroke();
+      }
+      return;
+    }
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, '#fbe6d2');
     g.addColorStop(0.72, '#f3c9a4');
@@ -855,6 +974,41 @@
   }
 
   function bath(ctx, w, h, env) {
+    if (photoReady('bg-bath')) {
+      const place = coverBottom(ctx, art['bg-bath'], w, h);
+      const s = clamp(h / 460, 0.7, 1.2);
+      placePet(ctx, w * 0.42, h - 2, s, Object.assign({}, env.anim, { pose: 'stand' }), env);
+      const tub = {
+        x: place.dx + place.dw * 0.12,
+        y: place.dy + place.dh * 0.46,
+        w: place.dw * 0.42,
+        h: place.dh * 0.16
+      };
+      env.hotspots.push({ id: 'shower', x: place.dx + place.dw * 0.62, y: place.dy + place.dh * 0.48, w: 64, h: 54 });
+      const spots = [
+        { id: 0, x: 36, y: h - 28 },
+        { id: 1, x: w - 40, y: h - 26 },
+        { id: 2, x: w * 0.72, y: h - 22 }
+      ];
+      spots.forEach((spot) => {
+        if (env.poos.indexOf(spot.id) === -1) return;
+        drawPoo(ctx, spot.x, spot.y);
+        env.hotspots.push({ id: 'poo-' + spot.id, x: spot.x - 22, y: spot.y - 26, w: 44, h: 44, slot: spot.id });
+      });
+      env.marks.shower = { x: place.dx + place.dw * 0.7, y: place.dy + place.dh * 0.5 };
+      if (env.rinsing > 0 && env.marks.shower) {
+        ctx.strokeStyle = 'rgba(186, 220, 245, 0.85)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(env.marks.shower.x, env.marks.shower.y);
+        ctx.lineTo(env.marks.shower.x - 10, env.marks.shower.y + 36);
+        ctx.moveTo(env.marks.shower.x + 8, env.marks.shower.y);
+        ctx.lineTo(env.marks.shower.x + 4, env.marks.shower.y + 42);
+        ctx.stroke();
+      }
+      void tub;
+      return;
+    }
     const wall = ctx.createLinearGradient(0, 0, 0, h);
     wall.addColorStop(0, '#e7f6f2');
     wall.addColorStop(0.62, '#d4ebe4');
@@ -924,6 +1078,45 @@
   }
 
   function stoep(ctx, w, h, env) {
+    if (photoReady('bg-stoep')) {
+      const place = coverBottom(ctx, art['bg-stoep'], w, h);
+      const bed = {
+        x: place.dx + place.dw * 0.02,
+        y: place.dy + place.dh * 0.55,
+        w: place.dw * 0.46,
+        h: place.dh * 0.2
+      };
+      env.hotspots.push({ id: 'under', x: bed.x + 8, y: bed.y + bed.h - 18, w: bed.w * 0.7, h: 36 });
+      env.hotspots.push({
+        id: 'lamp',
+        x: place.dx + place.dw * 0.48,
+        y: place.dy + place.dh * 0.48,
+        w: 70,
+        h: 78
+      });
+      env.hotspots.push({ id: 'power', x: 8, y: 64, w: 52, h: 56 });
+      const s = clamp(h / 480, 0.68, 1.15);
+      if (!env.hiding) {
+        const footY = env.sleeping ? bed.y + bed.h * 0.42 : h - 2;
+        const anim = Object.assign({}, env.anim, { sprite: env.sleeping ? 'sleepy' : env.anim.sprite });
+        placePet(ctx, env.sleeping ? bed.x + bed.w * 0.45 : w * 0.68, footY, env.sleeping ? s * 0.72 : s, anim, env);
+      } else {
+        const eyeX = bed.x + bed.w * 0.35;
+        const eyeY = bed.y + bed.h - 6;
+        [-10, 10].forEach((dx) => {
+          disc(ctx, eyeX + dx, eyeY, 6, '#fffdf8');
+          disc(ctx, eyeX + dx, eyeY, 2.6, '#c47a28');
+        });
+        env.anchors.head = { x: eyeX, y: eyeY - 10 };
+        env.anchors.mouth = env.anchors.head;
+        env.hotspots.push({ id: 'pet', x: eyeX - 24, y: eyeY - 14, w: 56, h: 32 });
+      }
+      if (env.decor && env.decor.braai) {
+        box(ctx, w - 70, h - 46, 48, 18, 4, '#3a3330');
+        oval(ctx, w - 46, h - 40, 10, 4, 'rgba(240,140,50,' + (0.4 + Math.sin(env.t * 10) * 0.15) + ')');
+      }
+      return;
+    }
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, '#f6e2cf');
     g.addColorStop(0.7, '#f0d2b8');
@@ -1003,6 +1196,14 @@
   }
 
   function shop(ctx, w, h, env) {
+    if (photoReady('bg-stoep')) {
+      coverBottom(ctx, art['bg-stoep'], w, h);
+      ctx.fillStyle = 'rgba(255, 236, 214, 0.28)';
+      ctx.fillRect(0, 0, w, h);
+      const s = clamp(h / 420, 0.7, 1.2);
+      placePet(ctx, w * 0.5, h - 2, s, env.anim, env);
+      return;
+    }
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, '#fdeff3');
     g.addColorStop(1, '#f6e0e7');
@@ -1018,6 +1219,14 @@
   }
 
   function playroom(ctx, w, h, env) {
+    if (photoReady('bg-bath')) {
+      coverBottom(ctx, art['bg-bath'], w, h);
+      ctx.fillStyle = 'rgba(255, 248, 236, 0.2)';
+      ctx.fillRect(0, 0, w, h);
+      const s = clamp(h / 460, 0.62, 1.05);
+      placePet(ctx, w * 0.5, h - 2, s, Object.assign({}, env.anim, { sprite: 'happy' }), env);
+      return;
+    }
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, '#e7f6ea');
     g.addColorStop(1, '#d3ead8');
@@ -1091,7 +1300,7 @@
     else playroom(ctx, w, h, env);
 
     if (env.shedding > 0) drawShed(ctx, w, h, env);
-    if (env.anim.dirt > 0.28 && env.anim.alpha > 0.45 && !env.sleeping && !env.hiding) {
+    if (!photoReady('happy') && env.anim.dirt > 0.28 && env.anim.alpha > 0.45 && !env.sleeping && !env.hiding) {
       drawFlies(ctx, env.anchors.head, env.t);
     }
     drawFx(ctx, w, h, env);
@@ -1148,6 +1357,9 @@
   function taxi(ctx, x, y) {
     oval(ctx, x, y + 34, 26, 6, 'rgba(0,0,0,.15)');
     box(ctx, x - 24, y - 30, 48, 58, 10, '#f2c230');
+    ctx.fillStyle = 'rgba(255,255,255,.35)';
+    roundRect(ctx, x - 18, y - 26, 10, 40, 4);
+    ctx.fill();
     box(ctx, x - 16, y - 46, 32, 18, 6, '#f7f4ea');
     box(ctx, x - 14, y - 8, 28, 16, 4, '#243038');
     box(ctx, x - 18, y + 14, 10, 8, 2, '#2a2118');
