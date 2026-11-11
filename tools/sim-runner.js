@@ -1,5 +1,8 @@
 // Rules for Khaya Lane. Run with: node tools/sim-runner.js
 var KHAYA = require("../src/00-logic.js");
+var LOOK = require("../src/05-catalog.js");
+global.LOOK = LOOK;
+global.KHAYA = KHAYA;
 var failed = 0;
 
 function eq(name, got, want) {
@@ -29,12 +32,13 @@ eq("sow twice", KHAYA.sow(s, bed.id, "maize").ok, false);
 eq("harvest early", KHAYA.harvest(s, bed.id, 1000).ok, false);
 eq("water", KHAYA.water(s, bed.id, 5000).ok, true);
 eq("water spent", s.water, 9);
-eq("not ready", KHAYA.cropReady(bed, 5000 + 15000), false);
-eq("ready", KHAYA.cropReady(bed, 5000 + 16000), true);
-var picked = KHAYA.harvest(s, bed.id, 5000 + 16000);
+eq("first maize is quick", bed.growFor <= 60000 && bed.growFor >= 40000, true);
+eq("not ready", KHAYA.cropReady(bed, 5000 + bed.growFor - 1000), false);
+eq("ready", KHAYA.cropReady(bed, 5000 + bed.growFor), true);
+var picked = KHAYA.harvest(s, bed.id, 5000 + bed.growFor);
 eq("harvest ok", picked.ok, true);
 eq("maize yield", s.crops.maize, 3);
-eq("harvest once", KHAYA.harvest(s, bed.id, 5000 + 16000).ok, false);
+eq("harvest once", KHAYA.harvest(s, bed.id, 5000 + bed.growFor).ok, false);
 truth("farm xp", s.farmXp > 0);
 
 eq("sell without spaza", KHAYA.sell(s, "maize", 1).ok, false);
@@ -111,10 +115,17 @@ KHAYA.water(clock, plot.id, 0);
 clock.seenAt = 0;
 clock.water = 10;
 var ticked = KHAYA.tick(clock, 15 * 60 * 1000);
-eq("elapsed cap", ticked.elapsed, KHAYA.ELAPSE_CAP);
-truth("crop not over-grown past cap", !KHAYA.cropReady(plot, 15 * 60 * 1000) || (15 * 60 * 1000 - plot.plantedAt) <= KHAYA.ELAPSE_CAP + 16000);
-truth("growth bounded", (15 * 60 * 1000 - plot.plantedAt) <= KHAYA.ELAPSE_CAP);
+eq("short gap is not capped", ticked.elapsed, 15 * 60 * 1000);
+truth("maize finishes while you are away", KHAYA.cropReady(plot, 15 * 60 * 1000));
 truth("tank water bounded", clock.water <= 24);
+truth("tank caught up", clock.water > 10);
+var overnight = KHAYA.fresh(0);
+KHAYA.place(overnight, "spaza", 5, 1);
+var nightShop = overnight.buildings.filter(function (b) { return b.type === "spaza"; })[0];
+overnight.seenAt = 0;
+var nightTick = KHAYA.tick(overnight, 12 * 60 * 60 * 1000);
+eq("overnight cap", nightTick.elapsed, KHAYA.ELAPSE_CAP);
+eq("spaza stops at its cap", nightShop.stored, 12);
 var back = KHAYA.fresh(10000);
 var before = back.buildings[1];
 KHAYA.sow(back, before.id, "spinach");
@@ -162,7 +173,8 @@ for (var y = 0; y < 8; y++) {
   }
 }
 
-eq("tasks start", KHAYA.currentTask(KHAYA.fresh(1)).id, "sow");
+eq("tasks start", KHAYA.currentTask(KHAYA.fresh(1)).id, "water");
+eq("coach starts on the morogo", KHAYA.coach(KHAYA.fresh(Date.now()), Date.now()).act, "water");
 var greens = KHAYA.fresh(1);
 eq("pumpkin locked", KHAYA.sow(greens, greens.buildings[1].id, "pumpkin").ok, false);
 eq("morogo", KHAYA.sow(greens, greens.buildings[1].id, "morogo").ok, true);
@@ -213,7 +225,7 @@ shop2 = yard.buildings.filter(function (b) { return b.type === "spaza"; })[0];
 shop2.stored = 0;
 shop2.prodAcc = 0;
 yard.seenAt = 0;
-KHAYA.tick(yard, 8000);
+KHAYA.tick(yard, KHAYA.tuneProduce(yard, shop2).every);
 eq("decor speeds notes", shop2.stored >= 1, true);
 eq("decor cap room", KHAYA.tuneProduce(yard, shop2).cap, 13);
 
@@ -221,7 +233,7 @@ var bare = KHAYA.fresh(0);
 KHAYA.place(bare, "spaza", 5, 1);
 var bareShop = bare.buildings.filter(function (b) { return b.type === "spaza"; })[0];
 bare.seenAt = 0;
-KHAYA.tick(bare, 15 * 60 * 1000);
+KHAYA.tick(bare, KHAYA.PRODUCE.spaza.every * 14);
 eq("plain cap unchanged", bareShop.stored, 12);
 
 var folk = KHAYA.fresh(1);
@@ -264,7 +276,7 @@ var prod = KHAYA.fresh(0);
 eq("place for production", KHAYA.place(prod, "spaza", 5, 1).ok, true);
 var shop = prod.buildings.filter(function (b) { return b.type === "spaza"; })[0];
 eq("stored starts empty", shop.stored || 0, 0);
-KHAYA.tick(prod, 8000);
+KHAYA.tick(prod, KHAYA.PRODUCE.spaza.every);
 eq("one note ready", shop.stored, 1);
 var got = KHAYA.collect(prod, shop.id);
 eq("collect notes", got.notes, 1);
@@ -273,7 +285,7 @@ eq("collect twice", KHAYA.collect(prod, shop.id).ok, false);
 eq("stored cleared", shop.stored, 0);
 shop.prodAcc = 0;
 prod.seenAt = 0;
-KHAYA.tick(prod, 15 * 60 * 1000);
+KHAYA.tick(prod, KHAYA.PRODUCE.spaza.every * 14);
 eq("production cap", shop.stored, 12);
 var cappedNotes = prod.notes;
 eq("cap collect", KHAYA.collect(prod, shop.id).notes, 12);
@@ -301,10 +313,24 @@ var savedProd = KHAYA.sanitize({
 });
 var savedShop = savedProd.buildings.filter(function (b) { return b.type === "spaza"; })[0];
 eq("stored clamped", savedShop.stored, 0);
-truth("acc clamped", savedShop.prodAcc <= 60000);
+eq("acc brought across", savedShop.prodAcc, KHAYA.PRODUCE.spaza.every);
 var savedHome = savedProd.buildings.filter(function (b) { return b.type === "home"; })[0];
-eq("build kept", savedHome.buildLeft, 4000);
+eq("build fraction kept", Math.round(100 * savedHome.buildLeft / savedHome.buildTotal), 25);
 eq("pending kept", savedHome.pendingLevel, 2);
+var legacy = KHAYA.sanitize({
+  v: 1,
+  seenAt: 200000,
+  notes: 11,
+  buildings: [
+    { type: "home", x: 1, y: 2, level: 1 },
+    { type: "bed", x: 6, y: 2, phase: "growing", crop: "maize", plantedAt: 200000 - 8000 }
+  ]
+});
+var legBed = legacy.buildings.filter(function (b) { return b.type === "bed"; })[0];
+eq("pace stamped", legacy.pace, 2);
+eq("half-grown maize kept", legBed.plantedAt, 200000 - Math.round(0.5 * KHAYA.CROPS.maize.grow));
+var replay = KHAYA.sanitize(JSON.parse(JSON.stringify(legacy)));
+eq("migration runs once", replay.buildings.filter(function (b) { return b.type === "bed"; })[0].plantedAt, legBed.plantedAt);
 
 var taxi = KHAYA.fresh(1000);
 eq("taxi is here", taxi.orders.phase, "here");
@@ -333,22 +359,23 @@ var critBed = critFarm.buildings[1];
 var c;
 for (c = 0; c < 5; c++) {
   KHAYA.sow(critFarm, critBed.id, "maize");
-  KHAYA.water(critFarm, critBed.id, c * 20000);
-  KHAYA.harvest(critFarm, critBed.id, c * 20000 + 16000);
+  KHAYA.water(critFarm, critBed.id, c * 400000);
+  KHAYA.harvest(critFarm, critBed.id, c * 400000 + critBed.growFor);
 }
 eq("five plain harvests", critFarm.crops.maize, 15);
 KHAYA.sow(critFarm, critBed.id, "maize");
-KHAYA.water(critFarm, critBed.id, 120000);
-var golden = KHAYA.harvest(critFarm, critBed.id, 120000 + 16000);
+KHAYA.water(critFarm, critBed.id, 2400000);
+var golden = KHAYA.harvest(critFarm, critBed.id, 2400000 + critBed.growFor);
 eq("sixth is a crit", golden.crit, true);
 eq("crit is triple", golden.amount, 9);
 eq("crit stays in the stack", critFarm.crops.maize <= 99, true);
 var again = null;
 KHAYA.sow(critFarm, critBed.id, "maize");
-KHAYA.water(critFarm, critBed.id, 200000);
+KHAYA.water(critFarm, critBed.id, 3000000);
+var comboAt = 3000000 + critBed.growFor;
 critFarm.combo = 2;
-critFarm.lastHarvest = 216000 - 2000;
-again = KHAYA.harvest(critFarm, critBed.id, 216000);
+critFarm.lastHarvest = comboAt - 2000;
+again = KHAYA.harvest(critFarm, critBed.id, comboAt);
 eq("combo stacks", again.combo, 3);
 eq("combo pays a little", again.notes, 1);
 
@@ -362,15 +389,15 @@ eq("storm waters", sown.phase, "growing");
 var shed = KHAYA.fresh(0);
 KHAYA.place(shed, "spaza", 5, 1);
 var shedShop = shed.buildings.filter(function (b) { return b.type === "spaza"; })[0];
-shed.laneEvent = { next: 999999, n: 1, current: { type: "shed", until: 50000, say: "out" } };
+shed.laneEvent = { next: 1e15, n: 1, current: { type: "shed", until: 1e15, say: "out" } };
 shed.seenAt = 0;
-KHAYA.tick(shed, 8000);
+KHAYA.tick(shed, KHAYA.PRODUCE.spaza.every);
 eq("shedding pauses the spaza", shedShop.stored || 0, 0);
 shed.buildXp = 16;
 eq("solar placed", KHAYA.place(shed, "solar", 6, 4).ok, true);
-eq("switch to solar", KHAYA.respondEvent(shed, 8000).ok, true);
-shed.seenAt = 8000;
-KHAYA.tick(shed, 16000);
+eq("switch to solar", KHAYA.respondEvent(shed, KHAYA.PRODUCE.spaza.every).ok, true);
+shed.seenAt = KHAYA.PRODUCE.spaza.every;
+KHAYA.tick(shed, KHAYA.PRODUCE.spaza.every * 2);
 eq("spaza runs again", shedShop.stored >= 1, true);
 
 var ball = KHAYA.fresh(0);
@@ -400,12 +427,121 @@ KHAYA.setToday(braai, "2026-11-07");
 var h;
 for (h = 0; h < 4; h++) {
   KHAYA.sow(braai, braaiBed.id, "maize");
-  KHAYA.water(braai, braaiBed.id, 2000 + h * 20000);
-  KHAYA.harvest(braai, braaiBed.id, 2000 + h * 20000 + 16000);
+  KHAYA.water(braai, braaiBed.id, 2000 + h * 400000);
+  KHAYA.harvest(braai, braaiBed.id, 2000 + h * 400000 + braaiBed.growFor);
 }
 var feast = KHAYA.claimBraai(braai, "2026-11-07");
 eq("braai day pays", feast.notes, 16);
 eq("braai once", KHAYA.claimBraai(braai, "2026-11-07").ok, false);
+
+var freshAudit = KHAYA.layoutAudit(KHAYA.fresh(1000));
+truth("fresh yard has no overlap", freshAudit.ok);
+if (!freshAudit.ok) console.error(freshAudit.problems);
+
+eq("prop blocks a bed", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 2, 0).ok, false);
+eq("prop blocks the barrow cell", KHAYA.canPlace(KHAYA.fresh(1000), "bed", 3, 0).ok, false);
+
+function routeCells(entry) {
+  var found = {};
+  function add(x, y) {
+    var cx = Math.floor(x);
+    var cy = Math.floor(y);
+    found[cx + "," + cy] = [cx, cy];
+  }
+  if (entry.at) add(entry.at[0], entry.at[1]);
+  var route = entry.route || [];
+  var i, a, b, t, steps;
+  for (i = 0; i < route.length; i++) {
+    a = route[i];
+    b = route[(i + 1) % route.length];
+    steps = 12;
+    for (t = 0; t <= steps; t++) add(a[0] + (b[0] - a[0]) * t / steps, a[1] + (b[1] - a[1]) * t / steps);
+  }
+  return found;
+}
+
+function occupiedMap(state) {
+  var used = {};
+  var i, b, cells, c, p;
+  for (i = 0; i < state.buildings.length; i++) {
+    b = state.buildings[i];
+    cells = KHAYA.footprint(b);
+    for (c = 0; c < cells.length; c++) used[cells[c][0] + "," + cells[c][1]] = b.type;
+  }
+  for (i = 0; i < KHAYA.PROPS.length; i++) {
+    p = KHAYA.PROPS[i];
+    cells = KHAYA.footprint(p);
+    for (c = 0; c < cells.length; c++) used[cells[c][0] + "," + cells[c][1]] = "prop:" + p.id;
+  }
+  return used;
+}
+
+var seenRoute = {};
+var ri, entry, cells, key, walker;
+for (ri = 0; ri < LOOK.cast.length; ri++) {
+  entry = LOOK.cast[ri];
+  cells = routeCells(entry);
+  for (key in cells) {
+    if (seenRoute[key]) truth(entry.id + " route avoids " + seenRoute[key], false);
+    seenRoute[key] = entry.id;
+    var cell = cells[key];
+    truth(entry.id + " stays on the grid", cell[0] >= 0 && cell[1] >= 0 && cell[0] < KHAYA.COLS && cell[1] < KHAYA.ROWS);
+  }
+}
+
+var late = KHAYA.fresh(1e15);
+late.plots = { lane: 1, east: 1, south: 1, koppie: 1 };
+var latePlan = [
+  ["bed", 1, 9, 1, 1],
+  ["bed", 4, 11, 1, 1],
+  ["bed", 6, 13, 1, 1],
+  ["spaza", 8, 0, 1, 1],
+  ["workshop", 15, 1, 1, 1],
+  ["tank", 15, 7, 1, 1],
+  ["solar", 0, 13, 1, 1],
+  ["kraal", 11, 3, 2, 2],
+  ["coop", 11, 8, 1, 1],
+  ["patch", 8, 10, 1, 1],
+  ["braai", 6, 10, 1, 1],
+  ["potjie", 6, 8, 1, 1],
+  ["aloe_clump", 3, 9, 1, 1],
+  ["imbawula", 9, 8, 1, 1],
+  ["mielie", 14, 10, 1, 1],
+  ["palisade", 8, 12, 1, 1],
+  ["barrow", 11, 12, 1, 1],
+  ["wash", 14, 12, 1, 1]
+];
+var lp;
+for (lp = 0; lp < latePlan.length; lp++) {
+  late.buildings.push({
+    id: late.nextId++,
+    type: latePlan[lp][0],
+    x: latePlan[lp][1],
+    y: latePlan[lp][2],
+    w: latePlan[lp][3],
+    h: latePlan[lp][4],
+    level: latePlan[lp][0] === "home" ? 3 : 2
+  });
+}
+var lateAudit = KHAYA.layoutAudit(late);
+truth("late yard has no overlap", lateAudit.ok);
+if (!lateAudit.ok) console.error(lateAudit.problems);
+
+var lateUsed = occupiedMap(late);
+for (key in seenRoute) {
+  truth("route " + seenRoute[key] + " avoids late yard at " + key, !lateUsed[key]);
+}
+var freshUsed = occupiedMap(KHAYA.fresh(1000));
+for (key in seenRoute) {
+  truth("route " + seenRoute[key] + " avoids the starter yard at " + key, !freshUsed[key]);
+}
+
+var piled = KHAYA.fresh(1000);
+piled.buildings.push({ id: 99, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1 });
+truth("stacked beds fail the audit", KHAYA.layoutAudit(piled).ok === false);
+var outside = KHAYA.fresh(1000);
+outside.buildings.push({ id: 98, type: "bed", x: 20, y: 2, w: 1, h: 1, level: 1 });
+truth("off-grid bed fails the audit", KHAYA.layoutAudit(outside).ok === false);
 
 var oldBoard = KHAYA.sanitize({ v: 1, notes: 10, buildings: [{ type: "home", x: 1, y: 2, level: 1 }] });
 truth("old save still loads", !!oldBoard);

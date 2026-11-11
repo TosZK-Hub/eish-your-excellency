@@ -3,26 +3,31 @@
 var KHAYA = (function () {
   var COLS = 16;
   var ROWS = 14;
-  var ELAPSE_CAP = 10 * 60 * 1000;
-  var TANK_MS = 20000;
+  var MIN = 60 * 1000;
+  // Producers, the tank and builds catch up this far. Crops use the clock.
+  var ELAPSE_CAP = 8 * 60 * MIN;
+  var TANK_MS = 2 * MIN;
   var WATER_CAP = 24;
   var NOTE_CAP = 9999;
   var STACK_CAP = 99;
+  var PACE = 2;
 
+  // One path in the lane: gate, taxi, alongside the house, then the beds.
+  // Locked yards are grass. A fence and a price mark them, not stray tiles.
   var MAP = [
-    "tggggggtggpggggt",
+    "tggggggtgggggggt",
     "gggggggggggggggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ppppggggppppgggg",
-    "gggggggggggggggg",
-    "ggggpgggtggggggg",
+    "ggggppgggggggggg",
     "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "gppppggggggggggg",
+    "ppgggggggggggggg",
+    "ggggggggtggggggg",
+    "gggggggggggggggg",
     "gggggggggggggggt",
     "gggggggggggggggg",
-    "ppppggggggggpggg",
+    "gggggggggggggggg",
     "gggggggggggggggg"
   ];
 
@@ -58,23 +63,27 @@ var KHAYA = (function () {
   };
 
   var CROPS = {
-    maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
-    spinach: { name: "Spinach", grow: 12000, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3, offer: false },
-    tomato: { name: "Tomato", grow: 22000, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6, offer: false },
-    aloe: { name: "Aloe", grow: 20000, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 },
-    morogo: { name: "Morogo", grow: 14000, water: 1, seed: 1, yield: 2, xp: 7, level: 1, price: 4 },
-    pumpkin: { name: "Pumpkin", grow: 24000, water: 2, seed: 1, yield: 2, xp: 14, level: 2, price: 7 }
+    maize: { name: "Maize", grow: 2 * MIN, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
+    spinach: { name: "Spinach", grow: 3 * MIN, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3, offer: false },
+    tomato: { name: "Tomato", grow: 30 * MIN, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6, offer: false },
+    aloe: { name: "Aloe", grow: 2 * 60 * MIN, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 },
+    morogo: { name: "Morogo", grow: 3 * MIN, water: 1, seed: 1, yield: 2, xp: 7, level: 1, price: 4 },
+    pumpkin: { name: "Pumpkin", grow: 40 * MIN, water: 2, seed: 1, yield: 2, xp: 14, level: 2, price: 7 }
   };
 
   var FARM_STEPS = [0, 24, 70, 140];
   var BUILD_STEPS = [0, 16, 48, 100];
   var PLAYER_STEPS = [0, 18, 48, 100, 180];
-  var UPGRADE_MS = 16000;
+  var UPGRADE_MS = 3 * MIN;
   var PRODUCE = {
-    spaza: { every: 8000, notes: 1, cap: 12 },
-    workshop: { every: 12000, notes: 1, cap: 8 },
-    solar: { every: 10000, notes: 1, cap: 8 }
+    spaza: { every: 90 * 1000, notes: 1, cap: 12 },
+    workshop: { every: 3 * MIN, notes: 1, cap: 8 },
+    solar: { every: 150 * 1000, notes: 1, cap: 8 }
   };
+  var OLD_GROW = { maize: 16000, spinach: 12000, tomato: 22000, aloe: 20000, morogo: 14000, pumpkin: 24000 };
+  var OLD_EVERY = { spaza: 8000, workshop: 12000, solar: 10000 };
+  var OLD_UPGRADE = 16000;
+  var OLD_TANK = 20000;
 
   var BUILDINGS = {
     home: {
@@ -195,6 +204,26 @@ var KHAYA = (function () {
     return !!(state.plots && state.plots[p.id]);
   }
 
+  // Whole-cell yard props. The taxi parks on the path; the others sit on open grass.
+  var PROPS = [
+    { id: "wash", file: "washing_line", x: 2, y: 0, w: 1, h: 1 },
+    { id: "barrow", file: "wheelbarrow", x: 3, y: 0, w: 1, h: 1 },
+    { id: "taxi", file: "taxi", x: 0, y: 7, w: 2, h: 1 }
+  ];
+
+  function propAt(x, y) {
+    var i, p, dx, dy;
+    for (i = 0; i < PROPS.length; i++) {
+      p = PROPS[i];
+      for (dy = 0; dy < p.h; dy++) {
+        for (dx = 0; dx < p.w; dx++) {
+          if (p.x + dx === x && p.y + dy === y) return p;
+        }
+      }
+    }
+    return null;
+  }
+
   function cellBlock(state, x, y, ignoreId) {
     var land = terrainAt(x, y);
     if (land === "out") return { ok: false, reason: "That sits outside the lane." };
@@ -202,8 +231,58 @@ var KHAYA = (function () {
     if (plot && !plotOpen(state, x, y)) return { ok: false, reason: "Unlock the " + plot.name.toLowerCase() + " first." };
     if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
     if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+    if (propAt(x, y)) return { ok: false, reason: "Something is already there." };
     if (occupied(state, x, y, ignoreId)) return { ok: false, reason: "Something is already there." };
     return { ok: true };
+  }
+
+  function layoutAudit(state) {
+    var used = {};
+    var problems = [];
+    function take(x, y, who, allowPath) {
+      if (x !== (x | 0) || y !== (y | 0)) {
+        problems.push(who + " is off the tile grid at " + x + "," + y);
+        return;
+      }
+      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) {
+        problems.push(who + " is outside the lane at " + x + "," + y);
+        return;
+      }
+      var land = terrainAt(x, y);
+      if (land === "out" || land === "tree" || (land === "path" && !allowPath)) {
+        problems.push(who + " sits on " + land + " at " + x + "," + y);
+      }
+      var key = x + "," + y;
+      if (used[key]) problems.push(who + " overlaps " + used[key] + " at " + key);
+      else used[key] = who;
+    }
+    var i, b, cells, c, p;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      cells = footprint(b);
+      for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], (b.type || "building") + "#" + b.id, false);
+    }
+    for (i = 0; i < PROPS.length; i++) {
+      p = PROPS[i];
+      cells = footprint(p);
+      for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], "prop:" + p.id, p.id === "taxi");
+    }
+    var beds = [];
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+    var j, gap;
+    for (i = 0; i < beds.length; i++) {
+      for (j = i + 1; j < beds.length; j++) {
+        gap = Math.max(Math.abs(beds[i].x - beds[j].x), Math.abs(beds[i].y - beds[j].y));
+        if (gap < 2) problems.push("beds at " + beds[i].x + "," + beds[i].y + " and " + beds[j].x + "," + beds[j].y + " need a tile between them");
+      }
+    }
+    var lookRef = typeof LOOK !== "undefined" ? LOOK : (typeof global !== "undefined" ? global.LOOK : null);
+    if (lookRef && lookRef.overlapAudit) {
+      var pix = lookRef.overlapAudit(state, 64);
+      var n;
+      for (n = 0; n < pix.problems.length; n++) problems.push(pix.problems[n]);
+    }
+    return { ok: problems.length === 0, problems: problems };
   }
 
   function footprint(b) {
@@ -247,6 +326,7 @@ var KHAYA = (function () {
     now = now || 0;
     return {
       v: 1,
+      pace: PACE,
       notes: 60,
       seeds: 12,
       water: 10,
@@ -266,8 +346,8 @@ var KHAYA = (function () {
       lastHarvest: 0,
       chests: {},
       chest: null,
-      orders: { phase: "here", at: now, seq: 1, list: rollOrders(1), hoot: 1 },
-      laneEvent: { next: (now || 0) + 8000, n: 0, current: null },
+      orders: { phase: "here", at: now, seq: 1, list: rollOrders(1), hoot: 0 },
+      laneEvent: { next: (now || 0) + 6 * MIN, n: 0, current: null },
       stories: {},
       braai: { key: "", n: 0, claimed: 0 },
       plots: { lane: 1 },
@@ -288,8 +368,8 @@ var KHAYA = (function () {
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
-        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now },
-        { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
+        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - Math.round(CROPS.maize.grow * 0.6) : now, growFor: CROPS.maize.grow },
+        { id: 4, type: "bed", x: 7, y: 6, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
   }
@@ -387,6 +467,13 @@ var KHAYA = (function () {
     return afford(state, upgradeCost(state, b));
   }
 
+  function upgradeDuration(b) {
+    if (b && b.type === "home" && (b.level || 1) >= 2) return 2 * 60 * MIN;
+    if (b && b.type === "home") return UPGRADE_MS;
+    if (b && b.type === "spaza") return 50 * MIN;
+    return 45 * MIN;
+  }
+
   function upgrade(state, id) {
     var check = canUpgrade(state, id);
     if (!check.ok) return check;
@@ -394,11 +481,12 @@ var KHAYA = (function () {
     if ((b.buildLeft || 0) > 0) return { ok: false, reason: "Still building." };
     var raw = BUILDINGS[b.type].upgrades[b.level];
     pay(state, upgradeCost(state, b));
-    b.buildLeft = UPGRADE_MS;
-    b.buildTotal = UPGRADE_MS;
+    var dur = upgradeDuration(b);
+    b.buildLeft = dur;
+    b.buildTotal = dur;
     b.pendingLevel = b.level + 1;
     b.pendingXp = raw.xp || 12;
-    return { ok: true, building: true, left: UPGRADE_MS };
+    return { ok: true, building: true, left: dur };
   }
 
   function finishBuild(state, b) {
@@ -421,11 +509,26 @@ var KHAYA = (function () {
     return { id: b.id, level: b.level, xp: xp, chest: chest };
   }
 
+  function plantDuration(state, crop) {
+    var base = CROPS[crop] ? CROPS[crop].grow : 0;
+    var picked = state && state.stats ? (state.stats.harvested || 0) : 0;
+    var early = crop === "maize" ? 45000 : (crop === "morogo" || crop === "spinach" ? 60000 : 0);
+    if (!early || picked >= 2) return base;
+    if (picked >= 1) return Math.round((early + base) / 2);
+    return early;
+  }
+
+  function growOf(b) {
+    if (!b) return 0;
+    var def = CROPS[b.crop];
+    if (!def) return 0;
+    return b.growFor > 0 ? b.growFor : def.grow;
+  }
+
   function cropReady(b, now) {
     if (!b || b.type !== "bed" || b.phase !== "growing") return false;
-    var def = CROPS[b.crop];
-    if (!def) return false;
-    return now - b.plantedAt >= def.grow;
+    if (!CROPS[b.crop]) return false;
+    return now - b.plantedAt >= growOf(b);
   }
 
   function sow(state, id, crop) {
@@ -440,10 +543,11 @@ var KHAYA = (function () {
     b.crop = crop;
     b.phase = "sown";
     b.plantedAt = 0;
+    b.growFor = 0;
     var sowXp = 2 + folkBonus(state).sowXp;
     state.farmXp += sowXp;
     state.stats.sown += 1;
-    return { ok: true, xp: sowXp };
+    return { ok: true, xp: sowXp, sown: crop };
   }
 
   function water(state, id, now) {
@@ -455,9 +559,10 @@ var KHAYA = (function () {
     if (!spent.ok) return spent;
     b.phase = "growing";
     b.plantedAt = now;
+    b.growFor = plantDuration(state, b.crop);
     state.farmXp += 2;
     state.stats.watered += 1;
-    return { ok: true, xp: 2, grow: def.grow };
+    return { ok: true, xp: 2, grow: b.growFor };
   }
 
   function harvest(state, id, now) {
@@ -502,19 +607,34 @@ var KHAYA = (function () {
     return { ok: true, notes: def.price * n };
   }
 
+  function countReady(state, now) {
+    var n = 0;
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (cropReady(state.buildings[i], now)) n++;
+    return n;
+  }
+
+  function countStored(state) {
+    var n = 0;
+    var i;
+    var b;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if (PRODUCE[b.type]) n += b.stored || 0;
+    }
+    return n;
+  }
+
   function tick(state, now) {
     var last = state.seenAt == null ? now : state.seenAt;
     var gap = now - last;
     if (gap < 0) gap = 0;
     var used = gap > ELAPSE_CAP ? ELAPSE_CAP : gap;
     var discarded = gap - used;
+    var readyBefore = countReady(state, last);
+    var storedBefore = countStored(state);
+    var waterBefore = state.water || 0;
     var i, b;
-    if (discarded > 0) {
-      for (i = 0; i < state.buildings.length; i++) {
-        b = state.buildings[i];
-        if (b.phase === "growing" && b.plantedAt != null) b.plantedAt += discarded;
-      }
-    }
     var waterCap = WATER_CAP + folkBonus(state).waterCap;
     if (hasType(state, "tank")) {
       state.tankAcc = (state.tankAcc || 0) + used;
@@ -541,7 +661,9 @@ var KHAYA = (function () {
       if (!tune) continue;
       if (shed) continue;
       b.prodAcc = (b.prodAcc || 0) + used;
-      while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap) {
+      var guard = 0;
+      while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap && guard < 800) {
+        guard += 1;
         b.stored = (b.stored || 0) + tune.notes;
         b.prodAcc -= tune.every;
       }
@@ -549,7 +671,17 @@ var KHAYA = (function () {
     }
     var found = syncFolk(state);
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded, finished: finished, found: found, event: laneEvent.current, hoot: state.orders && state.orders.hoot };
+    var away = null;
+    if (gap >= 45000) {
+      away = {
+        ms: gap,
+        ready: Math.max(0, countReady(state, now) - readyBefore),
+        notes: Math.max(0, countStored(state) - storedBefore),
+        water: Math.max(0, (state.water || 0) - waterBefore),
+        built: finished.length
+      };
+    }
+    return { elapsed: used, discarded: discarded, finished: finished, found: found, event: laneEvent.current, hoot: state.orders && state.orders.hoot, away: away };
   }
 
   function decorCount(state) {
@@ -588,7 +720,7 @@ var KHAYA = (function () {
     var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4 + decor + folk.cap;
     if (cap > spec.cap + 8) cap = spec.cap + 8;
     var every = spec.every;
-    if (decor) every = Math.max(4000, Math.floor(spec.every * (1 - 0.05 * decor)));
+    if (decor) every = Math.max(45 * 1000, Math.floor(spec.every * (1 - 0.05 * decor)));
     return { cap: cap, every: every, notes: spec.notes };
   }
 
@@ -811,15 +943,23 @@ var KHAYA = (function () {
     return n;
   }
 
+  function hasSownBed(state) {
+    var i;
+    for (i = 0; i < state.buildings.length; i++) {
+      if (state.buildings[i].type === "bed" && state.buildings[i].phase === "sown") return true;
+    }
+    return false;
+  }
+
   function tasks(state) {
     return [
-      { id: "sow", done: state.stats.sown > 0, text: "Sow maize in a veggie bed" },
-      { id: "water", done: state.stats.watered > 0, text: "Water the bed" },
-      { id: "harvest", done: state.stats.harvested > 0, text: "Harvest when the crop is ready" },
-      { id: "place", done: state.stats.placed > 0, text: "Place a spaza, tank, or workshop" },
+      { id: "water", done: state.stats.watered > 0 || !hasSownBed(state), text: "Water the morogo" },
+      { id: "harvest", done: state.stats.harvested > 0, text: "Pick the mielies when they are ready" },
+      { id: "sow", done: state.stats.sown > 0, text: "Sow maize in the empty bed" },
+      { id: "place", done: state.stats.placed > 0, text: "Place a spaza or a rain tank" },
       { id: "collect", done: (state.stats.collected || 0) > 0, text: "Collect notes from the spaza" },
       { id: "upgrade", done: state.stats.upgraded > 0, text: "Upgrade your home" },
-      { id: "play", done: state.stats.played > 0, text: "Finish a lane mini-game" }
+      { id: "play", done: state.stats.played > 0, text: "Try a quiet lane game" }
     ];
   }
 
@@ -834,11 +974,74 @@ var KHAYA = (function () {
     if (!b || b.type !== "bed") return null;
     if (b.phase === "empty") return { phase: "empty", progress: 0 };
     if (b.phase === "sown") return { phase: "sown", progress: 0, crop: b.crop };
-    var def = CROPS[b.crop];
-    var p = def ? (now - b.plantedAt) / def.grow : 0;
+    var grow = growOf(b);
+    var p = grow ? (now - b.plantedAt) / grow : 0;
     if (p < 0) p = 0;
     if (p > 1) p = 1;
-    return { phase: p >= 1 ? "ready" : "growing", progress: p, crop: b.crop, left: Math.max(0, def.grow - (now - b.plantedAt)) };
+    return { phase: p >= 1 ? "ready" : "growing", progress: p, crop: b.crop, left: Math.max(0, grow - (now - b.plantedAt)) };
+  }
+
+  function formatSpan(ms) {
+    var s = Math.max(0, Math.ceil(Number(ms) / 1000));
+    if (!isFinite(s)) s = 0;
+    if (s < 60) return s + "s";
+    var m = Math.floor(s / 60);
+    var rem = s % 60;
+    if (m < 60) {
+      if (!rem || m >= 10) return m + " min";
+      return m + "m " + rem + "s";
+    }
+    var h = Math.floor(m / 60);
+    m = m % 60;
+    if (!m) return h + "h";
+    return h + "h " + m + "m";
+  }
+
+  function coach(state, now) {
+    var sown = null;
+    var ready = null;
+    var growing = null;
+    var empty = null;
+    var soon = 1e15;
+    var i, b, view;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if (b.type !== "bed") continue;
+      view = bedView(b, now);
+      if (!view) continue;
+      if (view.phase === "ready" && !ready) ready = b;
+      else if (view.phase === "sown" && !sown) sown = b;
+      else if (view.phase === "growing" && view.left < soon) { soon = view.left; growing = b; }
+      else if (view.phase === "empty" && !empty) empty = b;
+    }
+    if (ready) return { id: ready.id, act: "harvest", title: CROPS[ready.crop].name + " is ready", text: "Pick it while it is at its best." };
+    if (sown && !(state.stats.watered > 0)) {
+      return { id: sown.id, act: "water", title: "Water the " + CROPS[sown.crop].name.toLowerCase(), text: "It is in the soil. One watering starts it." };
+    }
+    if ((state.stats.harvested || 0) < 1 && growing) {
+      return {
+        id: growing.id,
+        act: "wait",
+        title: CROPS[growing.crop].name + " is growing",
+        text: "Ready in " + formatSpan(soon) + (empty && !(state.stats.sown > 0) ? ". Sow the empty bed while you wait." : "."),
+        sow: empty && !(state.stats.sown > 0) ? empty.id : 0
+      };
+    }
+    if (!(state.stats.sown > 0) && empty) return { id: empty.id, act: "sow", title: "Sow the empty bed", text: "Maize is quick while the lane is new." };
+    if (!(state.stats.placed > 0)) return { act: "build", title: "Place a spaza", text: "It keeps notes for you. Tap the coin when it shows." };
+    return null;
+  }
+
+  function awayLine(info) {
+    if (!info) return "";
+    var bits = [];
+    if (info.ready === 1) bits.push("a crop finished");
+    else if (info.ready > 1) bits.push(info.ready + " crops finished");
+    if (info.notes) bits.push(info.notes + (info.notes === 1 ? " note is waiting" : " notes are waiting"));
+    if (info.built) bits.push(info.built === 1 ? "a building finished" : "buildings finished");
+    if (info.water) bits.push("the tank caught water");
+    if (!bits.length) return "";
+    return "While you were away, " + bits.join(", ") + ".";
   }
 
   function sanitize(data) {
@@ -910,9 +1113,9 @@ var KHAYA = (function () {
         h: def.h,
         level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1),
         stored: clamp(raw.stored, 0, 30),
-        prodAcc: clamp(raw.prodAcc, 0, 60000),
-        buildLeft: clamp(raw.buildLeft, 0, 120000),
-        buildTotal: clamp(raw.buildTotal, 0, 120000),
+        prodAcc: clamp(raw.prodAcc, 0, 30 * MIN),
+        buildLeft: clamp(raw.buildLeft, 0, 4 * 60 * MIN),
+        buildTotal: clamp(raw.buildTotal, 0, 4 * 60 * MIN),
         pendingLevel: clamp(raw.pendingLevel, 0, def.upgrades ? def.upgrades.length : 1),
         pendingXp: clamp(raw.pendingXp, 0, 100)
       };
@@ -937,6 +1140,7 @@ var KHAYA = (function () {
         b.phase = raw.phase === "sown" || raw.phase === "growing" ? raw.phase : "empty";
         if (!b.crop) b.phase = "empty";
         b.plantedAt = b.phase === "growing" ? clamp(raw.plantedAt, 0, 8.64e15) : 0;
+        b.growFor = b.phase === "growing" ? clamp(raw.growFor, 0, 3 * 60 * MIN) : 0;
         if (b.phase === "sown") b.plantedAt = 0;
       }
       s.buildings.push(b);
@@ -1009,11 +1213,45 @@ var KHAYA = (function () {
       }
       if (!s.orders.list.length) s.orders = { phase: "away", at: s.seenAt, seq: s.orders.seq, list: [], hoot: 0 };
     }
+    if ((data.pace || 1) < PACE) migratePace(s);
+    s.pace = PACE;
     return s;
   }
 
-  var ORDER_STAY = 42000;
-  var ORDER_GAP = 70000;
+  function migratePace(s) {
+    var frac = Math.min(1, (s.tankAcc || 0) / OLD_TANK);
+    s.tankAcc = Math.round(frac * TANK_MS);
+    var i, b, oldG, elapsed, p, neu, oldTotal;
+    for (i = 0; i < s.buildings.length; i++) {
+      b = s.buildings[i];
+      if (b.type === "bed" && b.phase === "growing" && CROPS[b.crop]) {
+        oldG = OLD_GROW[b.crop] || 16000;
+        elapsed = s.seenAt - b.plantedAt;
+        if (elapsed < 0) elapsed = 0;
+        p = elapsed / oldG;
+        if (p > 1) p = 1;
+        b.growFor = CROPS[b.crop].grow;
+        b.plantedAt = s.seenAt - Math.round(p * b.growFor);
+        if (b.plantedAt < 0) b.plantedAt = 0;
+      }
+      if ((b.buildLeft || 0) > 0) {
+        oldTotal = b.buildTotal > 0 ? b.buildTotal : OLD_UPGRADE;
+        p = b.buildLeft / oldTotal;
+        if (p < 0) p = 0;
+        if (p > 1) p = 1;
+        neu = upgradeDuration(b);
+        b.buildTotal = neu;
+        b.buildLeft = Math.max(1, Math.round(p * neu));
+      }
+      if (PRODUCE[b.type] && b.prodAcc) {
+        p = Math.min(1, b.prodAcc / (OLD_EVERY[b.type] || 8000));
+        b.prodAcc = Math.round(p * PRODUCE[b.type].every);
+      }
+    }
+  }
+
+  var ORDER_STAY = 8 * MIN;
+  var ORDER_GAP = 10 * MIN;
   var RUNS = [
     { name: "Soweto run", say: "6 mielies and 2 morogo for the Soweto run", need: { maize: 6, morogo: 2 } },
     { name: "Alex rank", say: "4 mielies for the Alex rank", need: { maize: 4 } },
@@ -1094,6 +1332,7 @@ var KHAYA = (function () {
       if (b.type === "bed" && b.phase === "sown") {
         b.phase = "growing";
         b.plantedAt = now;
+        b.growFor = plantDuration(state, b.crop);
         n += 1;
       }
     }
@@ -1101,27 +1340,35 @@ var KHAYA = (function () {
   }
 
   function syncEvents(state, now) {
-    if (!state.laneEvent) state.laneEvent = { next: now + 8000, n: 0, current: null };
+    if (!state.laneEvent) state.laneEvent = { next: now + 6 * MIN, n: 0, current: null };
     var ev = state.laneEvent;
+    var present = now - (state.seenAt || now) < 60000;
     if (ev.current && now >= ev.current.until) {
-      if (ev.current.type === "goat" && (ev.current.taps || 0) < 3) {
+      if (present && ev.current.type === "goat" && (ev.current.taps || 0) < 3) {
         var i, b;
         for (i = 0; i < state.buildings.length; i++) {
           b = state.buildings[i];
-          if (b.type === "bed" && b.phase === "growing") { b.plantedAt += 4000; break; }
+          if (b.type === "bed" && b.phase === "growing") {
+            b.plantedAt += Math.round(growOf(b) * 0.08);
+            break;
+          }
         }
       }
       ev.current = null;
-      ev.next = now + 90000;
+      ev.next = now + 8 * MIN;
     }
     if (!ev.current && now >= (ev.next || 0)) {
+      if (!present) {
+        ev.next = now + 6 * MIN;
+        return ev;
+      }
       var kinds = ["storm", "shed", "goat", "gogo", "vendor", "ball"];
       var kind = kinds[(ev.n || 0) % kinds.length];
       ev.n = (ev.n || 0) + 1;
-      var until = now + 28000;
+      var until = now + 36000;
       ev.current = { type: kind, until: until, say: "" };
       if (kind === "storm") {
-        ev.current.until = now + 9000;
+        ev.current.until = now + 16000;
         ev.current.say = "Highveld storm. The beds are drinking.";
         ev.current.watered = waterSown(state, now);
       } else if (kind === "shed") {
@@ -1136,7 +1383,7 @@ var KHAYA = (function () {
       } else {
         ev.current.say = "A soccer ball rolled in. Kick it!";
       }
-      ev.next = now + 90000;
+      ev.next = now + 8 * MIN;
     }
     return ev;
   }
@@ -1150,7 +1397,7 @@ var KHAYA = (function () {
       if (!hasType(state, "solar")) return { ok: false, reason: "No solar stand yet. The lights stay off." };
       cur.solar = 1;
       state.laneEvent.current = null;
-      state.laneEvent.next = (now || 0) + 90000;
+      state.laneEvent.next = (now || 0) + 8 * MIN;
       return { ok: true, say: "Solar's on. Sharp sharp." };
     }
     if (cur.type === "goat") {
@@ -1356,6 +1603,13 @@ var KHAYA = (function () {
     PLAYER_STEPS: PLAYER_STEPS,
     UPGRADE_MS: UPGRADE_MS,
     ELAPSE_CAP: ELAPSE_CAP,
+    PRODUCE: PRODUCE,
+    PACE: PACE,
+    upgradeDuration: upgradeDuration,
+    plantDuration: plantDuration,
+    formatSpan: formatSpan,
+    coach: coach,
+    awayLine: awayLine,
     fresh: fresh,
     sanitize: sanitize,
     farmLevel: farmLevel,
@@ -1369,6 +1623,8 @@ var KHAYA = (function () {
     occupied: occupied,
     buildingById: buildingById,
     footprint: footprint,
+    PROPS: PROPS,
+    layoutAudit: layoutAudit,
     cellNorth: cellNorth,
     pickCell: pickCell,
     afford: afford,

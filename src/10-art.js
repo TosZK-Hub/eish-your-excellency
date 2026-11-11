@@ -5,8 +5,11 @@ var DRAW = (function () {
   var contact = typeof WeakMap === "function" ? new WeakMap() : null;
   var plate = null;
   var plateKey = "";
+  var backdrop = null;
+  var backdropKey = "";
   var markGround = false;
   var groundMarks = [];
+  var lastFace = {};
 
   function catalogFiles() {
     var list = [];
@@ -18,12 +21,24 @@ var DRAW = (function () {
       if (spec.levels) for (i = 0; i < spec.levels.length; i++) add(spec.levels[i]);
       if (spec.states) for (i = 0; i < spec.states.length; i++) add(spec.states[i]);
     }
-    for (id in LOOK.actors) add(LOOK.actors[id].file);
+    for (id in LOOK.actors) {
+      add(LOOK.actors[id].file);
+      if (LOOK.actors[id].sheet) add(LOOK.actors[id].sheet);
+    }
     for (i = 0; i < LOOK.trees.length; i++) add(LOOK.trees[i]);
     for (i = 0; i < LOOK.neighbours.length; i++) add(LOOK.neighbours[i]);
     for (i = 0; i < LOOK.dress.length; i++) add(LOOK.dress[i].file);
+    if (typeof KHAYA !== "undefined" && KHAYA.PROPS) {
+      for (i = 0; i < KHAYA.PROPS.length; i++) add(KHAYA.PROPS[i].file);
+    }
     add("tile_grass");
     add("tile_dirt");
+    var crops = [
+      "maize_sown", "maize_growing", "maize_ready",
+      "morogo_sown", "morogo_growing", "morogo_ready", "morogo_ready_basket",
+      "pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"
+    ];
+    for (i = 0; i < crops.length; i++) add(crops[i]);
     return list;
   }
 
@@ -38,7 +53,10 @@ var DRAW = (function () {
           measureContact(el);
         }
         left -= 1;
-        if (left === 0 && done) done();
+        if (left === 0) {
+          sliceSheets();
+          if (done) done();
+        }
       };
       el.src = LOOK.root + n + LOOK.ext;
       if (el.decode) el.decode().catch(function () {});
@@ -78,45 +96,44 @@ var DRAW = (function () {
   function layout(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
     var z = cam.z || 1;
-    if (z < 0.55) z = 0.55;
+    if (z < 0.62) z = 0.62;
     if (z > 2.2) z = 2.2;
-    var phone = w < 560;
-    var cols = phone ? 6.5 : 8;
-    var rows = phone ? 6.5 : 8;
-    var horizon = phone ? Math.max(20, h * 0.08) : Math.max(64, h * 0.22);
-    var availW = w * (phone ? 1.04 : 0.96);
-    var availH = Math.max(80, (h - horizon) * (phone ? 1.02 : 0.98));
-    var tw = availW / ((cols + rows) / 2);
+    // Working homestead only. Its width is about 85% of the stage.
+    // The south corner of the open lane sits near the bottom, so the locked fields fall off.
+    var tw = w * 0.172;
     var th = tw * 0.5;
-    var plotH = (cols + rows) * th / 2;
-    var need = plotH + th * 2.4;
-    if (need > availH) {
-      var s = availH / need;
-      tw *= s;
-      th *= s;
-      plotH = (cols + rows) * th / 2;
+    var northLimit = Math.max(12, h * 0.04);
+    if ((6.2) * th + northLimit > h * 0.9) {
+      tw = (h * 0.9 - northLimit) / 6.2 * 2;
+      th = tw * 0.5;
     }
     tw *= z;
     th *= z;
-    var plotW = (cols + rows) * tw / 2;
-    var ox = (w - plotW) / 2 + rows * tw / 2 + (cam.x || 0);
-    var oy = horizon + Math.max(th / z, (h - horizon - plotH * z) * 0.42) + (cam.y || 0);
+    var focusX = 3.2;
+    var focusY = 3.6;
+    var ox = w / 2 - (focusX - focusY) * tw / 2 + (cam.x || 0);
+    var oy = h * 0.86 - (8 + 8) * th / 2 + (cam.y || 0);
+    var houseTop = oy + (1 + 1.2) * th / 2 - th * 1.6;
+    if (houseTop < northLimit) oy += northLimit - houseTop;
+    var horizon = Math.max(4, oy + (0 + 0) * th / 2 - th);
     return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
   }
 
   function clampCamera(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
-    if (cam.z < 0.55) cam.z = 0.55;
+    if (cam.z < 0.62) cam.z = 0.62;
     if (cam.z > 2.2) cam.z = 2.2;
-    var o = layout(w, h, cam);
-    var north = KHAYA.cellNorth(0, 0, o.ox, o.oy, o.tw, o.th);
-    var south = KHAYA.cellNorth(KHAYA.COLS, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
-    var east = KHAYA.cellNorth(KHAYA.COLS, 0, o.ox, o.oy, o.tw, o.th);
-    var west = KHAYA.cellNorth(0, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
-    if (south.y < h * 0.42) cam.y += h * 0.42 - south.y;
-    if (north.y > h * 0.62) cam.y -= north.y - h * 0.62;
-    if (east.x < w * 0.18) cam.x += w * 0.18 - east.x;
-    if (west.x > w * 0.82) cam.x -= west.x - w * 0.82;
+    var limX = Math.max(70, w * 1.05);
+    var limY = Math.max(48, h * 0.7);
+    if (cam.x > limX) { cam.x = limX; cam.vx = cam.vx > 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.x < -limX) { cam.x = -limX; cam.vx = cam.vx < 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.y > limY) { cam.y = limY; cam.vy = cam.vy > 0 ? cam.vy * -0.18 : cam.vy; }
+    if (cam.y < -limY) { cam.y = -limY; cam.vy = cam.vy < 0 ? cam.vy * -0.18 : cam.vy; }
+    var maxV = 14;
+    if (cam.vx > maxV) cam.vx = maxV;
+    if (cam.vx < -maxV) cam.vx = -maxV;
+    if (cam.vy > maxV) cam.vy = maxV;
+    if (cam.vy < -maxV) cam.vy = -maxV;
     return cam;
   }
 
@@ -130,27 +147,92 @@ var DRAW = (function () {
     ctx.fill();
   }
 
-  function sky(ctx, w, h, now) {
-    var g = ctx.createLinearGradient(0, 0, 0, h * 0.62);
-    g.addColorStop(0, "#6eaddf");
-    g.addColorStop(0.45, "#b9d4ef");
-    g.addColorStop(0.78, "#f3d2a4");
-    g.addColorStop(1, "#e7b27a");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    var i;
-    for (i = 0; i < 5; i++) {
-      var cx = ((now / 40 + i * w * 0.23) % (w + 180)) - 90;
-      var cy = h * (0.08 + (i % 3) * 0.06);
-      ctx.fillStyle = "rgba(255,255,255,.72)";
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, 54 + (i % 3) * 16, 16, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 28, cy + 4, 36, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  var SKY = {
+    dawn: ["#d98978", "#f3c7a8", "#f6dcc0", "#e7b888"],
+    day: ["#6eaddf", "#b7d4ee", "#f3d2a4", "#e7b27a"],
+    gold: ["#e08a55", "#f3c48a", "#f6d7a8", "#e0a56e"],
+    dusk: ["#4d5f92", "#c98880", "#f0b48a", "#c48468"],
+    night: ["#1a2744", "#31456f", "#5c5274", "#3a342e"]
+  };
+  var VEIL = {
+    dawn: "rgba(255, 196, 150, 0.06)",
+    gold: "rgba(255, 168, 80, 0.10)",
+    dusk: "rgba(64, 48, 110, 0.10)",
+    night: "rgba(16, 24, 58, 0.16)"
+  };
+
+  function phaseOf(now, light) {
+    if (light === "dawn" || light === "day" || light === "gold" || light === "dusk" || light === "night") return light;
+    var d = new Date(now);
+    var h = d.getHours() + d.getMinutes() / 60;
+    if (h >= 5 && h < 7) return "dawn";
+    if (h >= 7 && h < 16.5) return "day";
+    if (h >= 16.5 && h < 18.5) return "gold";
+    if (h >= 18.5 && h < 20) return "dusk";
+    return "night";
   }
 
-  function land(ctx, w, h, o) {
+  function sky(ctx, w, h, phase) {
+    var stops = SKY[phase] || SKY.day;
+    var g = ctx.createLinearGradient(0, 0, 0, h * 0.62);
+    g.addColorStop(0, stops[0]);
+    g.addColorStop(0.45, stops[1]);
+    g.addColorStop(0.78, stops[2]);
+    g.addColorStop(1, stops[3]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    var night = phase === "night" || phase === "dusk";
+    if (night) {
+      ctx.fillStyle = phase === "night" ? "rgba(255, 248, 230, .85)" : "rgba(255, 248, 230, .7)";
+      var spots = [[0.12, 0.08], [0.28, 0.16], [0.46, 0.06], [0.63, 0.14], [0.78, 0.07], [0.9, 0.15]];
+      var i;
+      for (i = 0; i < (phase === "night" ? spots.length : 3); i++) {
+        ctx.beginPath();
+        ctx.arc(w * spots[i][0], h * spots[i][1], i % 2 ? 1.3 : 0.8, 0, 7);
+        ctx.fill();
+      }
+    }
+    ctx.beginPath();
+    ctx.fillStyle = night ? "rgba(244, 236, 210, .92)" : "rgba(255, 244, 210, .95)";
+    ctx.arc(w * (night ? 0.78 : 0.82), h * (night ? 0.1 : 0.12), night ? 11 : 16, 0, 7);
+    ctx.fill();
+  }
+
+  function drawClouds(ctx, w, h, now) {
+    var i;
+    ctx.save();
+    for (i = 0; i < 3; i++) {
+      var cx = ((now / 80 + i * w * 0.37) % (w + 220)) - 110;
+      var cy = h * (0.07 + (i % 3) * 0.045);
+      ctx.fillStyle = "rgba(255,255,255,.55)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 48 + (i % 2) * 14, 13, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 26, cy + 3, 30, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBird(ctx, w, h, now) {
+    var cycle = 42000;
+    var t = now % cycle;
+    if (t > 8000) return;
+    var u = t / 8000;
+    var x = -24 + u * (w + 48);
+    var y = h * 0.09 + Math.sin(u * Math.PI) * h * 0.02;
+    var wing = Math.sin(now / 160) > 0 ? -4 : 3;
+    ctx.save();
+    ctx.strokeStyle = "rgba(48, 36, 28, .45)";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.quadraticCurveTo(x - 2, y + wing, x, y);
+    ctx.quadraticCurveTo(x + 2, y + wing, x + 6, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function distant(ctx, w, h, o) {
     var hy = o.horizon + 8;
     ctx.fillStyle = "#c48b78";
     ctx.beginPath();
@@ -183,14 +265,6 @@ var DRAW = (function () {
       ctx.lineTo(gx + 6, gy - 5);
       ctx.stroke();
     }
-    var south = north(KHAYA.COLS, KHAYA.ROWS, o);
-    ctx.fillStyle = "#d7b56a";
-    ctx.beginPath();
-    ctx.moveTo(south.x - o.tw * 0.55, south.y - 4);
-    ctx.lineTo(w * 0.5 - Math.min(120, w * 0.16), h + 30);
-    ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
-    ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
-    ctx.fill();
     var spots = [0.12, 0.4, 0.7];
     var n;
     for (n = 0; n < LOOK.neighbours.length; n++) {
@@ -200,10 +274,49 @@ var DRAW = (function () {
     blitFoot(ctx, img.tree_acacia, w * 0.06, hy + 22, o.tw * 0.42, LOOK.treeScale.tree_acacia || 1);
   }
 
+  function road(ctx, w, h, o) {
+    var south = north(KHAYA.COLS, KHAYA.ROWS, o);
+    ctx.fillStyle = "#d7b56a";
+    ctx.beginPath();
+    ctx.moveTo(south.x - o.tw * 0.55, south.y - 4);
+    ctx.lineTo(w * 0.5 - Math.min(120, w * 0.16), h + 30);
+    ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
+    ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
+    ctx.fill();
+  }
+
+  function srcSize(image) {
+    return { w: image.naturalWidth || image.width || 0, h: image.naturalHeight || image.height || 0 };
+  }
+
+  function sliceSheets() {
+    var id, spec, sheet, cells, size, cw, i, c, g, key;
+    for (id in LOOK.actors) {
+      spec = LOOK.actors[id];
+      if (!spec.sheet || !img[spec.sheet] || img[spec.sheet + "_0"]) continue;
+      sheet = img[spec.sheet];
+      size = srcSize(sheet);
+      cells = spec.cells || 8;
+      if (!size.w || !size.h) continue;
+      cw = Math.floor(size.w / cells);
+      for (i = 0; i < cells; i++) {
+        c = document.createElement("canvas");
+        c.width = cw;
+        c.height = size.h;
+        g = c.getContext("2d");
+        g.drawImage(sheet, i * cw, 0, cw, size.h, 0, 0, cw, size.h);
+        key = spec.sheet + "_" + i;
+        img[key] = c;
+        measureContact(c);
+      }
+    }
+  }
+
   function measureContact(image) {
-    if (!contact || !image.naturalWidth) return;
-    var w = image.naturalWidth;
-    var h = image.naturalHeight;
+    var size = srcSize(image);
+    if (!contact || !size.w || !size.h) return;
+    var w = size.w;
+    var h = size.h;
     var c = document.createElement("canvas");
     c.width = w;
     c.height = h;
@@ -223,15 +336,59 @@ var DRAW = (function () {
     contact.set(image, found);
   }
 
-  function blitFoot(ctx, image, footX, footY, tw, scale) {
-    if (!image || !image.naturalWidth) return;
-    var px = (tw / 256) * (scale || 1);
-    var dw = image.naturalWidth * px;
-    var dh = image.naturalHeight * px;
-    var row = contact && contact.get(image);
-    if (row === undefined || row === null) row = image.naturalHeight - 1;
-    ctx.drawImage(image, footX - dw / 2, footY - (row + 1) * px, dw, dh);
+  function groundShadow(ctx, x, y, tw, shadow) {
+    if (!shadow) return;
+    ctx.save();
+    ctx.fillStyle = "rgba(48, 32, 16, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(x, y - 1, Math.max(3, tw * shadow[0] * 0.22), Math.max(2, tw * shadow[1] * 0.18), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function blitPivot(ctx, image, footX, footY, tw, scale, pivot) {
+    var size = image ? srcSize(image) : { w: 0, h: 0 };
+    if (!image || !size.w) return null;
+    var k = (tw / 256) * (scale || 1);
+    var dw = size.w * k;
+    var dh = size.h * k;
+    var fx = pivot ? pivot[0] : 0.5;
+    var fy = pivot ? pivot[1] : null;
+    if (fy === null || fy === undefined) {
+      var row = contact && contact.get(image);
+      if (row === undefined || row === null) row = size.h - 1;
+      fy = (row + 1) / size.h;
+    }
+    var left = footX - fx * dw;
+    var top = footY - fy * dh;
+    ctx.drawImage(image, left, top, dw, dh);
     if (markGround) groundMarks.push(footX, footY);
+    return { left: left, top: top, dw: dw, dh: dh };
+  }
+
+  function blitFoot(ctx, image, footX, footY, tw, scale) {
+    return blitPivot(ctx, image, footX, footY, tw, scale, null);
+  }
+
+  function paintTile(ctx, file, x, y, o) {
+    var image = img[file];
+    if (!image) return;
+    var pivot = (LOOK.pivot && LOOK.pivot[file]) || [0.5, 1, 256];
+    var scale = pivot[2] ? 256 / pivot[2] : 1;
+    var tip = north(x + 1, y + 1, o);
+    blitPivot(ctx, image, tip.x, tip.y, o.tw, scale, pivot);
+  }
+
+  function southTip(b, o) {
+    return north(b.x + b.w, b.y + b.h, o);
+  }
+
+  function frontPoint(b, o) {
+    return north(b.x + b.w - 0.5, b.y + b.h - 0.5, o);
+  }
+
+  function footprintCenter(b, o) {
+    return north(b.x + b.w / 2, b.y + b.h / 2, o);
   }
 
   function hash(x, y) {
@@ -243,9 +400,8 @@ var DRAW = (function () {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
     var open = !state || KHAYA.plotOpen(state, x, y);
-    var midCell = north(x + 0.5, y + 0.5, o);
-    if (img.tile_grass) ctx.drawImage(img.tile_grass, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
-    if (kind === "path" && img.tile_dirt) ctx.drawImage(img.tile_dirt, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    paintTile(ctx, "tile_grass", x, y, o);
+    if (kind === "path") paintTile(ctx, "tile_dirt", x, y, o);
     if (!img.tile_grass && !(kind === "path" && img.tile_dirt)) {
       var fill = kind === "path" ? "#c47a45" : "#c6a84a";
       poly(ctx, [c.n, c.e, c.s, c.w], fill);
@@ -305,10 +461,11 @@ var DRAW = (function () {
     return spec.file || b.type;
   }
 
-  function placePoint(b, o) {
-    var spec = LOOK.buildings[b.type] || { anchor: [0.5, 0.55], offset: [0, 0] };
-    var p = north(b.x + b.w * spec.anchor[0], b.y + b.h * spec.anchor[1], o);
-    return { x: p.x + (spec.offset[0] || 0), y: p.y + (spec.offset[1] || 0), spec: spec };
+  function labelBand(top, canvasH) {
+    var y = top - 10;
+    if (y < 10) y = 10;
+    if (canvasH && y > canvasH - 28) y = canvasH - 28;
+    return y;
   }
 
   function puff(ctx, x, y, now, kind) {
@@ -354,8 +511,15 @@ var DRAW = (function () {
   var grewAt = {};
 
   function drawSprite(ctx, name, b, o, now, pop, squash) {
-    var spot = placePoint(b, o);
-    var scale = spot.spec.scale || 1;
+    var spec = LOOK.buildings[b.type] || {};
+    var tip = southTip(b, o);
+    var pivot = (LOOK.pivot && LOOK.pivot[name]) || [0.5, 0.99, 256];
+    var baseName = b.type === "bed" ? "bed_empty" : name;
+    var base = (LOOK.pivot && LOOK.pivot[baseName] && LOOK.pivot[baseName][2]) || pivot[2] || 256;
+    var tiles = ((b.w || 1) + (b.h || 1)) / 2;
+    var widest = (LOOK.pivot && LOOK.pivot[name] && LOOK.pivot[name][2]) || base;
+    var cap = (tiles * 0.72 * 256) / widest;
+    var scale = spec.fit ? (tiles * 256) / base : Math.min(spec.scale || 1, cap);
     var sc = scale;
     var sx = 1;
     var sy = 1;
@@ -379,14 +543,51 @@ var DRAW = (function () {
       sy *= 1 - land * 0.12;
       sc = scale * (0.92 + Math.min(1, u / 0.3) * 0.08);
     }
+    var mid = footprintCenter(b, o);
+    var world = spec.fit ? tip : mid;
+    var image = img[name];
+    var size = image ? srcSize(image) : { h: 0 };
+    var k = (o.tw / 256) * sc;
+    var top = (world.y - drop) - (pivot[1] || 1) * size.h * k * sy;
     ctx.save();
-    ctx.translate(spot.x, spot.y - drop);
+    groundShadow(ctx, mid.x, mid.y, o.tw * (spec.fit ? tiles : 0.45), spec.shadow);
+    ctx.translate(world.x, world.y - drop);
     ctx.scale(sx, sy);
-    ctx.translate(-spot.x, -spot.y);
-    blitFoot(ctx, img[name], spot.x, spot.y, o.tw, sc);
+    ctx.translate(-world.x, -world.y);
+    blitPivot(ctx, image, world.x, world.y, o.tw, sc, pivot);
     ctx.restore();
-    if (spot.spec.smoke) puff(ctx, spot.x, spot.y - o.th * 0.9, now, spot.spec.smoke);
-    return spot;
+    if (spec.smoke) puff(ctx, mid.x, tip.y - o.th * 0.9, now, spec.smoke);
+    return { x: mid.x, y: tip.y, top: top, spec: spec };
+  }
+
+  var stampCache = {};
+  function plantCanvas(file) {
+    if (stampCache[file]) return stampCache[file];
+    var src = img[file];
+    var spec = LOOK.plant && LOOK.plant[file];
+    if (!src || !spec) { stampCache[file] = null; return null; }
+    var c = document.createElement("canvas");
+    c.width = spec.w;
+    c.height = spec.h;
+    var g = c.getContext("2d");
+    g.drawImage(src, spec.x, spec.y, spec.w, spec.h, 0, 0, spec.w, spec.h);
+    stampCache[file] = c;
+    return c;
+  }
+
+  function drawPlants(ctx, file, b, o) {
+    var draw = LOOK.plantDraw && LOOK.plantDraw(file, o.tw);
+    var canvas = plantCanvas(file);
+    if (!draw || !canvas) return null;
+    var top = 1e9;
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = north(b.x + spot[0], b.y + spot[1], o);
+      ctx.drawImage(canvas, p.x - draw.dw / 2, p.y - draw.dh, draw.dw, draw.dh);
+      if (p.y - draw.dh < top) top = p.y - draw.dh;
+    }
+    return top;
   }
 
   function barOver(ctx, x, y, w, progress, color) {
@@ -414,6 +615,24 @@ var DRAW = (function () {
     ctx.arcTo(x, y + h, x, y, r);
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
+  }
+
+  function readyMark(ctx, x, y, now) {
+    var bob = Math.sin(now / 360) * 2;
+    ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.fillStyle = "#2f6d4f";
+    ctx.strokeStyle = "#1d4a34";
+    ctx.lineWidth = 2;
+    roundRect(ctx, -16, -11, 32, 18, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fffaf3";
+    ctx.font = "700 11px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Pick", 0, -1);
+    ctx.restore();
   }
 
   function coinBadge(ctx, x, y, now) {
@@ -472,12 +691,21 @@ var DRAW = (function () {
     };
   }
 
-  function actorFrame(spec, now, dir, pose) {
-    if (pose === "water" && spec.water) return spec.water[Math.floor(now / 180) % spec.water.length];
-    if (pose === "wave" && spec.wave) return spec.wave[Math.floor(now / 160) % spec.wave.length];
-    if (spec.walk) return spec.walk + "_" + (dir || 0) + "_" + (Math.floor(now / 140) % spec.frames);
-    if (spec.idle) return spec.idle[Math.floor(now / 280) % spec.idle.length];
-    return "";
+  function actorImage(spec, now, pose) {
+    var list = spec.idle;
+    var rate = 720;
+    if (pose === "walk" && spec.walk) { list = spec.walk; rate = 150; }
+    else if ((pose === "work" || pose === "water" || pose === "wave") && spec.work) { list = spec.work; rate = 280; }
+    if (!spec.sheet || !list || !list.length || !img[spec.sheet]) return img[spec.file];
+    var idx = list[Math.floor(now / rate) % list.length];
+    return img[spec.sheet + "_" + idx] || img[spec.file];
+  }
+
+  function artScaleX(spec, screenRight) {
+    if (!spec.sheet || !img[spec.sheet]) return screenRight ? -1 : 1;
+    var facesRight = spec.face > 0;
+    if (screenRight == null) return 1;
+    return screenRight === facesRight ? 1 : -1;
   }
 
   function actorWhere(entry, state, now) {
@@ -490,13 +718,16 @@ var DRAW = (function () {
     var bi;
     var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
     if (housed) {
-      x = housed.x + housed.w * 0.35;
-      y = housed.y + housed.h + 0.2;
+      x = housed.x + 0.5;
+      y = housed.y + housed.h + 0.5;
+      if (KHAYA.occupied(state, Math.floor(x), Math.floor(y))) {
+        x = housed.x + housed.w + 0.5;
+        y = housed.y + housed.h - 0.5;
+      }
       pose = "idle";
-    } else if (entry.near === "home") {
-      var home = null;
-      for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
-      if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
+    } else if (entry.at) {
+      x = entry.at[0];
+      y = entry.at[1];
       pose = "idle";
     } else if (entry.spot) {
       x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
@@ -507,19 +738,7 @@ var DRAW = (function () {
       x = step.x;
       y = step.y;
       dir = step.dir;
-      if (entry.id === "farmer") {
-        var bed = null;
-        for (bi = 0; bi < state.buildings.length; bi++) {
-          if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
-        }
-        if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
-      }
-      if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
-      if (entry.id === "doek") {
-        var spaza = null;
-        for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
-        if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
-      }
+      pose = "walk";
     }
     return { x: x, y: y, dir: dir, pose: pose, housed: housed };
   }
@@ -541,10 +760,11 @@ var DRAW = (function () {
 
   function treeCovers(foot, file, scale, o, points) {
     var image = img[file];
-    if (!image || !image.naturalWidth || !points) return false;
+    var size = image ? srcSize(image) : { w: 0, h: 0 };
+    if (!size.w || !points) return false;
     var px = (o.tw / 256) * (scale || 1);
-    var dw = image.naturalWidth * px;
-    var dh = image.naturalHeight * px;
+    var dw = size.w * px;
+    var dh = size.h * px;
     var i, p, dx, dy;
     for (i = 0; i < points.length; i++) {
       p = points[i];
@@ -569,28 +789,26 @@ var DRAW = (function () {
         var pose = spot.pose;
         var housed = spot.housed;
         var n = north(x, y, o);
-        var moving = pose === "walk" && !housed;
-        var plant = 0;
-        if (moving && entry.route) {
-          var walkU = (now / (entry.speed || 9000)) % 1;
-          plant = (walkU * entry.route.length) % 1;
-        }
-        var stepWave = Math.sin(plant * Math.PI * 4 - Math.PI / 2);
-        var bob = moving ? stepWave * o.th * 0.045 : Math.sin(now / 900 + y) * o.th * 0.012;
-        var stretch = moving ? 1 + Math.max(0, stepWave) * 0.04 : 1;
-        var squashY = moving ? 1 - Math.max(0, -stepWave) * 0.07 : 1;
-        if (entry.id === "hen") {
+        var moving = pose === "walk" && !housed && !entry.spot;
+        var framed = !!(spec.sheet && img[spec.sheet]);
+        var screenRight = dir === 1 || dir === 0;
+        if (moving) lastFace[entry.id] = screenRight;
+        var flip = artScaleX(spec, lastFace[entry.id] == null ? null : (moving ? screenRight : lastFace[entry.id]));
+        var bob = 0;
+        var squashY = 1;
+        if (!framed && entry.id === "hen") {
           var peck = (now / 1100 + y) % 1;
-          if (peck > 0.78) { squashY = 0.82; bob += o.th * 0.04; }
+          if (peck > 0.78) { squashY = 0.82; bob = o.th * 0.03; }
+        } else if (!framed && entry.spot) {
+          bob = Math.sin(now / 900 + y) * o.th * 0.01;
         }
-        var lean = moving ? (dir === 1 || dir === 0 ? -0.08 : 0.08) : 0;
-        var flip = dir === 1 || dir === 0 ? -1 : 1;
-        queue.push({ y: n.y, draw: function () {
+        var sprite = actorImage(spec, now, moving ? "walk" : pose);
+        queue.push({ y: n.y + 0.5, draw: function () {
           ctx.save();
+          groundShadow(ctx, n.x, n.y, o.tw, spec.shadow);
           ctx.translate(n.x, n.y + bob);
-          ctx.rotate(lean);
-          ctx.scale(flip * stretch, squashY);
-          blitFoot(ctx, img[spec.file], 0, 0, o.tw, spec.scale);
+          ctx.scale(flip, squashY);
+          blitFoot(ctx, sprite, 0, 0, o.tw, spec.scale);
           ctx.restore();
         } });
       })(LOOK.cast[i]);
@@ -608,8 +826,19 @@ var DRAW = (function () {
       ctx.fillStyle = f.color || "#243028";
       ctx.font = "700 18px Fredoka, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(f.text, f.x, f.y - a * 42);
-      var bits = f.coins || 6;
+      ctx.fillText(f.text, f.x, f.y - a * 36);
+      if (f.kind === "water") {
+        var d;
+        for (d = 0; d < 4; d++) {
+          ctx.fillStyle = "rgba(61, 142, 201, " + (1 - a) + ")";
+          ctx.beginPath();
+          ctx.ellipse(f.x - 10 + d * 7, f.y - 8 - a * 28 - (d % 2) * 6, 2.2, 3.4, 0, 0, 7);
+          ctx.fill();
+        }
+        ctx.restore();
+        continue;
+      }
+      var bits = f.coins || 4;
       var k;
       for (k = 0; k < bits; k++) {
         var ang = k / bits * Math.PI * 2 + f.t;
@@ -629,6 +858,22 @@ var DRAW = (function () {
     var plots = (state && state.plots) || {};
     for (id in KHAYA.PLOTS) s += plots[id] ? "1" : "0";
     return s;
+  }
+
+  function ensureBackdrop(w, h, o, dpr, phase) {
+    var stamp = (img.neighbour_mural ? 1 : 0) + (img.tree_acacia ? 2 : 0) + (img.tree_jacaranda ? 4 : 0);
+    var key = [w, h, dpr, Math.round(o.horizon), Math.round(o.tw * 2), phase, stamp].join(":");
+    if (backdrop && backdropKey === key) return backdrop;
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.floor(w * dpr));
+    c.height = Math.max(1, Math.floor(h * dpr));
+    var g = c.getContext("2d", { alpha: false });
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sky(g, w, h, phase);
+    distant(g, w, h, o);
+    backdrop = c;
+    backdropKey = key;
+    return c;
   }
 
   function ensurePlate(o, state, dpr) {
@@ -653,8 +898,10 @@ var DRAW = (function () {
   }
 
   function render(canvas, state, view, now) {
-    var dprCap = canvas.clientWidth < 560 ? 1 : 1.5;
-    var dpr = Math.min(dprCap, window.devicePixelRatio || 1);
+    var ratio = Math.min(window.devicePixelRatio || 1, 2);
+    var sharp = (view && view.sharp) || 1;
+    var scale = sharp < 1 ? Math.max(1 / ratio, sharp) : 1;
+    var dpr = ratio * scale;
     var w = canvas.clientWidth;
     var h = canvas.clientHeight;
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -662,38 +909,25 @@ var DRAW = (function () {
       canvas.height = Math.floor(h * dpr);
     }
     var ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = "high";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     var o = layout(w, h, view && view.cam);
     markGround = !!(view && view.ground);
     groundMarks.length = 0;
-    sky(ctx, w, h, now);
-    land(ctx, w, h, o);
+    var phase = phaseOf(now, view && view.light);
+    var calm = view && view.calm;
+    ctx.drawImage(ensureBackdrop(w, h, o, dpr, phase), 0, 0, w, h);
+    if (!calm && phase !== "night") drawClouds(ctx, w, h, now);
+    if (!calm && phase !== "night" && phase !== "dusk") drawBird(ctx, w, h, now);
+    road(ctx, w, h, o);
     var plated = ensurePlate(o, state, dpr);
     var origin = north(0, 0, o);
     ctx.drawImage(plated.canvas, origin.x - plated.ox, origin.y - plated.oy, plated.w, plated.h);
     var queue = [];
-    var feet = importantFeet(state, o, now);
-    var x, y, i;
-    for (y = 0; y < KHAYA.ROWS; y++) for (x = 0; x < KHAYA.COLS; x++) {
-      if (KHAYA.terrainAt(x, y) !== "tree") continue;
-      if (LOOK.treeSkip && LOOK.treeSkip[x + "," + y]) continue;
-      (function (tx, ty) {
-        var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
-        var nudge = (LOOK.treeNudge && LOOK.treeNudge[tx + "," + ty]) || [0, 0];
-        var n = north(tx + 0.5 + nudge[0], ty + 0.5 + nudge[1], o);
-        var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
-        var fade = treeCovers(n, file, treeScale, o, feet);
-        queue.push({ y: n.y, draw: function () {
-          ctx.save();
-          if (fade) ctx.globalAlpha = 0.38;
-          ctx.translate(n.x, n.y);
-          ctx.rotate(Math.sin(now / 1400 + tx) * 0.018);
-          ctx.translate(-n.x, -n.y);
-          blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
-          ctx.restore();
-        } });
-      })(x, y);
-    }
+    var labels = [];
+    var i;
+    var barW = Math.min(o.tw * 0.42, 56);
     for (i = 0; i < state.buildings.length; i++) {
       (function (building) {
         var dragging = view.drag && view.drag.id === building.id;
@@ -704,19 +938,25 @@ var DRAW = (function () {
             w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt, id: building.id
           };
         }
-        var spot = placePoint(drawAt, o);
-        queue.push({ y: spot.y, draw: function () {
+        var front = frontPoint(drawAt, o);
+        queue.push({ y: front.y, draw: function () {
           ctx.save();
           if (dragging) ctx.globalAlpha = 0.85;
-          var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
-          ctx.restore();
-          var job = KHAYA.buildView(building);
-          if (job && !dragging) {
-            barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
-            puff(ctx, drawn.x + o.tw * 0.1, drawn.y - o.th * 0.35, now, "steam");
+          var artFile = buildingFile(drawAt, now);
+          var drawn = drawSprite(ctx, drawAt.type === "bed" ? "bed_empty" : artFile, drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          if (drawAt.type === "bed" && artFile !== "bed_empty") {
+            var plantTop = drawPlants(ctx, artFile, drawAt, o);
+            if (plantTop !== null && plantTop < drawn.top) drawn.top = plantTop;
           }
+          ctx.restore();
+          var ly = labelBand(drawn.top, h);
+          var job = KHAYA.buildView(building);
+          var growth = building.type === "bed" ? KHAYA.bedView(building, now) : null;
           var prod = KHAYA.produceView(building, state);
-          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
+          if (!dragging && (job || (growth && growth.phase !== "empty") || (prod && prod.ready))) {
+            labels.push({ x: drawn.x, y: ly, job: job, growth: growth, prod: prod });
+          }
+          if (job && !dragging) puff(ctx, drawn.x, ly - 4, now, "steam");
           if (dragging) {
             var okMove = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
             ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, okMove ? "#f2c14e" : "#d64545");
@@ -724,60 +964,68 @@ var DRAW = (function () {
         } });
       })(state.buildings[i]);
     }
-    var di;
-    for (di = 0; di < LOOK.dress.length; di++) {
+    var props = KHAYA.PROPS || [];
+    var pi;
+    for (pi = 0; pi < props.length; pi++) {
+      if (props[pi].id === "taxi") continue;
       (function (piece) {
-        var n = north(piece.x, piece.y, o);
-        if (piece.file === "taxi") return;
-        var tree = piece.file.indexOf("tree_") === 0;
-        var fade = tree && treeCovers(n, piece.file, piece.scale || 1, o, feet);
-        var sway = tree || piece.file === "washing_line";
-        queue.push({ y: n.y, draw: function () {
+        var fake = { type: piece.id, x: piece.x, y: piece.y, w: piece.w, h: piece.h };
+        var front = frontPoint(fake, o);
+        queue.push({ y: front.y, draw: function () {
+          var sway = piece.file === "washing_line" && !calm;
           ctx.save();
-          if (fade) ctx.globalAlpha = 0.38;
           if (sway) {
-            ctx.translate(n.x, n.y);
-            ctx.rotate(Math.sin(now / (tree ? 1400 : 700) + piece.x) * (tree ? 0.018 : 0.04));
-            ctx.translate(-n.x, -n.y);
+            var tip = southTip(fake, o);
+            ctx.translate(tip.x, tip.y);
+            ctx.rotate(Math.sin(now / 900 + piece.x) * 0.02);
+            ctx.translate(-tip.x, -tip.y);
           }
-          blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
+          drawSprite(ctx, piece.file, fake, o, now);
           ctx.restore();
         } });
-      })(LOOK.dress[di]);
+      })(props[pi]);
     }
     queueActors(queue, state, o, now, ctx);
     (function () {
       var orders = state.orders || {};
-      var spot = { x: 1.35, y: 6.35 };
+      var parked = { x: 0, y: 7, w: 2, h: 1 };
+      var piTaxi;
+      var propsNow = KHAYA.PROPS || [];
+      for (piTaxi = 0; piTaxi < propsNow.length; piTaxi++) if (propsNow[piTaxi].id === "taxi") parked = propsNow[piTaxi];
+      var tx = parked.x;
+      var ty = parked.y;
       var since = now - (orders.at || now);
       var drive = 0;
       if (orders.phase === "here" && since < 2800) {
         drive = easeInOut(Math.min(1, since / 2800));
-        spot = { x: -1.4 + (1.35 + 1.4) * drive, y: 6.35 };
+        tx = parked.x - 3 + 3 * drive;
       } else if (orders.phase === "away" && since < 2600) {
         drive = easeInOut(Math.min(1, since / 2600));
-        spot = { x: 1.35 + drive * 5, y: 6.35 };
+        tx = parked.x + drive * 4;
       }
       var movingTaxi = (orders.phase === "here" && since < 2800) || (orders.phase === "away" && since < 2600);
-      var bounce = movingTaxi ? Math.sin(since / 90) * 0.035 * (1 - Math.min(1, since / 2600)) : 0;
+      var bounce = movingTaxi ? Math.sin(since / 90) * 0.04 * (1 - Math.min(1, since / 2600)) : 0;
       if (!movingTaxi && orders.phase === "here" && since < 3400) bounce = Math.sin((since - 2800) / 600 * Math.PI) * 0.03;
-      var n = north(spot.x, spot.y + bounce, o);
-      queue.push({ y: n.y, draw: function () {
-        blitFoot(ctx, img.taxi, n.x, n.y, o.tw, 0.85);
-        if (movingTaxi) puff(ctx, n.x - o.tw * 0.18, n.y - o.th * 0.15, now, "steam");
+      var pivot = (LOOK.pivot && LOOK.pivot.taxi) || [0.5, 1, 327];
+      var scale = pivot[2] ? (0.95 * 256) / pivot[2] : 1;
+      var tip = north(tx + parked.w, ty + parked.h + bounce, o);
+      var front = north(tx + parked.w - 0.5, ty + parked.h - 0.5, o);
+      queue.push({ y: front.y, draw: function () {
+        blitPivot(ctx, img.taxi, tip.x, tip.y, o.tw, scale, pivot);
+        if (movingTaxi) puff(ctx, tip.x - o.tw * 0.2, tip.y - o.th * 0.2, now, "steam");
       } });
       var ev = state.laneEvent && state.laneEvent.current;
       if (ev && ev.type === "goat") {
-        var gx = 5.2 + Math.sin(now / 180) * 0.8;
-        var gy = 4.2 + Math.cos(now / 220) * 0.35;
+        var gx = 4.5 + Math.sin(now / 180) * 0.12;
+        var gy = 3.5;
         var gn = north(gx, gy, o);
-        queue.push({ y: gn.y, draw: function () {
+        queue.push({ y: gn.y + 0.5, draw: function () {
           blitFoot(ctx, img.animal_goat, gn.x, gn.y, o.tw, LOOK.actors.goat.scale);
         } });
       }
       if (ev && ev.type === "ball") {
-        var bn = north(4.2, 5.6, o);
-        queue.push({ y: bn.y, draw: function () {
+        var bn = north(4.5, 5.5, o);
+        queue.push({ y: bn.y + 0.5, draw: function () {
           ctx.save();
           ctx.fillStyle = "#f4f1ea";
           ctx.beginPath();
@@ -790,8 +1038,44 @@ var DRAW = (function () {
       }
     })();
     queue.sort(function (a, b) { return a.y - b.y; });
-    for (i = 0; i < queue.length; i++) queue[i].draw();
+    for (i = 0; i < queue.length; i++) {
+      if (queue[i].y < -o.th * 3 || queue[i].y > h + o.th * 2) continue;
+      queue[i].draw();
+    }
+    for (i = 0; i < labels.length; i++) {
+      var mark = labels[i];
+      if (mark.job) barOver(ctx, mark.x, mark.y, barW, mark.job.progress, "#7eb6e0");
+      if (mark.growth && mark.growth.phase === "growing") barOver(ctx, mark.x, mark.y, barW, mark.growth.progress, "#7dcea0");
+      if (mark.growth && mark.growth.phase === "ready") readyMark(ctx, mark.x, mark.y, now);
+      if (mark.prod && mark.prod.ready) coinBadge(ctx, mark.x, mark.y, now);
+    }
+    if (VEIL[phase]) {
+      ctx.fillStyle = VEIL[phase];
+      ctx.fillRect(0, 0, w, h);
+    }
     var pid;
+    for (pid in KHAYA.PLOTS) {
+      if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
+      var fence = KHAYA.PLOTS[pid];
+      var edge = corners(fence.x, fence.y, fence.w, fence.h, o);
+      ctx.save();
+      ctx.strokeStyle = "rgba(92, 58, 32, 0.72)";
+      ctx.lineWidth = Math.max(2, o.tw * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(edge.n.x, edge.n.y);
+      ctx.lineTo(edge.e.x, edge.e.y);
+      ctx.lineTo(edge.s.x, edge.s.y);
+      ctx.lineTo(edge.w.x, edge.w.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = "#6b4524";
+      var post;
+      var posts = [edge.n, edge.e, edge.s, edge.w];
+      for (post = 0; post < posts.length; post++) {
+        ctx.fillRect(posts[post].x - 2, posts[post].y - o.th * 0.18, 4, o.th * 0.22);
+      }
+      ctx.restore();
+    }
     for (pid in KHAYA.PLOTS) {
       if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
       var plot = KHAYA.PLOTS[pid];
@@ -831,13 +1115,27 @@ var DRAW = (function () {
         type: view.ghost.type, x: view.ghost.x, y: view.ghost.y,
         w: KHAYA.BUILDINGS[view.ghost.type].w, h: KHAYA.BUILDINGS[view.ghost.type].h, level: 1
       };
+      var shade = corners(ghost.x, ghost.y, ghost.w, ghost.h, o);
       ctx.save();
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.34;
+      poly(ctx, [shade.n, shade.e, shade.s, shade.w], gok ? "#7dcea0" : "#e07a6a");
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = gok ? 0.72 : 0.45;
+      if (!gok) {
+        ctx.translate(Math.sin(now / 70) * 2, 0);
+      }
       drawSprite(ctx, buildingFile(ghost, now), ghost, o, now, 0);
       ctx.restore();
-      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#f2c14e" : "#d64545");
+      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#2f6d4f" : "#d64545");
     }
     if (view.selected) ring(ctx, view.selected.x, view.selected.y, view.selected.w, view.selected.h, o, "#f2c14e");
+    if (view.hint) {
+      ctx.save();
+      ctx.globalAlpha = 0.55 + Math.sin(now / 320) * 0.25;
+      ring(ctx, view.hint.x, view.hint.y, view.hint.w, view.hint.h, o, "#e2a53a");
+      ctx.restore();
+    }
     if (view.floats) floats(ctx, view.floats, now);
     if (markGround) {
       ctx.save();
@@ -852,7 +1150,73 @@ var DRAW = (function () {
       }
       ctx.restore();
     }
+    if (view && view.align) paintAlign(ctx, state, o, now);
     return o;
+  }
+
+  function strokeDiamond(ctx, c, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(c.n.x, c.n.y);
+    ctx.lineTo(c.e.x, c.e.y);
+    ctx.lineTo(c.s.x, c.s.y);
+    ctx.lineTo(c.w.x, c.w.y);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  function paintAlign(ctx, state, o, now) {
+    ctx.save();
+    var x, y, c, i, b, p, cells, spot, front, order;
+    for (y = 0; y < KHAYA.ROWS; y++) {
+      for (x = 0; x < KHAYA.COLS; x++) {
+        c = corners(x, y, 1, 1, o);
+        strokeDiamond(ctx, c, "rgba(255,255,255,0.28)", 1);
+      }
+    }
+    order = [];
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      c = corners(b.x, b.y, b.w, b.h, o);
+      strokeDiamond(ctx, c, "#e2a53a", 2);
+      front = frontPoint(b, o);
+      order.push({ x: front.x, y: front.y, label: b.type });
+      var tip = southTip(b, o);
+      ctx.strokeStyle = "#ff2d55";
+      ctx.beginPath();
+      ctx.moveTo(tip.x - 6, tip.y);
+      ctx.lineTo(tip.x + 6, tip.y);
+      ctx.moveTo(tip.x, tip.y - 6);
+      ctx.lineTo(tip.x, tip.y + 6);
+      ctx.stroke();
+    }
+    cells = KHAYA.PROPS || [];
+    for (i = 0; i < cells.length; i++) {
+      p = cells[i];
+      c = corners(p.x, p.y, p.w, p.h, o);
+      strokeDiamond(ctx, c, "#7eb6e0", 2);
+      front = frontPoint(p, o);
+      order.push({ x: front.x, y: front.y, label: p.id });
+    }
+    for (i = 0; i < LOOK.cast.length; i++) {
+      spot = actorWhere(LOOK.cast[i], state, now);
+      if (!spot) continue;
+      var foot = north(spot.x, spot.y, o);
+      order.push({ x: foot.x, y: foot.y + 0.5, label: LOOK.cast[i].id });
+      ctx.strokeStyle = "#7dcea0";
+      ctx.beginPath();
+      ctx.arc(foot.x, foot.y, 3, 0, 7);
+      ctx.stroke();
+    }
+    order.sort(function (a, b) { return a.y - b.y; });
+    ctx.font = "700 10px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#1a120c";
+    for (i = 0; i < order.length; i++) {
+      ctx.fillText(String(i), order[i].x, order[i].y - 8);
+    }
+    ctx.restore();
   }
 
   function lineup(canvas) {

@@ -3,26 +3,31 @@
 var KHAYA = (function () {
   var COLS = 16;
   var ROWS = 14;
-  var ELAPSE_CAP = 10 * 60 * 1000;
-  var TANK_MS = 20000;
+  var MIN = 60 * 1000;
+  // Producers, the tank and builds catch up this far. Crops use the clock.
+  var ELAPSE_CAP = 8 * 60 * MIN;
+  var TANK_MS = 2 * MIN;
   var WATER_CAP = 24;
   var NOTE_CAP = 9999;
   var STACK_CAP = 99;
+  var PACE = 2;
 
+  // One path in the lane: gate, taxi, alongside the house, then the beds.
+  // Locked yards are grass. A fence and a price mark them, not stray tiles.
   var MAP = [
-    "tggggggtggpggggt",
+    "tggggggtgggggggt",
     "gggggggggggggggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ggggpgggggggpggg",
-    "ppppggggppppgggg",
-    "gggggggggggggggg",
-    "ggggpgggtggggggg",
+    "ggggppgggggggggg",
     "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "ggggpggggggggggg",
+    "gppppggggggggggg",
+    "ppgggggggggggggg",
+    "ggggggggtggggggg",
+    "gggggggggggggggg",
     "gggggggggggggggt",
     "gggggggggggggggg",
-    "ppppggggggggpggg",
+    "gggggggggggggggg",
     "gggggggggggggggg"
   ];
 
@@ -58,23 +63,27 @@ var KHAYA = (function () {
   };
 
   var CROPS = {
-    maize: { name: "Maize", grow: 16000, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
-    spinach: { name: "Spinach", grow: 12000, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3, offer: false },
-    tomato: { name: "Tomato", grow: 22000, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6, offer: false },
-    aloe: { name: "Aloe", grow: 20000, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 },
-    morogo: { name: "Morogo", grow: 14000, water: 1, seed: 1, yield: 2, xp: 7, level: 1, price: 4 },
-    pumpkin: { name: "Pumpkin", grow: 24000, water: 2, seed: 1, yield: 2, xp: 14, level: 2, price: 7 }
+    maize: { name: "Maize", grow: 2 * MIN, water: 1, seed: 1, yield: 3, xp: 8, level: 1, price: 4 },
+    spinach: { name: "Spinach", grow: 3 * MIN, water: 1, seed: 1, yield: 2, xp: 6, level: 1, price: 3, offer: false },
+    tomato: { name: "Tomato", grow: 30 * MIN, water: 2, seed: 1, yield: 2, xp: 12, level: 2, price: 6, offer: false },
+    aloe: { name: "Aloe", grow: 2 * 60 * MIN, water: 1, seed: 1, yield: 1, xp: 10, level: 3, price: 8 },
+    morogo: { name: "Morogo", grow: 3 * MIN, water: 1, seed: 1, yield: 2, xp: 7, level: 1, price: 4 },
+    pumpkin: { name: "Pumpkin", grow: 40 * MIN, water: 2, seed: 1, yield: 2, xp: 14, level: 2, price: 7 }
   };
 
   var FARM_STEPS = [0, 24, 70, 140];
   var BUILD_STEPS = [0, 16, 48, 100];
   var PLAYER_STEPS = [0, 18, 48, 100, 180];
-  var UPGRADE_MS = 16000;
+  var UPGRADE_MS = 3 * MIN;
   var PRODUCE = {
-    spaza: { every: 8000, notes: 1, cap: 12 },
-    workshop: { every: 12000, notes: 1, cap: 8 },
-    solar: { every: 10000, notes: 1, cap: 8 }
+    spaza: { every: 90 * 1000, notes: 1, cap: 12 },
+    workshop: { every: 3 * MIN, notes: 1, cap: 8 },
+    solar: { every: 150 * 1000, notes: 1, cap: 8 }
   };
+  var OLD_GROW = { maize: 16000, spinach: 12000, tomato: 22000, aloe: 20000, morogo: 14000, pumpkin: 24000 };
+  var OLD_EVERY = { spaza: 8000, workshop: 12000, solar: 10000 };
+  var OLD_UPGRADE = 16000;
+  var OLD_TANK = 20000;
 
   var BUILDINGS = {
     home: {
@@ -195,6 +204,26 @@ var KHAYA = (function () {
     return !!(state.plots && state.plots[p.id]);
   }
 
+  // Whole-cell yard props. The taxi parks on the path; the others sit on open grass.
+  var PROPS = [
+    { id: "wash", file: "washing_line", x: 2, y: 0, w: 1, h: 1 },
+    { id: "barrow", file: "wheelbarrow", x: 3, y: 0, w: 1, h: 1 },
+    { id: "taxi", file: "taxi", x: 0, y: 7, w: 2, h: 1 }
+  ];
+
+  function propAt(x, y) {
+    var i, p, dx, dy;
+    for (i = 0; i < PROPS.length; i++) {
+      p = PROPS[i];
+      for (dy = 0; dy < p.h; dy++) {
+        for (dx = 0; dx < p.w; dx++) {
+          if (p.x + dx === x && p.y + dy === y) return p;
+        }
+      }
+    }
+    return null;
+  }
+
   function cellBlock(state, x, y, ignoreId) {
     var land = terrainAt(x, y);
     if (land === "out") return { ok: false, reason: "That sits outside the lane." };
@@ -202,8 +231,58 @@ var KHAYA = (function () {
     if (plot && !plotOpen(state, x, y)) return { ok: false, reason: "Unlock the " + plot.name.toLowerCase() + " first." };
     if (land === "path") return { ok: false, reason: "The path stays open for neighbours." };
     if (land === "tree") return { ok: false, reason: "The jacaranda stays." };
+    if (propAt(x, y)) return { ok: false, reason: "Something is already there." };
     if (occupied(state, x, y, ignoreId)) return { ok: false, reason: "Something is already there." };
     return { ok: true };
+  }
+
+  function layoutAudit(state) {
+    var used = {};
+    var problems = [];
+    function take(x, y, who, allowPath) {
+      if (x !== (x | 0) || y !== (y | 0)) {
+        problems.push(who + " is off the tile grid at " + x + "," + y);
+        return;
+      }
+      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) {
+        problems.push(who + " is outside the lane at " + x + "," + y);
+        return;
+      }
+      var land = terrainAt(x, y);
+      if (land === "out" || land === "tree" || (land === "path" && !allowPath)) {
+        problems.push(who + " sits on " + land + " at " + x + "," + y);
+      }
+      var key = x + "," + y;
+      if (used[key]) problems.push(who + " overlaps " + used[key] + " at " + key);
+      else used[key] = who;
+    }
+    var i, b, cells, c, p;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      cells = footprint(b);
+      for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], (b.type || "building") + "#" + b.id, false);
+    }
+    for (i = 0; i < PROPS.length; i++) {
+      p = PROPS[i];
+      cells = footprint(p);
+      for (c = 0; c < cells.length; c++) take(cells[c][0], cells[c][1], "prop:" + p.id, p.id === "taxi");
+    }
+    var beds = [];
+    for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+    var j, gap;
+    for (i = 0; i < beds.length; i++) {
+      for (j = i + 1; j < beds.length; j++) {
+        gap = Math.max(Math.abs(beds[i].x - beds[j].x), Math.abs(beds[i].y - beds[j].y));
+        if (gap < 2) problems.push("beds at " + beds[i].x + "," + beds[i].y + " and " + beds[j].x + "," + beds[j].y + " need a tile between them");
+      }
+    }
+    var lookRef = typeof LOOK !== "undefined" ? LOOK : (typeof global !== "undefined" ? global.LOOK : null);
+    if (lookRef && lookRef.overlapAudit) {
+      var pix = lookRef.overlapAudit(state, 64);
+      var n;
+      for (n = 0; n < pix.problems.length; n++) problems.push(pix.problems[n]);
+    }
+    return { ok: problems.length === 0, problems: problems };
   }
 
   function footprint(b) {
@@ -247,6 +326,7 @@ var KHAYA = (function () {
     now = now || 0;
     return {
       v: 1,
+      pace: PACE,
       notes: 60,
       seeds: 12,
       water: 10,
@@ -266,8 +346,8 @@ var KHAYA = (function () {
       lastHarvest: 0,
       chests: {},
       chest: null,
-      orders: { phase: "here", at: now, seq: 1, list: rollOrders(1), hoot: 1 },
-      laneEvent: { next: (now || 0) + 8000, n: 0, current: null },
+      orders: { phase: "here", at: now, seq: 1, list: rollOrders(1), hoot: 0 },
+      laneEvent: { next: (now || 0) + 6 * MIN, n: 0, current: null },
       stories: {},
       braai: { key: "", n: 0, claimed: 0 },
       plots: { lane: 1 },
@@ -288,8 +368,8 @@ var KHAYA = (function () {
       buildings: [
         { id: 1, type: "home", x: 1, y: 2, w: 2, h: 2, level: 1 },
         { id: 2, type: "bed", x: 6, y: 2, w: 1, h: 1, level: 1, crop: null, phase: "empty", plantedAt: 0 },
-        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now },
-        { id: 4, type: "bed", x: 6, y: 5, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
+        { id: 3, type: "bed", x: 5, y: 4, w: 1, h: 1, level: 1, crop: "maize", phase: "growing", plantedAt: now > 40000 ? now - Math.round(CROPS.maize.grow * 0.6) : now, growFor: CROPS.maize.grow },
+        { id: 4, type: "bed", x: 7, y: 6, w: 1, h: 1, level: 1, crop: "morogo", phase: "sown", plantedAt: 0 }
       ]
     };
   }
@@ -387,6 +467,13 @@ var KHAYA = (function () {
     return afford(state, upgradeCost(state, b));
   }
 
+  function upgradeDuration(b) {
+    if (b && b.type === "home" && (b.level || 1) >= 2) return 2 * 60 * MIN;
+    if (b && b.type === "home") return UPGRADE_MS;
+    if (b && b.type === "spaza") return 50 * MIN;
+    return 45 * MIN;
+  }
+
   function upgrade(state, id) {
     var check = canUpgrade(state, id);
     if (!check.ok) return check;
@@ -394,11 +481,12 @@ var KHAYA = (function () {
     if ((b.buildLeft || 0) > 0) return { ok: false, reason: "Still building." };
     var raw = BUILDINGS[b.type].upgrades[b.level];
     pay(state, upgradeCost(state, b));
-    b.buildLeft = UPGRADE_MS;
-    b.buildTotal = UPGRADE_MS;
+    var dur = upgradeDuration(b);
+    b.buildLeft = dur;
+    b.buildTotal = dur;
     b.pendingLevel = b.level + 1;
     b.pendingXp = raw.xp || 12;
-    return { ok: true, building: true, left: UPGRADE_MS };
+    return { ok: true, building: true, left: dur };
   }
 
   function finishBuild(state, b) {
@@ -421,11 +509,26 @@ var KHAYA = (function () {
     return { id: b.id, level: b.level, xp: xp, chest: chest };
   }
 
+  function plantDuration(state, crop) {
+    var base = CROPS[crop] ? CROPS[crop].grow : 0;
+    var picked = state && state.stats ? (state.stats.harvested || 0) : 0;
+    var early = crop === "maize" ? 45000 : (crop === "morogo" || crop === "spinach" ? 60000 : 0);
+    if (!early || picked >= 2) return base;
+    if (picked >= 1) return Math.round((early + base) / 2);
+    return early;
+  }
+
+  function growOf(b) {
+    if (!b) return 0;
+    var def = CROPS[b.crop];
+    if (!def) return 0;
+    return b.growFor > 0 ? b.growFor : def.grow;
+  }
+
   function cropReady(b, now) {
     if (!b || b.type !== "bed" || b.phase !== "growing") return false;
-    var def = CROPS[b.crop];
-    if (!def) return false;
-    return now - b.plantedAt >= def.grow;
+    if (!CROPS[b.crop]) return false;
+    return now - b.plantedAt >= growOf(b);
   }
 
   function sow(state, id, crop) {
@@ -440,10 +543,11 @@ var KHAYA = (function () {
     b.crop = crop;
     b.phase = "sown";
     b.plantedAt = 0;
+    b.growFor = 0;
     var sowXp = 2 + folkBonus(state).sowXp;
     state.farmXp += sowXp;
     state.stats.sown += 1;
-    return { ok: true, xp: sowXp };
+    return { ok: true, xp: sowXp, sown: crop };
   }
 
   function water(state, id, now) {
@@ -455,9 +559,10 @@ var KHAYA = (function () {
     if (!spent.ok) return spent;
     b.phase = "growing";
     b.plantedAt = now;
+    b.growFor = plantDuration(state, b.crop);
     state.farmXp += 2;
     state.stats.watered += 1;
-    return { ok: true, xp: 2, grow: def.grow };
+    return { ok: true, xp: 2, grow: b.growFor };
   }
 
   function harvest(state, id, now) {
@@ -502,19 +607,34 @@ var KHAYA = (function () {
     return { ok: true, notes: def.price * n };
   }
 
+  function countReady(state, now) {
+    var n = 0;
+    var i;
+    for (i = 0; i < state.buildings.length; i++) if (cropReady(state.buildings[i], now)) n++;
+    return n;
+  }
+
+  function countStored(state) {
+    var n = 0;
+    var i;
+    var b;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if (PRODUCE[b.type]) n += b.stored || 0;
+    }
+    return n;
+  }
+
   function tick(state, now) {
     var last = state.seenAt == null ? now : state.seenAt;
     var gap = now - last;
     if (gap < 0) gap = 0;
     var used = gap > ELAPSE_CAP ? ELAPSE_CAP : gap;
     var discarded = gap - used;
+    var readyBefore = countReady(state, last);
+    var storedBefore = countStored(state);
+    var waterBefore = state.water || 0;
     var i, b;
-    if (discarded > 0) {
-      for (i = 0; i < state.buildings.length; i++) {
-        b = state.buildings[i];
-        if (b.phase === "growing" && b.plantedAt != null) b.plantedAt += discarded;
-      }
-    }
     var waterCap = WATER_CAP + folkBonus(state).waterCap;
     if (hasType(state, "tank")) {
       state.tankAcc = (state.tankAcc || 0) + used;
@@ -541,7 +661,9 @@ var KHAYA = (function () {
       if (!tune) continue;
       if (shed) continue;
       b.prodAcc = (b.prodAcc || 0) + used;
-      while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap) {
+      var guard = 0;
+      while (b.prodAcc >= tune.every && (b.stored || 0) < tune.cap && guard < 800) {
+        guard += 1;
         b.stored = (b.stored || 0) + tune.notes;
         b.prodAcc -= tune.every;
       }
@@ -549,7 +671,17 @@ var KHAYA = (function () {
     }
     var found = syncFolk(state);
     state.seenAt = now;
-    return { elapsed: used, discarded: discarded, finished: finished, found: found, event: laneEvent.current, hoot: state.orders && state.orders.hoot };
+    var away = null;
+    if (gap >= 45000) {
+      away = {
+        ms: gap,
+        ready: Math.max(0, countReady(state, now) - readyBefore),
+        notes: Math.max(0, countStored(state) - storedBefore),
+        water: Math.max(0, (state.water || 0) - waterBefore),
+        built: finished.length
+      };
+    }
+    return { elapsed: used, discarded: discarded, finished: finished, found: found, event: laneEvent.current, hoot: state.orders && state.orders.hoot, away: away };
   }
 
   function decorCount(state) {
@@ -588,7 +720,7 @@ var KHAYA = (function () {
     var cap = spec.cap + Math.max(0, (b.level || 1) - 1) * 4 + decor + folk.cap;
     if (cap > spec.cap + 8) cap = spec.cap + 8;
     var every = spec.every;
-    if (decor) every = Math.max(4000, Math.floor(spec.every * (1 - 0.05 * decor)));
+    if (decor) every = Math.max(45 * 1000, Math.floor(spec.every * (1 - 0.05 * decor)));
     return { cap: cap, every: every, notes: spec.notes };
   }
 
@@ -811,15 +943,23 @@ var KHAYA = (function () {
     return n;
   }
 
+  function hasSownBed(state) {
+    var i;
+    for (i = 0; i < state.buildings.length; i++) {
+      if (state.buildings[i].type === "bed" && state.buildings[i].phase === "sown") return true;
+    }
+    return false;
+  }
+
   function tasks(state) {
     return [
-      { id: "sow", done: state.stats.sown > 0, text: "Sow maize in a veggie bed" },
-      { id: "water", done: state.stats.watered > 0, text: "Water the bed" },
-      { id: "harvest", done: state.stats.harvested > 0, text: "Harvest when the crop is ready" },
-      { id: "place", done: state.stats.placed > 0, text: "Place a spaza, tank, or workshop" },
+      { id: "water", done: state.stats.watered > 0 || !hasSownBed(state), text: "Water the morogo" },
+      { id: "harvest", done: state.stats.harvested > 0, text: "Pick the mielies when they are ready" },
+      { id: "sow", done: state.stats.sown > 0, text: "Sow maize in the empty bed" },
+      { id: "place", done: state.stats.placed > 0, text: "Place a spaza or a rain tank" },
       { id: "collect", done: (state.stats.collected || 0) > 0, text: "Collect notes from the spaza" },
       { id: "upgrade", done: state.stats.upgraded > 0, text: "Upgrade your home" },
-      { id: "play", done: state.stats.played > 0, text: "Finish a lane mini-game" }
+      { id: "play", done: state.stats.played > 0, text: "Try a quiet lane game" }
     ];
   }
 
@@ -834,11 +974,74 @@ var KHAYA = (function () {
     if (!b || b.type !== "bed") return null;
     if (b.phase === "empty") return { phase: "empty", progress: 0 };
     if (b.phase === "sown") return { phase: "sown", progress: 0, crop: b.crop };
-    var def = CROPS[b.crop];
-    var p = def ? (now - b.plantedAt) / def.grow : 0;
+    var grow = growOf(b);
+    var p = grow ? (now - b.plantedAt) / grow : 0;
     if (p < 0) p = 0;
     if (p > 1) p = 1;
-    return { phase: p >= 1 ? "ready" : "growing", progress: p, crop: b.crop, left: Math.max(0, def.grow - (now - b.plantedAt)) };
+    return { phase: p >= 1 ? "ready" : "growing", progress: p, crop: b.crop, left: Math.max(0, grow - (now - b.plantedAt)) };
+  }
+
+  function formatSpan(ms) {
+    var s = Math.max(0, Math.ceil(Number(ms) / 1000));
+    if (!isFinite(s)) s = 0;
+    if (s < 60) return s + "s";
+    var m = Math.floor(s / 60);
+    var rem = s % 60;
+    if (m < 60) {
+      if (!rem || m >= 10) return m + " min";
+      return m + "m " + rem + "s";
+    }
+    var h = Math.floor(m / 60);
+    m = m % 60;
+    if (!m) return h + "h";
+    return h + "h " + m + "m";
+  }
+
+  function coach(state, now) {
+    var sown = null;
+    var ready = null;
+    var growing = null;
+    var empty = null;
+    var soon = 1e15;
+    var i, b, view;
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      if (b.type !== "bed") continue;
+      view = bedView(b, now);
+      if (!view) continue;
+      if (view.phase === "ready" && !ready) ready = b;
+      else if (view.phase === "sown" && !sown) sown = b;
+      else if (view.phase === "growing" && view.left < soon) { soon = view.left; growing = b; }
+      else if (view.phase === "empty" && !empty) empty = b;
+    }
+    if (ready) return { id: ready.id, act: "harvest", title: CROPS[ready.crop].name + " is ready", text: "Pick it while it is at its best." };
+    if (sown && !(state.stats.watered > 0)) {
+      return { id: sown.id, act: "water", title: "Water the " + CROPS[sown.crop].name.toLowerCase(), text: "It is in the soil. One watering starts it." };
+    }
+    if ((state.stats.harvested || 0) < 1 && growing) {
+      return {
+        id: growing.id,
+        act: "wait",
+        title: CROPS[growing.crop].name + " is growing",
+        text: "Ready in " + formatSpan(soon) + (empty && !(state.stats.sown > 0) ? ". Sow the empty bed while you wait." : "."),
+        sow: empty && !(state.stats.sown > 0) ? empty.id : 0
+      };
+    }
+    if (!(state.stats.sown > 0) && empty) return { id: empty.id, act: "sow", title: "Sow the empty bed", text: "Maize is quick while the lane is new." };
+    if (!(state.stats.placed > 0)) return { act: "build", title: "Place a spaza", text: "It keeps notes for you. Tap the coin when it shows." };
+    return null;
+  }
+
+  function awayLine(info) {
+    if (!info) return "";
+    var bits = [];
+    if (info.ready === 1) bits.push("a crop finished");
+    else if (info.ready > 1) bits.push(info.ready + " crops finished");
+    if (info.notes) bits.push(info.notes + (info.notes === 1 ? " note is waiting" : " notes are waiting"));
+    if (info.built) bits.push(info.built === 1 ? "a building finished" : "buildings finished");
+    if (info.water) bits.push("the tank caught water");
+    if (!bits.length) return "";
+    return "While you were away, " + bits.join(", ") + ".";
   }
 
   function sanitize(data) {
@@ -910,9 +1113,9 @@ var KHAYA = (function () {
         h: def.h,
         level: clamp(raw.level, 1, def.upgrades ? def.upgrades.length : 1),
         stored: clamp(raw.stored, 0, 30),
-        prodAcc: clamp(raw.prodAcc, 0, 60000),
-        buildLeft: clamp(raw.buildLeft, 0, 120000),
-        buildTotal: clamp(raw.buildTotal, 0, 120000),
+        prodAcc: clamp(raw.prodAcc, 0, 30 * MIN),
+        buildLeft: clamp(raw.buildLeft, 0, 4 * 60 * MIN),
+        buildTotal: clamp(raw.buildTotal, 0, 4 * 60 * MIN),
         pendingLevel: clamp(raw.pendingLevel, 0, def.upgrades ? def.upgrades.length : 1),
         pendingXp: clamp(raw.pendingXp, 0, 100)
       };
@@ -937,6 +1140,7 @@ var KHAYA = (function () {
         b.phase = raw.phase === "sown" || raw.phase === "growing" ? raw.phase : "empty";
         if (!b.crop) b.phase = "empty";
         b.plantedAt = b.phase === "growing" ? clamp(raw.plantedAt, 0, 8.64e15) : 0;
+        b.growFor = b.phase === "growing" ? clamp(raw.growFor, 0, 3 * 60 * MIN) : 0;
         if (b.phase === "sown") b.plantedAt = 0;
       }
       s.buildings.push(b);
@@ -1009,11 +1213,45 @@ var KHAYA = (function () {
       }
       if (!s.orders.list.length) s.orders = { phase: "away", at: s.seenAt, seq: s.orders.seq, list: [], hoot: 0 };
     }
+    if ((data.pace || 1) < PACE) migratePace(s);
+    s.pace = PACE;
     return s;
   }
 
-  var ORDER_STAY = 42000;
-  var ORDER_GAP = 70000;
+  function migratePace(s) {
+    var frac = Math.min(1, (s.tankAcc || 0) / OLD_TANK);
+    s.tankAcc = Math.round(frac * TANK_MS);
+    var i, b, oldG, elapsed, p, neu, oldTotal;
+    for (i = 0; i < s.buildings.length; i++) {
+      b = s.buildings[i];
+      if (b.type === "bed" && b.phase === "growing" && CROPS[b.crop]) {
+        oldG = OLD_GROW[b.crop] || 16000;
+        elapsed = s.seenAt - b.plantedAt;
+        if (elapsed < 0) elapsed = 0;
+        p = elapsed / oldG;
+        if (p > 1) p = 1;
+        b.growFor = CROPS[b.crop].grow;
+        b.plantedAt = s.seenAt - Math.round(p * b.growFor);
+        if (b.plantedAt < 0) b.plantedAt = 0;
+      }
+      if ((b.buildLeft || 0) > 0) {
+        oldTotal = b.buildTotal > 0 ? b.buildTotal : OLD_UPGRADE;
+        p = b.buildLeft / oldTotal;
+        if (p < 0) p = 0;
+        if (p > 1) p = 1;
+        neu = upgradeDuration(b);
+        b.buildTotal = neu;
+        b.buildLeft = Math.max(1, Math.round(p * neu));
+      }
+      if (PRODUCE[b.type] && b.prodAcc) {
+        p = Math.min(1, b.prodAcc / (OLD_EVERY[b.type] || 8000));
+        b.prodAcc = Math.round(p * PRODUCE[b.type].every);
+      }
+    }
+  }
+
+  var ORDER_STAY = 8 * MIN;
+  var ORDER_GAP = 10 * MIN;
   var RUNS = [
     { name: "Soweto run", say: "6 mielies and 2 morogo for the Soweto run", need: { maize: 6, morogo: 2 } },
     { name: "Alex rank", say: "4 mielies for the Alex rank", need: { maize: 4 } },
@@ -1094,6 +1332,7 @@ var KHAYA = (function () {
       if (b.type === "bed" && b.phase === "sown") {
         b.phase = "growing";
         b.plantedAt = now;
+        b.growFor = plantDuration(state, b.crop);
         n += 1;
       }
     }
@@ -1101,27 +1340,35 @@ var KHAYA = (function () {
   }
 
   function syncEvents(state, now) {
-    if (!state.laneEvent) state.laneEvent = { next: now + 8000, n: 0, current: null };
+    if (!state.laneEvent) state.laneEvent = { next: now + 6 * MIN, n: 0, current: null };
     var ev = state.laneEvent;
+    var present = now - (state.seenAt || now) < 60000;
     if (ev.current && now >= ev.current.until) {
-      if (ev.current.type === "goat" && (ev.current.taps || 0) < 3) {
+      if (present && ev.current.type === "goat" && (ev.current.taps || 0) < 3) {
         var i, b;
         for (i = 0; i < state.buildings.length; i++) {
           b = state.buildings[i];
-          if (b.type === "bed" && b.phase === "growing") { b.plantedAt += 4000; break; }
+          if (b.type === "bed" && b.phase === "growing") {
+            b.plantedAt += Math.round(growOf(b) * 0.08);
+            break;
+          }
         }
       }
       ev.current = null;
-      ev.next = now + 90000;
+      ev.next = now + 8 * MIN;
     }
     if (!ev.current && now >= (ev.next || 0)) {
+      if (!present) {
+        ev.next = now + 6 * MIN;
+        return ev;
+      }
       var kinds = ["storm", "shed", "goat", "gogo", "vendor", "ball"];
       var kind = kinds[(ev.n || 0) % kinds.length];
       ev.n = (ev.n || 0) + 1;
-      var until = now + 28000;
+      var until = now + 36000;
       ev.current = { type: kind, until: until, say: "" };
       if (kind === "storm") {
-        ev.current.until = now + 9000;
+        ev.current.until = now + 16000;
         ev.current.say = "Highveld storm. The beds are drinking.";
         ev.current.watered = waterSown(state, now);
       } else if (kind === "shed") {
@@ -1136,7 +1383,7 @@ var KHAYA = (function () {
       } else {
         ev.current.say = "A soccer ball rolled in. Kick it!";
       }
-      ev.next = now + 90000;
+      ev.next = now + 8 * MIN;
     }
     return ev;
   }
@@ -1150,7 +1397,7 @@ var KHAYA = (function () {
       if (!hasType(state, "solar")) return { ok: false, reason: "No solar stand yet. The lights stay off." };
       cur.solar = 1;
       state.laneEvent.current = null;
-      state.laneEvent.next = (now || 0) + 90000;
+      state.laneEvent.next = (now || 0) + 8 * MIN;
       return { ok: true, say: "Solar's on. Sharp sharp." };
     }
     if (cur.type === "goat") {
@@ -1356,6 +1603,13 @@ var KHAYA = (function () {
     PLAYER_STEPS: PLAYER_STEPS,
     UPGRADE_MS: UPGRADE_MS,
     ELAPSE_CAP: ELAPSE_CAP,
+    PRODUCE: PRODUCE,
+    PACE: PACE,
+    upgradeDuration: upgradeDuration,
+    plantDuration: plantDuration,
+    formatSpan: formatSpan,
+    coach: coach,
+    awayLine: awayLine,
     fresh: fresh,
     sanitize: sanitize,
     farmLevel: farmLevel,
@@ -1369,6 +1623,8 @@ var KHAYA = (function () {
     occupied: occupied,
     buildingById: buildingById,
     footprint: footprint,
+    PROPS: PROPS,
+    layoutAudit: layoutAudit,
     cellNorth: cellNorth,
     pickCell: pickCell,
     afford: afford,
@@ -1444,54 +1700,94 @@ var LOOK = {
   root: "assets/sprites/gen/",
   ext: ".webp",
   world: { tile: 256, house: "home_l1", houseScale: 1.22, houseTiles: 1.9, doorFraction: 0.9, person: 0.6 },
+  // Foot pivot [x, y, baseWidth] measured from opaque pixels.
+  // x,y are fractions of the bitmap. baseWidth is the ground diamond in pixels.
+  // A fitted sprite maps that pivot onto the footprint's south corner and
+  // scales baseWidth to the footprint's east-west span.
+  pivot: {
+    tile_grass: [0.498, 0.992, 256],
+    tile_dirt: [0.498, 0.984, 252],
+    bed_empty: [0.500, 0.994, 256],
+    maize_sown: [0.498, 0.994, 256],
+    maize_growing: [0.502, 0.995, 256],
+    maize_ready: [0.502, 0.995, 256],
+    morogo_sown: [0.500, 0.994, 256],
+    morogo_growing: [0.502, 0.994, 256],
+    morogo_ready: [0.498, 0.995, 256],
+    morogo_ready_basket: [0.502, 0.995, 256],
+    pumpkin_sown: [0.500, 0.995, 256],
+    pumpkin_growing: [0.502, 0.995, 256],
+    pumpkin_fruiting: [0.498, 0.995, 256],
+    pumpkin_ready: [0.504, 0.995, 256],
+    home_l1: [0.499, 0.994, 356],
+    home_l2: [0.493, 0.896, 391],
+    home_l3: [0.499, 0.993, 466],
+    spaza: [0.506, 0.895, 406],
+    workshop: [0.494, 0.882, 365],
+    rain_tank: [0.498, 0.988, 240],
+    solar_stand: [0.477, 0.998, 315],
+    aloe: [0.503, 0.989, 155],
+    washing_line: [0.520, 0.997, 270],
+    wheelbarrow: [0.422, 0.995, 158],
+    soccer_goal: [0.470, 0.953, 256],
+    braai_drum: [0.491, 0.996, 215],
+    potjie: [0.497, 0.915, 186],
+    imbawula: [0.500, 0.990, 106],
+    mielie_cart: [0.415, 0.997, 200],
+    chicken_coop: [0.522, 0.949, 267],
+    pumpkin_patch: [0.502, 0.995, 300],
+    kraal: [0.513, 0.932, 396],
+    taxi: [0.481, 0.997, 337],
+    tree_jacaranda: [0.504, 0.979, 379],
+    tree_acacia: [0.563, 0.998, 401],
+    tree_marula: [0.543, 0.991, 363],
+    neighbour_ndebele: [0.639, 0.994, 369],
+    neighbour_mural: [0.499, 0.981, 343],
+    neighbour_facebrick: [0.497, 0.991, 340],
+    char_farmer: [0.485, 0.996, 136],
+    animal_hen: [0.531, 0.990, 65],
+    animal_dog: [0.351, 0.992, 83],
+    animal_cow: [0.471, 0.994, 165],
+    animal_goat: [0.510, 0.992, 102]
+  },
   buildings: {
-    home: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [1.12, 0.4], scale: 1.22, yard: 1, levels: ["home_l1", "home_l2", "home_l3"] },
-    bed: { anchor: [0.5, 0.58], offset: [0, 0], shadow: [0.72, 0.28], scale: 1, file: "bed_empty" },
-    spaza: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.95, 0.36], scale: 0.9, yard: 1, levels: ["spaza", "spaza"] },
-    tank: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.5, 0.2], scale: 0.85, file: "rain_tank" },
-    workshop: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.9, 0.34], scale: 0.9, yard: 1, file: "workshop" },
-    solar: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.62, 0.24], scale: 0.82, file: "solar_stand" },
-    aloe_clump: { anchor: [0.5, 0.7], offset: [0, 0], shadow: [0.36, 0.16], scale: 0.47, file: "aloe" },
-    palisade: { anchor: [0.5, 0.62], offset: [0, 0], shadow: [0.5, 0.2], scale: 0.7, file: "soccer_goal" },
-    braai: { anchor: [0.5, 0.68], offset: [0, 0], shadow: [0.42, 0.18], scale: 0.36, file: "braai_drum", smoke: "braai" },
-    potjie: { anchor: [0.5, 0.7], offset: [0, 0], shadow: [0.36, 0.16], scale: 0.5, file: "potjie", smoke: "steam" },
-    imbawula: { anchor: [0.5, 0.72], offset: [0, 0], shadow: [0.28, 0.14], scale: 0.5, file: "imbawula", smoke: "coal" },
-    barrow: { anchor: [0.5, 0.68], offset: [0, 0], shadow: [0.4, 0.16], scale: 0.5, file: "wheelbarrow" },
-    mielie: { anchor: [0.5, 0.66], offset: [0, 0], shadow: [0.46, 0.18], scale: 0.48, file: "mielie_cart", smoke: "braai" },
-    wash: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.55, 0.2], scale: 0.72, file: "washing_line" },
-    coop: { anchor: [0.5, 0.64], offset: [0, 0], shadow: [0.6, 0.22], scale: 0.85, file: "chicken_coop" },
-    patch: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [0.62, 0.24], scale: 0.9, file: "pumpkin_patch" },
-    kraal: { anchor: [0.5, 0.6], offset: [0, 0], shadow: [1.05, 0.38], scale: 1, yard: 1, file: "kraal" }
+    home: { fit: 1, shadow: [1.12, 0.4], scale: 1.22, yard: 1, levels: ["home_l1", "home_l2", "home_l3"] },
+    bed: { fit: 1, scale: 1, file: "bed_empty" },
+    spaza: { fit: 1, shadow: [0.95, 0.36], scale: 0.9, yard: 1, levels: ["spaza", "spaza"] },
+    tank: { fit: 1, shadow: [0.5, 0.2], scale: 0.85, file: "rain_tank" },
+    workshop: { fit: 1, shadow: [0.9, 0.34], scale: 0.9, yard: 1, file: "workshop" },
+    solar: { fit: 1, shadow: [0.62, 0.24], scale: 0.82, file: "solar_stand" },
+    aloe_clump: { shadow: [0.36, 0.16], scale: 0.47, file: "aloe" },
+    palisade: { shadow: [0.5, 0.2], scale: 0.7, file: "soccer_goal" },
+    braai: { shadow: [0.42, 0.18], scale: 0.36, file: "braai_drum", smoke: "braai" },
+    potjie: { shadow: [0.36, 0.16], scale: 0.5, file: "potjie", smoke: "steam" },
+    imbawula: { shadow: [0.28, 0.14], scale: 0.5, file: "imbawula", smoke: "coal" },
+    barrow: { shadow: [0.4, 0.16], scale: 0.5, file: "wheelbarrow" },
+    mielie: { shadow: [0.46, 0.18], scale: 0.48, file: "mielie_cart", smoke: "braai" },
+    wash: { shadow: [0.55, 0.2], scale: 0.34, file: "washing_line" },
+    coop: { fit: 1, shadow: [0.6, 0.22], scale: 0.85, file: "chicken_coop" },
+    patch: { fit: 1, shadow: [0.62, 0.24], scale: 0.9, file: "pumpkin_patch" },
+    kraal: { fit: 1, shadow: [1.05, 0.38], scale: 1, yard: 1, file: "kraal" }
   },
   actors: {
-    farmer: { file: "char_farmer", scale: 0.71, shadow: [0.28, 0.12] },
-    doek: { file: "char_woman_doek", scale: 0.71, shadow: [0.28, 0.12] },
-    basotho: { file: "char_basotho_elder", scale: 0.71, shadow: [0.28, 0.12] },
-    gogo: { file: "char_gogo", scale: 0.71, shadow: [0.28, 0.12] },
-    kid: { file: "char_kid", scale: 0.68, shadow: [0.22, 0.1] },
-    jersey: { file: "char_man_jersey", scale: 0.71, shadow: [0.28, 0.12] },
-    taxi: { file: "char_taxi_driver", scale: 0.71, shadow: [0.28, 0.12] },
-    hen: { file: "animal_hen", scale: 0.42, shadow: [0.16, 0.08] },
-    dog: { file: "animal_dog", scale: 0.42, shadow: [0.2, 0.09] },
-    cow: { file: "animal_cow", scale: 0.88, shadow: [0.36, 0.14] },
-    goat: { file: "animal_goat", scale: 0.7, shadow: [0.24, 0.1] }
+    farmer: { file: "char_farmer", sheet: "char_farmer_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    doek: { file: "char_woman_doek", sheet: "char_doek_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    basotho: { file: "char_basotho_elder", sheet: "char_basotho_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    gogo: { file: "char_gogo", sheet: "char_gogo_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    kid: { file: "char_kid", sheet: "char_kid_anim", cells: 8, face: -1, scale: 0.68, shadow: [0.22, 0.1], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    jersey: { file: "char_man_jersey", sheet: "char_jersey_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    taxi: { file: "char_taxi_driver", sheet: "char_taxi_anim", cells: 8, face: -1, scale: 0.71, shadow: [0.28, 0.12], idle: [0, 1], walk: [2, 3, 4, 5], work: [6, 7] },
+    hen: { file: "animal_hen", sheet: "animal_hen_anim", cells: 8, face: -1, scale: 0.42, shadow: [0.16, 0.08], idle: [0, 6], walk: [2, 3, 4, 5], work: [1, 0] },
+    dog: { file: "animal_dog", sheet: "animal_dog_anim", cells: 8, face: -1, scale: 0.42, shadow: [0.2, 0.09], idle: [0, 1], walk: [2, 3, 4, 5] },
+    cow: { file: "animal_cow", sheet: "animal_cow_anim", cells: 8, face: -1, scale: 0.88, shadow: [0.36, 0.14], idle: [0, 1], walk: [2, 3, 4, 5] },
+    goat: { file: "animal_goat", sheet: "animal_goat_anim", cells: 8, face: -1, scale: 0.7, shadow: [0.24, 0.1], idle: [0, 1], walk: [2, 3, 4, 5] }
   },
   treeScale: { tree_jacaranda: 1.02, tree_acacia: 0.9, tree_marula: 0.84 },
   trees: ["tree_jacaranda", "tree_acacia", "tree_marula"],
   neighbours: ["neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"],
-  // Four trees, half the old row. Edges and the road only, off beds and the house.
-  dress: [
-    { file: "taxi", x: 1.35, y: 6.35, scale: 0.85 },
-    { file: "washing_line", x: 3.15, y: 1.25, scale: 0.72 },
-    { file: "wheelbarrow", x: 3.35, y: 4.15, scale: 0.5 },
-    { file: "soccer_goal", x: 10.7, y: 2.4, scale: 0.85 },
-    { file: "tree_jacaranda", x: -0.75, y: 2.6, scale: 1.02 },
-    { file: "tree_acacia", x: 5.6, y: -0.95, scale: 0.9 },
-    { file: "tree_acacia", x: -0.7, y: 6.55, scale: 0.86 },
-    { file: "aloe", x: 2.4, y: 1.15, scale: 0.47 },
-    { file: "neighbour_mural", x: 9.6, y: 6.55, scale: 0.78 },
-    { file: "neighbour_facebrick", x: 2.5, y: 11.45, scale: 0.78 }
-  ],
+  // Yard props live on whole cells in KHAYA.PROPS. Horizon houses and trees
+  // are drawn above the plot, not on these tiles.
+  dress: [],
   // The tree cell at (8,8) stands just south of Thabo, so its canopy covers him.
   treeSkip: { "8,8": 1 },
   treeNudge: {
@@ -1507,28 +1803,232 @@ var LOOK = {
     "8,8": "tree_acacia",
     "15,10": "tree_marula"
   },
+  // Cell centres. Consecutive points are neighbours, so the walk stays on free tiles.
   cast: [
-    { id: "farmer", route: [[2, 4], [3, 5], [2, 5], [1, 5]], speed: 9000 },
-    { id: "doek", route: [[7, 3], [7, 4], [7, 2], [6, 1]], speed: 11000 },
-    { id: "jersey", route: [[4, 5], [3, 6], [2, 6], [1, 6]], speed: 8000 },
-    { id: "gogo", route: [[1, 4], [1, 5], [2, 5], [2, 4]], speed: 13000 },
-    { id: "kid", near: "home" },
-    { id: "basotho", route: [[2, 4], [3, 4], [3, 5], [2, 5]], speed: 15000 },
-    { id: "taxi", route: [[1, 6], [2, 6], [2, 5], [1, 5]], speed: 10000 },
-    { id: "hen", spot: [2.35, 4.55], wobble: 0.22 },
-    { id: "dog", spot: [3.6, 5.4], wobble: 0.2 },
-    { id: "cow", spot: [7.4, 5.5], wobble: 0.08 },
-    { id: "goat", spot: [6.6, 3.3], wobble: 0.16 }
+    { id: "farmer", route: [[7.5, 1.5], [6.5, 1.5]], speed: 11000 },
+    { id: "doek", route: [[3.5, 6.5], [2.5, 6.5]], speed: 11000 },
+    { id: "jersey", route: [[4.5, 0.5], [5.5, 0.5]], speed: 8000 },
+    { id: "gogo", route: [[1.5, 5.5], [2.5, 5.5]], speed: 13000 },
+    { id: "kid", at: [4.5, 6.5] },
+    { id: "basotho", route: [[3.5, 7.5], [4.5, 7.5]], speed: 15000 },
+    { id: "taxi", route: [[15.5, 9.5], [14.5, 9.5]], speed: 10000 },
+    { id: "hen", route: [[7.5, 3.5], [7.5, 4.5]], speed: 7200 },
+    { id: "dog", route: [[4.5, 1.5], [5.5, 1.5]], speed: 6400 },
+    { id: "cow", route: [[9.5, 4.5], [10.5, 4.5]], speed: 12000 },
+    { id: "goat", route: [[10.5, 0.5], [11.5, 0.5]], speed: 8600 }
   ],
+  // One clump cut from each crop sheet. Four of these sit inside the bed.
+  plantSpots: [[0.50, 0.50], [0.40, 0.42], [0.62, 0.40], [0.40, 0.62], [0.62, 0.60]],
+  plant: {
+    maize_sown: { x: 88, y: 36, w: 72, h: 52, kind: "sown" },
+    maize_growing: { x: 96, y: 18, w: 64, h: 70, kind: "grow" },
+    maize_ready: { x: 100, y: 6, w: 58, h: 78, kind: "ready" },
+    morogo_sown: { x: 90, y: 34, w: 70, h: 50, kind: "sown" },
+    morogo_growing: { x: 92, y: 22, w: 68, h: 58, kind: "grow" },
+    morogo_ready: { x: 88, y: 12, w: 72, h: 64, kind: "ready" },
+    morogo_ready_basket: { x: 86, y: 8, w: 76, h: 68, kind: "ready" },
+    pumpkin_sown: { x: 90, y: 36, w: 70, h: 52, kind: "sown" },
+    pumpkin_growing: { x: 88, y: 24, w: 74, h: 62, kind: "grow" },
+    pumpkin_fruiting: { x: 84, y: 16, w: 80, h: 70, kind: "ready" },
+    pumpkin_ready: { x: 82, y: 12, w: 84, h: 74, kind: "ready" },
+    aloe: { x: 40, y: 20, w: 110, h: 140, kind: "ready" }
+  },
+  stages: {
+    maize: ["maize_sown", "maize_growing", "maize_ready"],
+    morogo: ["morogo_sown", "morogo_growing", "morogo_ready_basket"],
+    pumpkin: ["pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"],
+    spinach: ["morogo_sown", "morogo_growing", "morogo_ready_basket"],
+    tomato: ["pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"],
+    aloe: ["aloe"]
+  },
+  px: {
+    bed_empty: [256, 167], home_l1: [400, 311], home_l2: [460, 376], home_l3: [560, 431],
+    spaza: [480, 389], workshop: [480, 397], rain_tank: [240, 327], solar_stand: [320, 436],
+    aloe: [190, 270], washing_line: [320, 323], wheelbarrow: [200, 198], soccer_goal: [280, 235],
+    braai_drum: [220, 277], potjie: [190, 201], imbawula: [130, 201], mielie_cart: [240, 329],
+    chicken_coop: [300, 315], pumpkin_patch: [300, 201], kraal: [420, 353], taxi: [360, 326]
+  },
   lineup: ["home_l1", "taxi", "tree_jacaranda", "tree_acacia", "aloe", "char_farmer", "char_kid", "animal_hen", "animal_dog", "animal_cow", "braai_drum", "potjie", "wheelbarrow"],
   first: [
     "tile_grass", "tile_dirt", "home_l1", "home_l2", "home_l3", "bed_empty",
-    "maize_sown", "maize_growing", "maize_ready", "spaza", "workshop", "rain_tank", "solar_stand",
-    "char_farmer", "animal_hen", "animal_dog",
+    "maize_sown", "maize_growing", "maize_ready",
+    "morogo_sown", "morogo_growing", "morogo_ready_basket",
+    "pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready",
+    "spaza", "workshop", "rain_tank", "solar_stand",
+    "char_farmer", "char_farmer_anim", "animal_hen", "animal_hen_anim", "animal_dog", "animal_dog_anim",
     "tree_jacaranda", "tree_acacia", "tree_marula",
     "washing_line", "wheelbarrow", "taxi",
     "neighbour_ndebele", "neighbour_mural", "neighbour_facebrick"
   ]
+};
+
+LOOK.plantDraw = function (file, tw) {
+  var spec = LOOK.plant[file];
+  if (!spec) return null;
+  var capW = spec.kind === "sown" ? 0.11 : spec.kind === "grow" ? 0.15 : 0.17;
+  var capH = spec.kind === "sown" ? 0.09 : spec.kind === "grow" ? 0.12 : 0.145;
+  var dw = tw * capW;
+  var dh = dw * (spec.h / spec.w);
+  if (dh > tw * capH) {
+    dw *= (tw * capH) / dh;
+    dh = tw * capH;
+  }
+  return { dw: dw, dh: dh, spots: LOOK.plantSpots };
+};
+
+LOOK.actorPx = {
+  farmer: [171, 256], doek: [116, 256], gogo: [146, 256], kid: [122, 215],
+  jersey: [129, 256], basotho: [139, 256], taxi: [173, 256],
+  hen: [67, 96], dog: [93, 120], cow: [175, 170], goat: [106, 130]
+};
+
+LOOK.spriteBox = function (file, ax, ay, scale, pivot, tw) {
+  var size = (LOOK.px && LOOK.px[file]) || [256, 256];
+  var k = (tw / 256) * (scale || 1);
+  var dw = size[0] * k;
+  var dh = size[1] * k;
+  var fx = pivot ? pivot[0] : 0.5;
+  var fy = pivot ? pivot[1] : 1;
+  var left = ax - fx * dw;
+  var top = ay - fy * dh;
+  return { l: left, t: top, r: left + dw, b: top + dh, dw: dw, dh: dh };
+};
+
+LOOK.overlapAudit = function (state, tw) {
+  tw = tw || 64;
+  var problems = [];
+  function at(x, y) {
+    return { x: (x - y) * tw / 2, y: (x + y) * tw / 4 };
+  }
+  function cellAt(sx, sy) {
+    var a = sx / (tw / 2);
+    var b = sy / (tw / 4);
+    return { x: Math.floor((a + b) / 2), y: Math.floor((b - a) / 2) };
+  }
+  function plantsOf(b, file) {
+    var draw = LOOK.plantDraw(file, tw);
+    if (!draw) return [];
+    var out = [];
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = at(b.x + spot[0], b.y + spot[1]);
+      out.push({
+        l: p.x - draw.dw / 2, t: p.y - draw.dh, r: p.x + draw.dw / 2, b: p.y,
+        who: file + " on " + b.x + "," + b.y, x: b.x, y: b.y
+      });
+    }
+    return out;
+  }
+  var beds = [];
+  var i, b, files, f, boxes, n, box, inset, corners, k, hit, a, c, ix, iy;
+  for (i = 0; i < state.buildings.length; i++) if (state.buildings[i].type === "bed") beds.push(state.buildings[i]);
+  boxes = [];
+  for (i = 0; i < beds.length; i++) {
+    b = beds[i];
+    files = (LOOK.stages && LOOK.stages[b.crop || "maize"]) || ["maize_ready"];
+    if (!b.crop) files = ["maize_sown", "maize_growing", "maize_ready", "morogo_ready_basket", "pumpkin_ready"];
+    for (f = 0; f < files.length; f++) {
+      var added = plantsOf(b, files[f]);
+      for (n = 0; n < added.length; n++) {
+        box = added[n];
+        boxes.push(box);
+        inset = 3;
+        corners = [
+          [box.l + inset, box.t + inset],
+          [box.r - inset, box.t + inset],
+          [box.l + inset, box.b - inset],
+          [box.r - inset, box.b - inset]
+        ];
+        for (k = 0; k < corners.length; k++) {
+          hit = cellAt(corners[k][0], corners[k][1]);
+          if (hit.x !== b.x || hit.y !== b.y) {
+            problems.push(box.who + " spills onto " + hit.x + "," + hit.y);
+          }
+        }
+      }
+    }
+  }
+  for (a = 0; a < boxes.length; a++) {
+    for (c = a + 1; c < boxes.length; c++) {
+      if (boxes[a].x === boxes[c].x && boxes[a].y === boxes[c].y) continue;
+      ix = Math.min(boxes[a].r, boxes[c].r) - Math.max(boxes[a].l, boxes[c].l);
+      iy = Math.min(boxes[a].b, boxes[c].b) - Math.max(boxes[a].t, boxes[c].t);
+      if (ix > 4 && iy > 4) problems.push(boxes[a].who + " overlaps " + boxes[c].who + " by " + Math.round(ix) + "x" + Math.round(iy));
+    }
+  }
+  var khaya = typeof KHAYA !== "undefined" ? KHAYA : (typeof global !== "undefined" ? global.KHAYA : null);
+  var tall = [];
+  var labels = [];
+  function overlaps(box, other) {
+    var ox = Math.min(box.r, other.r) - Math.max(box.l, other.l);
+    var oy = Math.min(box.b, other.b) - Math.max(box.t, other.t);
+    return ox > 4 && oy > 4;
+  }
+  function pushTall(who, box) {
+    box.who = who;
+    tall.push(box);
+  }
+  var spec, file, pivot, tiles, scale, anchor, home;
+  for (i = 0; i < state.buildings.length; i++) {
+    b = state.buildings[i];
+    spec = (LOOK.buildings && LOOK.buildings[b.type]) || {};
+    file = spec.file || b.type;
+    if (spec.levels) file = spec.levels[Math.max(0, Math.min(spec.levels.length, b.level || 1) - 1)];
+    if (b.type === "bed") file = "bed_empty";
+    pivot = (LOOK.pivot && LOOK.pivot[file]) || [0.5, 1, 256];
+    tiles = ((b.w || 1) + (b.h || 1)) / 2;
+    scale = spec.fit ? (tiles * 256) / (pivot[2] || 256) : Math.min(spec.scale || 1, (tiles * 0.72 * 256) / (pivot[2] || 256));
+    anchor = spec.fit ? at(b.x + b.w, b.y + b.h) : at(b.x + b.w / 2, b.y + b.h / 2);
+    pushTall(b.type + "@" + b.x + "," + b.y, LOOK.spriteBox(file, anchor.x, anchor.y, scale, pivot, tw));
+    if (b.type === "bed") {
+      var top = anchor.y - (pivot[1] || 1) * (LOOK.spriteBox(file, anchor.x, anchor.y, scale, pivot, tw).dh);
+      var mid = at(b.x + b.w / 2, b.y + b.h / 2);
+      var ly = top - 10;
+      if (ly < 10) ly = 10;
+      labels.push({ l: mid.x - 18, t: ly - 12, r: mid.x + 18, b: ly + 8, who: "label@" + b.x + "," + b.y, owner: b.x + "," + b.y });
+    }
+  }
+  var props = khaya && khaya.PROPS ? khaya.PROPS : [];
+  for (i = 0; i < props.length; i++) {
+    var prop = props[i];
+    pivot = (LOOK.pivot && LOOK.pivot[prop.file]) || [0.5, 1, 256];
+    if (prop.id === "taxi") {
+      scale = (0.95 * 256) / (pivot[2] || 327);
+      anchor = at(prop.x + prop.w, prop.y + prop.h);
+    } else {
+      spec = (LOOK.buildings && LOOK.buildings[prop.id]) || {};
+      tiles = ((prop.w || 1) + (prop.h || 1)) / 2;
+      scale = Math.min(spec.scale || 1, (tiles * 0.72 * 256) / (pivot[2] || 256));
+      anchor = at(prop.x + prop.w / 2, prop.y + prop.h / 2);
+    }
+    pushTall(prop.id, LOOK.spriteBox(prop.file, anchor.x, anchor.y, scale, pivot, tw));
+  }
+  var cast = LOOK.cast || [];
+  for (i = 0; i < cast.length; i++) {
+    var entry = cast[i];
+    var actor = LOOK.actors && LOOK.actors[entry.id];
+    var stand = entry.at || (entry.route && entry.route[0]);
+    if (!actor || !stand) continue;
+    var ap = LOOK.actorPx[entry.id] || [140, 256];
+    LOOK.px[entry.id] = ap;
+    var foot = at(stand[0], stand[1]);
+    pushTall(entry.id + " at rest", LOOK.spriteBox(entry.id, foot.x, foot.y, actor.scale || 0.7, [0.5, 1], tw));
+  }
+  for (a = 0; a < tall.length; a++) {
+    for (c = a + 1; c < tall.length; c++) {
+      if (overlaps(tall[a], tall[c])) problems.push(tall[a].who + " covers " + tall[c].who);
+    }
+    for (n = 0; n < boxes.length; n++) {
+      if (tall[a].who.indexOf("bed@") === 0 && boxes[n].who.indexOf(" on " + tall[a].who.slice(4)) > -1) continue;
+      if (overlaps(tall[a], boxes[n])) problems.push(tall[a].who + " covers " + boxes[n].who);
+    }
+    for (n = 0; n < labels.length; n++) {
+      if (tall[a].who.indexOf("@" + labels[n].owner) === 0) continue;
+      if (overlaps(tall[a], labels[n])) problems.push(tall[a].who + " covers " + labels[n].who);
+    }
+  }
+  return { ok: problems.length === 0, problems: problems };
 };
 
 if (typeof module !== "undefined" && module.exports) module.exports = LOOK;
@@ -1539,8 +2039,11 @@ var DRAW = (function () {
   var contact = typeof WeakMap === "function" ? new WeakMap() : null;
   var plate = null;
   var plateKey = "";
+  var backdrop = null;
+  var backdropKey = "";
   var markGround = false;
   var groundMarks = [];
+  var lastFace = {};
 
   function catalogFiles() {
     var list = [];
@@ -1552,12 +2055,24 @@ var DRAW = (function () {
       if (spec.levels) for (i = 0; i < spec.levels.length; i++) add(spec.levels[i]);
       if (spec.states) for (i = 0; i < spec.states.length; i++) add(spec.states[i]);
     }
-    for (id in LOOK.actors) add(LOOK.actors[id].file);
+    for (id in LOOK.actors) {
+      add(LOOK.actors[id].file);
+      if (LOOK.actors[id].sheet) add(LOOK.actors[id].sheet);
+    }
     for (i = 0; i < LOOK.trees.length; i++) add(LOOK.trees[i]);
     for (i = 0; i < LOOK.neighbours.length; i++) add(LOOK.neighbours[i]);
     for (i = 0; i < LOOK.dress.length; i++) add(LOOK.dress[i].file);
+    if (typeof KHAYA !== "undefined" && KHAYA.PROPS) {
+      for (i = 0; i < KHAYA.PROPS.length; i++) add(KHAYA.PROPS[i].file);
+    }
     add("tile_grass");
     add("tile_dirt");
+    var crops = [
+      "maize_sown", "maize_growing", "maize_ready",
+      "morogo_sown", "morogo_growing", "morogo_ready", "morogo_ready_basket",
+      "pumpkin_sown", "pumpkin_growing", "pumpkin_fruiting", "pumpkin_ready"
+    ];
+    for (i = 0; i < crops.length; i++) add(crops[i]);
     return list;
   }
 
@@ -1572,7 +2087,10 @@ var DRAW = (function () {
           measureContact(el);
         }
         left -= 1;
-        if (left === 0 && done) done();
+        if (left === 0) {
+          sliceSheets();
+          if (done) done();
+        }
       };
       el.src = LOOK.root + n + LOOK.ext;
       if (el.decode) el.decode().catch(function () {});
@@ -1612,45 +2130,44 @@ var DRAW = (function () {
   function layout(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
     var z = cam.z || 1;
-    if (z < 0.55) z = 0.55;
+    if (z < 0.62) z = 0.62;
     if (z > 2.2) z = 2.2;
-    var phone = w < 560;
-    var cols = phone ? 6.5 : 8;
-    var rows = phone ? 6.5 : 8;
-    var horizon = phone ? Math.max(20, h * 0.08) : Math.max(64, h * 0.22);
-    var availW = w * (phone ? 1.04 : 0.96);
-    var availH = Math.max(80, (h - horizon) * (phone ? 1.02 : 0.98));
-    var tw = availW / ((cols + rows) / 2);
+    // Working homestead only. Its width is about 85% of the stage.
+    // The south corner of the open lane sits near the bottom, so the locked fields fall off.
+    var tw = w * 0.172;
     var th = tw * 0.5;
-    var plotH = (cols + rows) * th / 2;
-    var need = plotH + th * 2.4;
-    if (need > availH) {
-      var s = availH / need;
-      tw *= s;
-      th *= s;
-      plotH = (cols + rows) * th / 2;
+    var northLimit = Math.max(12, h * 0.04);
+    if ((6.2) * th + northLimit > h * 0.9) {
+      tw = (h * 0.9 - northLimit) / 6.2 * 2;
+      th = tw * 0.5;
     }
     tw *= z;
     th *= z;
-    var plotW = (cols + rows) * tw / 2;
-    var ox = (w - plotW) / 2 + rows * tw / 2 + (cam.x || 0);
-    var oy = horizon + Math.max(th / z, (h - horizon - plotH * z) * 0.42) + (cam.y || 0);
+    var focusX = 3.2;
+    var focusY = 3.6;
+    var ox = w / 2 - (focusX - focusY) * tw / 2 + (cam.x || 0);
+    var oy = h * 0.86 - (8 + 8) * th / 2 + (cam.y || 0);
+    var houseTop = oy + (1 + 1.2) * th / 2 - th * 1.6;
+    if (houseTop < northLimit) oy += northLimit - houseTop;
+    var horizon = Math.max(4, oy + (0 + 0) * th / 2 - th);
     return { tw: tw, th: th, ox: ox, oy: oy, horizon: horizon, z: z };
   }
 
   function clampCamera(w, h, cam) {
     cam = cam || { x: 0, y: 0, z: 1 };
-    if (cam.z < 0.55) cam.z = 0.55;
+    if (cam.z < 0.62) cam.z = 0.62;
     if (cam.z > 2.2) cam.z = 2.2;
-    var o = layout(w, h, cam);
-    var north = KHAYA.cellNorth(0, 0, o.ox, o.oy, o.tw, o.th);
-    var south = KHAYA.cellNorth(KHAYA.COLS, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
-    var east = KHAYA.cellNorth(KHAYA.COLS, 0, o.ox, o.oy, o.tw, o.th);
-    var west = KHAYA.cellNorth(0, KHAYA.ROWS, o.ox, o.oy, o.tw, o.th);
-    if (south.y < h * 0.42) cam.y += h * 0.42 - south.y;
-    if (north.y > h * 0.62) cam.y -= north.y - h * 0.62;
-    if (east.x < w * 0.18) cam.x += w * 0.18 - east.x;
-    if (west.x > w * 0.82) cam.x -= west.x - w * 0.82;
+    var limX = Math.max(70, w * 1.05);
+    var limY = Math.max(48, h * 0.7);
+    if (cam.x > limX) { cam.x = limX; cam.vx = cam.vx > 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.x < -limX) { cam.x = -limX; cam.vx = cam.vx < 0 ? cam.vx * -0.18 : cam.vx; }
+    if (cam.y > limY) { cam.y = limY; cam.vy = cam.vy > 0 ? cam.vy * -0.18 : cam.vy; }
+    if (cam.y < -limY) { cam.y = -limY; cam.vy = cam.vy < 0 ? cam.vy * -0.18 : cam.vy; }
+    var maxV = 14;
+    if (cam.vx > maxV) cam.vx = maxV;
+    if (cam.vx < -maxV) cam.vx = -maxV;
+    if (cam.vy > maxV) cam.vy = maxV;
+    if (cam.vy < -maxV) cam.vy = -maxV;
     return cam;
   }
 
@@ -1664,27 +2181,92 @@ var DRAW = (function () {
     ctx.fill();
   }
 
-  function sky(ctx, w, h, now) {
-    var g = ctx.createLinearGradient(0, 0, 0, h * 0.62);
-    g.addColorStop(0, "#6eaddf");
-    g.addColorStop(0.45, "#b9d4ef");
-    g.addColorStop(0.78, "#f3d2a4");
-    g.addColorStop(1, "#e7b27a");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    var i;
-    for (i = 0; i < 5; i++) {
-      var cx = ((now / 40 + i * w * 0.23) % (w + 180)) - 90;
-      var cy = h * (0.08 + (i % 3) * 0.06);
-      ctx.fillStyle = "rgba(255,255,255,.72)";
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, 54 + (i % 3) * 16, 16, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 28, cy + 4, 36, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  var SKY = {
+    dawn: ["#d98978", "#f3c7a8", "#f6dcc0", "#e7b888"],
+    day: ["#6eaddf", "#b7d4ee", "#f3d2a4", "#e7b27a"],
+    gold: ["#e08a55", "#f3c48a", "#f6d7a8", "#e0a56e"],
+    dusk: ["#4d5f92", "#c98880", "#f0b48a", "#c48468"],
+    night: ["#1a2744", "#31456f", "#5c5274", "#3a342e"]
+  };
+  var VEIL = {
+    dawn: "rgba(255, 196, 150, 0.06)",
+    gold: "rgba(255, 168, 80, 0.10)",
+    dusk: "rgba(64, 48, 110, 0.10)",
+    night: "rgba(16, 24, 58, 0.16)"
+  };
+
+  function phaseOf(now, light) {
+    if (light === "dawn" || light === "day" || light === "gold" || light === "dusk" || light === "night") return light;
+    var d = new Date(now);
+    var h = d.getHours() + d.getMinutes() / 60;
+    if (h >= 5 && h < 7) return "dawn";
+    if (h >= 7 && h < 16.5) return "day";
+    if (h >= 16.5 && h < 18.5) return "gold";
+    if (h >= 18.5 && h < 20) return "dusk";
+    return "night";
   }
 
-  function land(ctx, w, h, o) {
+  function sky(ctx, w, h, phase) {
+    var stops = SKY[phase] || SKY.day;
+    var g = ctx.createLinearGradient(0, 0, 0, h * 0.62);
+    g.addColorStop(0, stops[0]);
+    g.addColorStop(0.45, stops[1]);
+    g.addColorStop(0.78, stops[2]);
+    g.addColorStop(1, stops[3]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    var night = phase === "night" || phase === "dusk";
+    if (night) {
+      ctx.fillStyle = phase === "night" ? "rgba(255, 248, 230, .85)" : "rgba(255, 248, 230, .7)";
+      var spots = [[0.12, 0.08], [0.28, 0.16], [0.46, 0.06], [0.63, 0.14], [0.78, 0.07], [0.9, 0.15]];
+      var i;
+      for (i = 0; i < (phase === "night" ? spots.length : 3); i++) {
+        ctx.beginPath();
+        ctx.arc(w * spots[i][0], h * spots[i][1], i % 2 ? 1.3 : 0.8, 0, 7);
+        ctx.fill();
+      }
+    }
+    ctx.beginPath();
+    ctx.fillStyle = night ? "rgba(244, 236, 210, .92)" : "rgba(255, 244, 210, .95)";
+    ctx.arc(w * (night ? 0.78 : 0.82), h * (night ? 0.1 : 0.12), night ? 11 : 16, 0, 7);
+    ctx.fill();
+  }
+
+  function drawClouds(ctx, w, h, now) {
+    var i;
+    ctx.save();
+    for (i = 0; i < 3; i++) {
+      var cx = ((now / 80 + i * w * 0.37) % (w + 220)) - 110;
+      var cy = h * (0.07 + (i % 3) * 0.045);
+      ctx.fillStyle = "rgba(255,255,255,.55)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 48 + (i % 2) * 14, 13, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 26, cy + 3, 30, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBird(ctx, w, h, now) {
+    var cycle = 42000;
+    var t = now % cycle;
+    if (t > 8000) return;
+    var u = t / 8000;
+    var x = -24 + u * (w + 48);
+    var y = h * 0.09 + Math.sin(u * Math.PI) * h * 0.02;
+    var wing = Math.sin(now / 160) > 0 ? -4 : 3;
+    ctx.save();
+    ctx.strokeStyle = "rgba(48, 36, 28, .45)";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.quadraticCurveTo(x - 2, y + wing, x, y);
+    ctx.quadraticCurveTo(x + 2, y + wing, x + 6, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function distant(ctx, w, h, o) {
     var hy = o.horizon + 8;
     ctx.fillStyle = "#c48b78";
     ctx.beginPath();
@@ -1717,14 +2299,6 @@ var DRAW = (function () {
       ctx.lineTo(gx + 6, gy - 5);
       ctx.stroke();
     }
-    var south = north(KHAYA.COLS, KHAYA.ROWS, o);
-    ctx.fillStyle = "#d7b56a";
-    ctx.beginPath();
-    ctx.moveTo(south.x - o.tw * 0.55, south.y - 4);
-    ctx.lineTo(w * 0.5 - Math.min(120, w * 0.16), h + 30);
-    ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
-    ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
-    ctx.fill();
     var spots = [0.12, 0.4, 0.7];
     var n;
     for (n = 0; n < LOOK.neighbours.length; n++) {
@@ -1734,10 +2308,49 @@ var DRAW = (function () {
     blitFoot(ctx, img.tree_acacia, w * 0.06, hy + 22, o.tw * 0.42, LOOK.treeScale.tree_acacia || 1);
   }
 
+  function road(ctx, w, h, o) {
+    var south = north(KHAYA.COLS, KHAYA.ROWS, o);
+    ctx.fillStyle = "#d7b56a";
+    ctx.beginPath();
+    ctx.moveTo(south.x - o.tw * 0.55, south.y - 4);
+    ctx.lineTo(w * 0.5 - Math.min(120, w * 0.16), h + 30);
+    ctx.lineTo(w * 0.5 + Math.min(120, w * 0.16), h + 30);
+    ctx.lineTo(south.x + o.tw * 0.55, south.y - 4);
+    ctx.fill();
+  }
+
+  function srcSize(image) {
+    return { w: image.naturalWidth || image.width || 0, h: image.naturalHeight || image.height || 0 };
+  }
+
+  function sliceSheets() {
+    var id, spec, sheet, cells, size, cw, i, c, g, key;
+    for (id in LOOK.actors) {
+      spec = LOOK.actors[id];
+      if (!spec.sheet || !img[spec.sheet] || img[spec.sheet + "_0"]) continue;
+      sheet = img[spec.sheet];
+      size = srcSize(sheet);
+      cells = spec.cells || 8;
+      if (!size.w || !size.h) continue;
+      cw = Math.floor(size.w / cells);
+      for (i = 0; i < cells; i++) {
+        c = document.createElement("canvas");
+        c.width = cw;
+        c.height = size.h;
+        g = c.getContext("2d");
+        g.drawImage(sheet, i * cw, 0, cw, size.h, 0, 0, cw, size.h);
+        key = spec.sheet + "_" + i;
+        img[key] = c;
+        measureContact(c);
+      }
+    }
+  }
+
   function measureContact(image) {
-    if (!contact || !image.naturalWidth) return;
-    var w = image.naturalWidth;
-    var h = image.naturalHeight;
+    var size = srcSize(image);
+    if (!contact || !size.w || !size.h) return;
+    var w = size.w;
+    var h = size.h;
     var c = document.createElement("canvas");
     c.width = w;
     c.height = h;
@@ -1757,15 +2370,59 @@ var DRAW = (function () {
     contact.set(image, found);
   }
 
-  function blitFoot(ctx, image, footX, footY, tw, scale) {
-    if (!image || !image.naturalWidth) return;
-    var px = (tw / 256) * (scale || 1);
-    var dw = image.naturalWidth * px;
-    var dh = image.naturalHeight * px;
-    var row = contact && contact.get(image);
-    if (row === undefined || row === null) row = image.naturalHeight - 1;
-    ctx.drawImage(image, footX - dw / 2, footY - (row + 1) * px, dw, dh);
+  function groundShadow(ctx, x, y, tw, shadow) {
+    if (!shadow) return;
+    ctx.save();
+    ctx.fillStyle = "rgba(48, 32, 16, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(x, y - 1, Math.max(3, tw * shadow[0] * 0.22), Math.max(2, tw * shadow[1] * 0.18), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function blitPivot(ctx, image, footX, footY, tw, scale, pivot) {
+    var size = image ? srcSize(image) : { w: 0, h: 0 };
+    if (!image || !size.w) return null;
+    var k = (tw / 256) * (scale || 1);
+    var dw = size.w * k;
+    var dh = size.h * k;
+    var fx = pivot ? pivot[0] : 0.5;
+    var fy = pivot ? pivot[1] : null;
+    if (fy === null || fy === undefined) {
+      var row = contact && contact.get(image);
+      if (row === undefined || row === null) row = size.h - 1;
+      fy = (row + 1) / size.h;
+    }
+    var left = footX - fx * dw;
+    var top = footY - fy * dh;
+    ctx.drawImage(image, left, top, dw, dh);
     if (markGround) groundMarks.push(footX, footY);
+    return { left: left, top: top, dw: dw, dh: dh };
+  }
+
+  function blitFoot(ctx, image, footX, footY, tw, scale) {
+    return blitPivot(ctx, image, footX, footY, tw, scale, null);
+  }
+
+  function paintTile(ctx, file, x, y, o) {
+    var image = img[file];
+    if (!image) return;
+    var pivot = (LOOK.pivot && LOOK.pivot[file]) || [0.5, 1, 256];
+    var scale = pivot[2] ? 256 / pivot[2] : 1;
+    var tip = north(x + 1, y + 1, o);
+    blitPivot(ctx, image, tip.x, tip.y, o.tw, scale, pivot);
+  }
+
+  function southTip(b, o) {
+    return north(b.x + b.w, b.y + b.h, o);
+  }
+
+  function frontPoint(b, o) {
+    return north(b.x + b.w - 0.5, b.y + b.h - 0.5, o);
+  }
+
+  function footprintCenter(b, o) {
+    return north(b.x + b.w / 2, b.y + b.h / 2, o);
   }
 
   function hash(x, y) {
@@ -1777,9 +2434,8 @@ var DRAW = (function () {
     var c = corners(x, y, 1, 1, o);
     var kind = KHAYA.terrainAt(x, y);
     var open = !state || KHAYA.plotOpen(state, x, y);
-    var midCell = north(x + 0.5, y + 0.5, o);
-    if (img.tile_grass) ctx.drawImage(img.tile_grass, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
-    if (kind === "path" && img.tile_dirt) ctx.drawImage(img.tile_dirt, midCell.x - o.tw / 2, midCell.y - o.th / 2, o.tw, o.th);
+    paintTile(ctx, "tile_grass", x, y, o);
+    if (kind === "path") paintTile(ctx, "tile_dirt", x, y, o);
     if (!img.tile_grass && !(kind === "path" && img.tile_dirt)) {
       var fill = kind === "path" ? "#c47a45" : "#c6a84a";
       poly(ctx, [c.n, c.e, c.s, c.w], fill);
@@ -1839,10 +2495,11 @@ var DRAW = (function () {
     return spec.file || b.type;
   }
 
-  function placePoint(b, o) {
-    var spec = LOOK.buildings[b.type] || { anchor: [0.5, 0.55], offset: [0, 0] };
-    var p = north(b.x + b.w * spec.anchor[0], b.y + b.h * spec.anchor[1], o);
-    return { x: p.x + (spec.offset[0] || 0), y: p.y + (spec.offset[1] || 0), spec: spec };
+  function labelBand(top, canvasH) {
+    var y = top - 10;
+    if (y < 10) y = 10;
+    if (canvasH && y > canvasH - 28) y = canvasH - 28;
+    return y;
   }
 
   function puff(ctx, x, y, now, kind) {
@@ -1888,8 +2545,15 @@ var DRAW = (function () {
   var grewAt = {};
 
   function drawSprite(ctx, name, b, o, now, pop, squash) {
-    var spot = placePoint(b, o);
-    var scale = spot.spec.scale || 1;
+    var spec = LOOK.buildings[b.type] || {};
+    var tip = southTip(b, o);
+    var pivot = (LOOK.pivot && LOOK.pivot[name]) || [0.5, 0.99, 256];
+    var baseName = b.type === "bed" ? "bed_empty" : name;
+    var base = (LOOK.pivot && LOOK.pivot[baseName] && LOOK.pivot[baseName][2]) || pivot[2] || 256;
+    var tiles = ((b.w || 1) + (b.h || 1)) / 2;
+    var widest = (LOOK.pivot && LOOK.pivot[name] && LOOK.pivot[name][2]) || base;
+    var cap = (tiles * 0.72 * 256) / widest;
+    var scale = spec.fit ? (tiles * 256) / base : Math.min(spec.scale || 1, cap);
     var sc = scale;
     var sx = 1;
     var sy = 1;
@@ -1913,14 +2577,51 @@ var DRAW = (function () {
       sy *= 1 - land * 0.12;
       sc = scale * (0.92 + Math.min(1, u / 0.3) * 0.08);
     }
+    var mid = footprintCenter(b, o);
+    var world = spec.fit ? tip : mid;
+    var image = img[name];
+    var size = image ? srcSize(image) : { h: 0 };
+    var k = (o.tw / 256) * sc;
+    var top = (world.y - drop) - (pivot[1] || 1) * size.h * k * sy;
     ctx.save();
-    ctx.translate(spot.x, spot.y - drop);
+    groundShadow(ctx, mid.x, mid.y, o.tw * (spec.fit ? tiles : 0.45), spec.shadow);
+    ctx.translate(world.x, world.y - drop);
     ctx.scale(sx, sy);
-    ctx.translate(-spot.x, -spot.y);
-    blitFoot(ctx, img[name], spot.x, spot.y, o.tw, sc);
+    ctx.translate(-world.x, -world.y);
+    blitPivot(ctx, image, world.x, world.y, o.tw, sc, pivot);
     ctx.restore();
-    if (spot.spec.smoke) puff(ctx, spot.x, spot.y - o.th * 0.9, now, spot.spec.smoke);
-    return spot;
+    if (spec.smoke) puff(ctx, mid.x, tip.y - o.th * 0.9, now, spec.smoke);
+    return { x: mid.x, y: tip.y, top: top, spec: spec };
+  }
+
+  var stampCache = {};
+  function plantCanvas(file) {
+    if (stampCache[file]) return stampCache[file];
+    var src = img[file];
+    var spec = LOOK.plant && LOOK.plant[file];
+    if (!src || !spec) { stampCache[file] = null; return null; }
+    var c = document.createElement("canvas");
+    c.width = spec.w;
+    c.height = spec.h;
+    var g = c.getContext("2d");
+    g.drawImage(src, spec.x, spec.y, spec.w, spec.h, 0, 0, spec.w, spec.h);
+    stampCache[file] = c;
+    return c;
+  }
+
+  function drawPlants(ctx, file, b, o) {
+    var draw = LOOK.plantDraw && LOOK.plantDraw(file, o.tw);
+    var canvas = plantCanvas(file);
+    if (!draw || !canvas) return null;
+    var top = 1e9;
+    var i, spot, p;
+    for (i = 0; i < draw.spots.length; i++) {
+      spot = draw.spots[i];
+      p = north(b.x + spot[0], b.y + spot[1], o);
+      ctx.drawImage(canvas, p.x - draw.dw / 2, p.y - draw.dh, draw.dw, draw.dh);
+      if (p.y - draw.dh < top) top = p.y - draw.dh;
+    }
+    return top;
   }
 
   function barOver(ctx, x, y, w, progress, color) {
@@ -1948,6 +2649,24 @@ var DRAW = (function () {
     ctx.arcTo(x, y + h, x, y, r);
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
+  }
+
+  function readyMark(ctx, x, y, now) {
+    var bob = Math.sin(now / 360) * 2;
+    ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.fillStyle = "#2f6d4f";
+    ctx.strokeStyle = "#1d4a34";
+    ctx.lineWidth = 2;
+    roundRect(ctx, -16, -11, 32, 18, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fffaf3";
+    ctx.font = "700 11px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Pick", 0, -1);
+    ctx.restore();
   }
 
   function coinBadge(ctx, x, y, now) {
@@ -2006,12 +2725,21 @@ var DRAW = (function () {
     };
   }
 
-  function actorFrame(spec, now, dir, pose) {
-    if (pose === "water" && spec.water) return spec.water[Math.floor(now / 180) % spec.water.length];
-    if (pose === "wave" && spec.wave) return spec.wave[Math.floor(now / 160) % spec.wave.length];
-    if (spec.walk) return spec.walk + "_" + (dir || 0) + "_" + (Math.floor(now / 140) % spec.frames);
-    if (spec.idle) return spec.idle[Math.floor(now / 280) % spec.idle.length];
-    return "";
+  function actorImage(spec, now, pose) {
+    var list = spec.idle;
+    var rate = 720;
+    if (pose === "walk" && spec.walk) { list = spec.walk; rate = 150; }
+    else if ((pose === "work" || pose === "water" || pose === "wave") && spec.work) { list = spec.work; rate = 280; }
+    if (!spec.sheet || !list || !list.length || !img[spec.sheet]) return img[spec.file];
+    var idx = list[Math.floor(now / rate) % list.length];
+    return img[spec.sheet + "_" + idx] || img[spec.file];
+  }
+
+  function artScaleX(spec, screenRight) {
+    if (!spec.sheet || !img[spec.sheet]) return screenRight ? -1 : 1;
+    var facesRight = spec.face > 0;
+    if (screenRight == null) return 1;
+    return screenRight === facesRight ? 1 : -1;
   }
 
   function actorWhere(entry, state, now) {
@@ -2024,13 +2752,16 @@ var DRAW = (function () {
     var bi;
     var housed = known[entry.id].home && KHAYA.buildingById(state, known[entry.id].home);
     if (housed) {
-      x = housed.x + housed.w * 0.35;
-      y = housed.y + housed.h + 0.2;
+      x = housed.x + 0.5;
+      y = housed.y + housed.h + 0.5;
+      if (KHAYA.occupied(state, Math.floor(x), Math.floor(y))) {
+        x = housed.x + housed.w + 0.5;
+        y = housed.y + housed.h - 0.5;
+      }
       pose = "idle";
-    } else if (entry.near === "home") {
-      var home = null;
-      for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "home") home = state.buildings[bi];
-      if (home) { x = home.x + home.w + 0.55; y = home.y + home.h + 0.15; }
+    } else if (entry.at) {
+      x = entry.at[0];
+      y = entry.at[1];
       pose = "idle";
     } else if (entry.spot) {
       x = entry.spot[0] + Math.sin(now / 900 + entry.spot[1]) * (entry.wobble || 0);
@@ -2041,19 +2772,7 @@ var DRAW = (function () {
       x = step.x;
       y = step.y;
       dir = step.dir;
-      if (entry.id === "farmer") {
-        var bed = null;
-        for (bi = 0; bi < state.buildings.length; bi++) {
-          if (state.buildings[bi].type === "bed" && state.buildings[bi].phase && state.buildings[bi].phase !== "empty") bed = state.buildings[bi];
-        }
-        if (bed) { x = bed.x + 1.2; y = bed.y + 0.42; pose = "water"; }
-      }
-      if (entry.id === "jersey" && Math.floor(now / 5000) % 6 === 0) pose = "wave";
-      if (entry.id === "doek") {
-        var spaza = null;
-        for (bi = 0; bi < state.buildings.length; bi++) if (state.buildings[bi].type === "spaza") spaza = state.buildings[bi];
-        if (spaza) { x = spaza.x + 0.2; y = spaza.y + 1.15; dir = 0; }
-      }
+      pose = "walk";
     }
     return { x: x, y: y, dir: dir, pose: pose, housed: housed };
   }
@@ -2075,10 +2794,11 @@ var DRAW = (function () {
 
   function treeCovers(foot, file, scale, o, points) {
     var image = img[file];
-    if (!image || !image.naturalWidth || !points) return false;
+    var size = image ? srcSize(image) : { w: 0, h: 0 };
+    if (!size.w || !points) return false;
     var px = (o.tw / 256) * (scale || 1);
-    var dw = image.naturalWidth * px;
-    var dh = image.naturalHeight * px;
+    var dw = size.w * px;
+    var dh = size.h * px;
     var i, p, dx, dy;
     for (i = 0; i < points.length; i++) {
       p = points[i];
@@ -2103,28 +2823,26 @@ var DRAW = (function () {
         var pose = spot.pose;
         var housed = spot.housed;
         var n = north(x, y, o);
-        var moving = pose === "walk" && !housed;
-        var plant = 0;
-        if (moving && entry.route) {
-          var walkU = (now / (entry.speed || 9000)) % 1;
-          plant = (walkU * entry.route.length) % 1;
-        }
-        var stepWave = Math.sin(plant * Math.PI * 4 - Math.PI / 2);
-        var bob = moving ? stepWave * o.th * 0.045 : Math.sin(now / 900 + y) * o.th * 0.012;
-        var stretch = moving ? 1 + Math.max(0, stepWave) * 0.04 : 1;
-        var squashY = moving ? 1 - Math.max(0, -stepWave) * 0.07 : 1;
-        if (entry.id === "hen") {
+        var moving = pose === "walk" && !housed && !entry.spot;
+        var framed = !!(spec.sheet && img[spec.sheet]);
+        var screenRight = dir === 1 || dir === 0;
+        if (moving) lastFace[entry.id] = screenRight;
+        var flip = artScaleX(spec, lastFace[entry.id] == null ? null : (moving ? screenRight : lastFace[entry.id]));
+        var bob = 0;
+        var squashY = 1;
+        if (!framed && entry.id === "hen") {
           var peck = (now / 1100 + y) % 1;
-          if (peck > 0.78) { squashY = 0.82; bob += o.th * 0.04; }
+          if (peck > 0.78) { squashY = 0.82; bob = o.th * 0.03; }
+        } else if (!framed && entry.spot) {
+          bob = Math.sin(now / 900 + y) * o.th * 0.01;
         }
-        var lean = moving ? (dir === 1 || dir === 0 ? -0.08 : 0.08) : 0;
-        var flip = dir === 1 || dir === 0 ? -1 : 1;
-        queue.push({ y: n.y, draw: function () {
+        var sprite = actorImage(spec, now, moving ? "walk" : pose);
+        queue.push({ y: n.y + 0.5, draw: function () {
           ctx.save();
+          groundShadow(ctx, n.x, n.y, o.tw, spec.shadow);
           ctx.translate(n.x, n.y + bob);
-          ctx.rotate(lean);
-          ctx.scale(flip * stretch, squashY);
-          blitFoot(ctx, img[spec.file], 0, 0, o.tw, spec.scale);
+          ctx.scale(flip, squashY);
+          blitFoot(ctx, sprite, 0, 0, o.tw, spec.scale);
           ctx.restore();
         } });
       })(LOOK.cast[i]);
@@ -2142,8 +2860,19 @@ var DRAW = (function () {
       ctx.fillStyle = f.color || "#243028";
       ctx.font = "700 18px Fredoka, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(f.text, f.x, f.y - a * 42);
-      var bits = f.coins || 6;
+      ctx.fillText(f.text, f.x, f.y - a * 36);
+      if (f.kind === "water") {
+        var d;
+        for (d = 0; d < 4; d++) {
+          ctx.fillStyle = "rgba(61, 142, 201, " + (1 - a) + ")";
+          ctx.beginPath();
+          ctx.ellipse(f.x - 10 + d * 7, f.y - 8 - a * 28 - (d % 2) * 6, 2.2, 3.4, 0, 0, 7);
+          ctx.fill();
+        }
+        ctx.restore();
+        continue;
+      }
+      var bits = f.coins || 4;
       var k;
       for (k = 0; k < bits; k++) {
         var ang = k / bits * Math.PI * 2 + f.t;
@@ -2163,6 +2892,22 @@ var DRAW = (function () {
     var plots = (state && state.plots) || {};
     for (id in KHAYA.PLOTS) s += plots[id] ? "1" : "0";
     return s;
+  }
+
+  function ensureBackdrop(w, h, o, dpr, phase) {
+    var stamp = (img.neighbour_mural ? 1 : 0) + (img.tree_acacia ? 2 : 0) + (img.tree_jacaranda ? 4 : 0);
+    var key = [w, h, dpr, Math.round(o.horizon), Math.round(o.tw * 2), phase, stamp].join(":");
+    if (backdrop && backdropKey === key) return backdrop;
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.floor(w * dpr));
+    c.height = Math.max(1, Math.floor(h * dpr));
+    var g = c.getContext("2d", { alpha: false });
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sky(g, w, h, phase);
+    distant(g, w, h, o);
+    backdrop = c;
+    backdropKey = key;
+    return c;
   }
 
   function ensurePlate(o, state, dpr) {
@@ -2187,8 +2932,10 @@ var DRAW = (function () {
   }
 
   function render(canvas, state, view, now) {
-    var dprCap = canvas.clientWidth < 560 ? 1 : 1.5;
-    var dpr = Math.min(dprCap, window.devicePixelRatio || 1);
+    var ratio = Math.min(window.devicePixelRatio || 1, 2);
+    var sharp = (view && view.sharp) || 1;
+    var scale = sharp < 1 ? Math.max(1 / ratio, sharp) : 1;
+    var dpr = ratio * scale;
     var w = canvas.clientWidth;
     var h = canvas.clientHeight;
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
@@ -2196,38 +2943,25 @@ var DRAW = (function () {
       canvas.height = Math.floor(h * dpr);
     }
     var ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = "high";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     var o = layout(w, h, view && view.cam);
     markGround = !!(view && view.ground);
     groundMarks.length = 0;
-    sky(ctx, w, h, now);
-    land(ctx, w, h, o);
+    var phase = phaseOf(now, view && view.light);
+    var calm = view && view.calm;
+    ctx.drawImage(ensureBackdrop(w, h, o, dpr, phase), 0, 0, w, h);
+    if (!calm && phase !== "night") drawClouds(ctx, w, h, now);
+    if (!calm && phase !== "night" && phase !== "dusk") drawBird(ctx, w, h, now);
+    road(ctx, w, h, o);
     var plated = ensurePlate(o, state, dpr);
     var origin = north(0, 0, o);
     ctx.drawImage(plated.canvas, origin.x - plated.ox, origin.y - plated.oy, plated.w, plated.h);
     var queue = [];
-    var feet = importantFeet(state, o, now);
-    var x, y, i;
-    for (y = 0; y < KHAYA.ROWS; y++) for (x = 0; x < KHAYA.COLS; x++) {
-      if (KHAYA.terrainAt(x, y) !== "tree") continue;
-      if (LOOK.treeSkip && LOOK.treeSkip[x + "," + y]) continue;
-      (function (tx, ty) {
-        var file = (LOOK.treeAt && LOOK.treeAt[tx + "," + ty]) || "tree_acacia";
-        var nudge = (LOOK.treeNudge && LOOK.treeNudge[tx + "," + ty]) || [0, 0];
-        var n = north(tx + 0.5 + nudge[0], ty + 0.5 + nudge[1], o);
-        var treeScale = (LOOK.treeScale && LOOK.treeScale[file]) || 1;
-        var fade = treeCovers(n, file, treeScale, o, feet);
-        queue.push({ y: n.y, draw: function () {
-          ctx.save();
-          if (fade) ctx.globalAlpha = 0.38;
-          ctx.translate(n.x, n.y);
-          ctx.rotate(Math.sin(now / 1400 + tx) * 0.018);
-          ctx.translate(-n.x, -n.y);
-          blitFoot(ctx, img[file], n.x, n.y, o.tw, treeScale);
-          ctx.restore();
-        } });
-      })(x, y);
-    }
+    var labels = [];
+    var i;
+    var barW = Math.min(o.tw * 0.42, 56);
     for (i = 0; i < state.buildings.length; i++) {
       (function (building) {
         var dragging = view.drag && view.drag.id === building.id;
@@ -2238,19 +2972,25 @@ var DRAW = (function () {
             w: building.w, h: building.h, level: building.level, crop: building.crop, phase: building.phase, plantedAt: building.plantedAt, id: building.id
           };
         }
-        var spot = placePoint(drawAt, o);
-        queue.push({ y: spot.y, draw: function () {
+        var front = frontPoint(drawAt, o);
+        queue.push({ y: front.y, draw: function () {
           ctx.save();
           if (dragging) ctx.globalAlpha = 0.85;
-          var drawn = drawSprite(ctx, buildingFile(drawAt, now), drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
-          ctx.restore();
-          var job = KHAYA.buildView(building);
-          if (job && !dragging) {
-            barOver(ctx, drawn.x, drawn.y - o.th * 1.3, o.tw * 0.7, job.progress, "#7eb6e0");
-            puff(ctx, drawn.x + o.tw * 0.1, drawn.y - o.th * 0.35, now, "steam");
+          var artFile = buildingFile(drawAt, now);
+          var drawn = drawSprite(ctx, drawAt.type === "bed" ? "bed_empty" : artFile, drawAt, o, now, view.born && view.born[building.id], view.squash && view.squash[building.id]);
+          if (drawAt.type === "bed" && artFile !== "bed_empty") {
+            var plantTop = drawPlants(ctx, artFile, drawAt, o);
+            if (plantTop !== null && plantTop < drawn.top) drawn.top = plantTop;
           }
+          ctx.restore();
+          var ly = labelBand(drawn.top, h);
+          var job = KHAYA.buildView(building);
+          var growth = building.type === "bed" ? KHAYA.bedView(building, now) : null;
           var prod = KHAYA.produceView(building, state);
-          if (prod && prod.ready && !dragging) coinBadge(ctx, drawn.x, drawn.y - o.th * 1.6, now);
+          if (!dragging && (job || (growth && growth.phase !== "empty") || (prod && prod.ready))) {
+            labels.push({ x: drawn.x, y: ly, job: job, growth: growth, prod: prod });
+          }
+          if (job && !dragging) puff(ctx, drawn.x, ly - 4, now, "steam");
           if (dragging) {
             var okMove = KHAYA.canMove(state, building.id, view.drag.x, view.drag.y).ok;
             ring(ctx, view.drag.x, view.drag.y, building.w, building.h, o, okMove ? "#f2c14e" : "#d64545");
@@ -2258,60 +2998,68 @@ var DRAW = (function () {
         } });
       })(state.buildings[i]);
     }
-    var di;
-    for (di = 0; di < LOOK.dress.length; di++) {
+    var props = KHAYA.PROPS || [];
+    var pi;
+    for (pi = 0; pi < props.length; pi++) {
+      if (props[pi].id === "taxi") continue;
       (function (piece) {
-        var n = north(piece.x, piece.y, o);
-        if (piece.file === "taxi") return;
-        var tree = piece.file.indexOf("tree_") === 0;
-        var fade = tree && treeCovers(n, piece.file, piece.scale || 1, o, feet);
-        var sway = tree || piece.file === "washing_line";
-        queue.push({ y: n.y, draw: function () {
+        var fake = { type: piece.id, x: piece.x, y: piece.y, w: piece.w, h: piece.h };
+        var front = frontPoint(fake, o);
+        queue.push({ y: front.y, draw: function () {
+          var sway = piece.file === "washing_line" && !calm;
           ctx.save();
-          if (fade) ctx.globalAlpha = 0.38;
           if (sway) {
-            ctx.translate(n.x, n.y);
-            ctx.rotate(Math.sin(now / (tree ? 1400 : 700) + piece.x) * (tree ? 0.018 : 0.04));
-            ctx.translate(-n.x, -n.y);
+            var tip = southTip(fake, o);
+            ctx.translate(tip.x, tip.y);
+            ctx.rotate(Math.sin(now / 900 + piece.x) * 0.02);
+            ctx.translate(-tip.x, -tip.y);
           }
-          blitFoot(ctx, img[piece.file], n.x, n.y, o.tw, piece.scale || 1);
+          drawSprite(ctx, piece.file, fake, o, now);
           ctx.restore();
         } });
-      })(LOOK.dress[di]);
+      })(props[pi]);
     }
     queueActors(queue, state, o, now, ctx);
     (function () {
       var orders = state.orders || {};
-      var spot = { x: 1.35, y: 6.35 };
+      var parked = { x: 0, y: 7, w: 2, h: 1 };
+      var piTaxi;
+      var propsNow = KHAYA.PROPS || [];
+      for (piTaxi = 0; piTaxi < propsNow.length; piTaxi++) if (propsNow[piTaxi].id === "taxi") parked = propsNow[piTaxi];
+      var tx = parked.x;
+      var ty = parked.y;
       var since = now - (orders.at || now);
       var drive = 0;
       if (orders.phase === "here" && since < 2800) {
         drive = easeInOut(Math.min(1, since / 2800));
-        spot = { x: -1.4 + (1.35 + 1.4) * drive, y: 6.35 };
+        tx = parked.x - 3 + 3 * drive;
       } else if (orders.phase === "away" && since < 2600) {
         drive = easeInOut(Math.min(1, since / 2600));
-        spot = { x: 1.35 + drive * 5, y: 6.35 };
+        tx = parked.x + drive * 4;
       }
       var movingTaxi = (orders.phase === "here" && since < 2800) || (orders.phase === "away" && since < 2600);
-      var bounce = movingTaxi ? Math.sin(since / 90) * 0.035 * (1 - Math.min(1, since / 2600)) : 0;
+      var bounce = movingTaxi ? Math.sin(since / 90) * 0.04 * (1 - Math.min(1, since / 2600)) : 0;
       if (!movingTaxi && orders.phase === "here" && since < 3400) bounce = Math.sin((since - 2800) / 600 * Math.PI) * 0.03;
-      var n = north(spot.x, spot.y + bounce, o);
-      queue.push({ y: n.y, draw: function () {
-        blitFoot(ctx, img.taxi, n.x, n.y, o.tw, 0.85);
-        if (movingTaxi) puff(ctx, n.x - o.tw * 0.18, n.y - o.th * 0.15, now, "steam");
+      var pivot = (LOOK.pivot && LOOK.pivot.taxi) || [0.5, 1, 327];
+      var scale = pivot[2] ? (0.95 * 256) / pivot[2] : 1;
+      var tip = north(tx + parked.w, ty + parked.h + bounce, o);
+      var front = north(tx + parked.w - 0.5, ty + parked.h - 0.5, o);
+      queue.push({ y: front.y, draw: function () {
+        blitPivot(ctx, img.taxi, tip.x, tip.y, o.tw, scale, pivot);
+        if (movingTaxi) puff(ctx, tip.x - o.tw * 0.2, tip.y - o.th * 0.2, now, "steam");
       } });
       var ev = state.laneEvent && state.laneEvent.current;
       if (ev && ev.type === "goat") {
-        var gx = 5.2 + Math.sin(now / 180) * 0.8;
-        var gy = 4.2 + Math.cos(now / 220) * 0.35;
+        var gx = 4.5 + Math.sin(now / 180) * 0.12;
+        var gy = 3.5;
         var gn = north(gx, gy, o);
-        queue.push({ y: gn.y, draw: function () {
+        queue.push({ y: gn.y + 0.5, draw: function () {
           blitFoot(ctx, img.animal_goat, gn.x, gn.y, o.tw, LOOK.actors.goat.scale);
         } });
       }
       if (ev && ev.type === "ball") {
-        var bn = north(4.2, 5.6, o);
-        queue.push({ y: bn.y, draw: function () {
+        var bn = north(4.5, 5.5, o);
+        queue.push({ y: bn.y + 0.5, draw: function () {
           ctx.save();
           ctx.fillStyle = "#f4f1ea";
           ctx.beginPath();
@@ -2324,8 +3072,44 @@ var DRAW = (function () {
       }
     })();
     queue.sort(function (a, b) { return a.y - b.y; });
-    for (i = 0; i < queue.length; i++) queue[i].draw();
+    for (i = 0; i < queue.length; i++) {
+      if (queue[i].y < -o.th * 3 || queue[i].y > h + o.th * 2) continue;
+      queue[i].draw();
+    }
+    for (i = 0; i < labels.length; i++) {
+      var mark = labels[i];
+      if (mark.job) barOver(ctx, mark.x, mark.y, barW, mark.job.progress, "#7eb6e0");
+      if (mark.growth && mark.growth.phase === "growing") barOver(ctx, mark.x, mark.y, barW, mark.growth.progress, "#7dcea0");
+      if (mark.growth && mark.growth.phase === "ready") readyMark(ctx, mark.x, mark.y, now);
+      if (mark.prod && mark.prod.ready) coinBadge(ctx, mark.x, mark.y, now);
+    }
+    if (VEIL[phase]) {
+      ctx.fillStyle = VEIL[phase];
+      ctx.fillRect(0, 0, w, h);
+    }
     var pid;
+    for (pid in KHAYA.PLOTS) {
+      if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
+      var fence = KHAYA.PLOTS[pid];
+      var edge = corners(fence.x, fence.y, fence.w, fence.h, o);
+      ctx.save();
+      ctx.strokeStyle = "rgba(92, 58, 32, 0.72)";
+      ctx.lineWidth = Math.max(2, o.tw * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(edge.n.x, edge.n.y);
+      ctx.lineTo(edge.e.x, edge.e.y);
+      ctx.lineTo(edge.s.x, edge.s.y);
+      ctx.lineTo(edge.w.x, edge.w.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = "#6b4524";
+      var post;
+      var posts = [edge.n, edge.e, edge.s, edge.w];
+      for (post = 0; post < posts.length; post++) {
+        ctx.fillRect(posts[post].x - 2, posts[post].y - o.th * 0.18, 4, o.th * 0.22);
+      }
+      ctx.restore();
+    }
     for (pid in KHAYA.PLOTS) {
       if (KHAYA.plotOpen(state, KHAYA.PLOTS[pid].x, KHAYA.PLOTS[pid].y)) continue;
       var plot = KHAYA.PLOTS[pid];
@@ -2365,13 +3149,27 @@ var DRAW = (function () {
         type: view.ghost.type, x: view.ghost.x, y: view.ghost.y,
         w: KHAYA.BUILDINGS[view.ghost.type].w, h: KHAYA.BUILDINGS[view.ghost.type].h, level: 1
       };
+      var shade = corners(ghost.x, ghost.y, ghost.w, ghost.h, o);
       ctx.save();
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.34;
+      poly(ctx, [shade.n, shade.e, shade.s, shade.w], gok ? "#7dcea0" : "#e07a6a");
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = gok ? 0.72 : 0.45;
+      if (!gok) {
+        ctx.translate(Math.sin(now / 70) * 2, 0);
+      }
       drawSprite(ctx, buildingFile(ghost, now), ghost, o, now, 0);
       ctx.restore();
-      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#f2c14e" : "#d64545");
+      ring(ctx, ghost.x, ghost.y, ghost.w, ghost.h, o, gok ? "#2f6d4f" : "#d64545");
     }
     if (view.selected) ring(ctx, view.selected.x, view.selected.y, view.selected.w, view.selected.h, o, "#f2c14e");
+    if (view.hint) {
+      ctx.save();
+      ctx.globalAlpha = 0.55 + Math.sin(now / 320) * 0.25;
+      ring(ctx, view.hint.x, view.hint.y, view.hint.w, view.hint.h, o, "#e2a53a");
+      ctx.restore();
+    }
     if (view.floats) floats(ctx, view.floats, now);
     if (markGround) {
       ctx.save();
@@ -2386,7 +3184,73 @@ var DRAW = (function () {
       }
       ctx.restore();
     }
+    if (view && view.align) paintAlign(ctx, state, o, now);
     return o;
+  }
+
+  function strokeDiamond(ctx, c, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(c.n.x, c.n.y);
+    ctx.lineTo(c.e.x, c.e.y);
+    ctx.lineTo(c.s.x, c.s.y);
+    ctx.lineTo(c.w.x, c.w.y);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  function paintAlign(ctx, state, o, now) {
+    ctx.save();
+    var x, y, c, i, b, p, cells, spot, front, order;
+    for (y = 0; y < KHAYA.ROWS; y++) {
+      for (x = 0; x < KHAYA.COLS; x++) {
+        c = corners(x, y, 1, 1, o);
+        strokeDiamond(ctx, c, "rgba(255,255,255,0.28)", 1);
+      }
+    }
+    order = [];
+    for (i = 0; i < state.buildings.length; i++) {
+      b = state.buildings[i];
+      c = corners(b.x, b.y, b.w, b.h, o);
+      strokeDiamond(ctx, c, "#e2a53a", 2);
+      front = frontPoint(b, o);
+      order.push({ x: front.x, y: front.y, label: b.type });
+      var tip = southTip(b, o);
+      ctx.strokeStyle = "#ff2d55";
+      ctx.beginPath();
+      ctx.moveTo(tip.x - 6, tip.y);
+      ctx.lineTo(tip.x + 6, tip.y);
+      ctx.moveTo(tip.x, tip.y - 6);
+      ctx.lineTo(tip.x, tip.y + 6);
+      ctx.stroke();
+    }
+    cells = KHAYA.PROPS || [];
+    for (i = 0; i < cells.length; i++) {
+      p = cells[i];
+      c = corners(p.x, p.y, p.w, p.h, o);
+      strokeDiamond(ctx, c, "#7eb6e0", 2);
+      front = frontPoint(p, o);
+      order.push({ x: front.x, y: front.y, label: p.id });
+    }
+    for (i = 0; i < LOOK.cast.length; i++) {
+      spot = actorWhere(LOOK.cast[i], state, now);
+      if (!spot) continue;
+      var foot = north(spot.x, spot.y, o);
+      order.push({ x: foot.x, y: foot.y + 0.5, label: LOOK.cast[i].id });
+      ctx.strokeStyle = "#7dcea0";
+      ctx.beginPath();
+      ctx.arc(foot.x, foot.y, 3, 0, 7);
+      ctx.stroke();
+    }
+    order.sort(function (a, b) { return a.y - b.y; });
+    ctx.font = "700 10px Fredoka, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#1a120c";
+    for (i = 0; i < order.length; i++) {
+      ctx.fillText(String(i), order[i].x, order[i].y - 8);
+    }
+    ctx.restore();
   }
 
   function lineup(canvas) {
@@ -2660,7 +3524,12 @@ var PLAY = (function () {
 
   var now0 = Date.now();
   var state = q.get("fresh") ? KHAYA.fresh(now0) : (load() || KHAYA.fresh(now0));
-  KHAYA.tick(state, now0);
+  var bootTick = KHAYA.tick(state, now0);
+  var pendingAway = KHAYA.awayLine(bootTick && bootTick.away);
+  var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var sharp = 1;
+  var dtEma = 16;
+  var framesSeen = 0;
   var selectedId = null;
   var ghost = null;
   var stopGame = null;
@@ -2787,7 +3656,12 @@ var PLAY = (function () {
       modal.hidden = true;
       sheet.classList.remove("shut");
       sheet.setAttribute("aria-hidden", "true");
-    }, 160);
+      if (pendingAway) {
+        var line = pendingAway;
+        pendingAway = "";
+        toast(line);
+      }
+    }, 180);
   }
 
   function openModal(title, html) {
@@ -2818,7 +3692,7 @@ var PLAY = (function () {
     for (ck in state.crops) if (state.crops[ck]) cropSig += ck + state.crops[ck];
     var ordersN = state.orders && state.orders.phase === "here" && state.orders.list ? state.orders.list.length : 0;
     var st = state.stats || {};
-    var sig = state.notes + "|" + state.seeds + "|" + state.water + "|" + state.timber + "|" + state.bricks + "|" + cropSig + "|" + KHAYA.playerXp(state) + "|" + ordersN + "|" + (st.harvested || 0) + "|" + (st.placed || 0);
+    var sig = state.notes + "|" + state.seeds + "|" + state.water + "|" + state.timber + "|" + state.bricks + "|" + cropSig + "|" + KHAYA.playerXp(state) + "|" + ordersN + "|" + (st.harvested || 0) + "|" + (st.placed || 0) + "|" + (selectedId || 0);
     if (sig === hudSig) return;
     hudSig = sig;
     notesEl.innerHTML = icon("coin") + "<b>" + state.notes + "</b>";
@@ -2838,8 +3712,10 @@ var PLAY = (function () {
     var lv = KHAYA.playerLevel(state);
     var ordersBtn = document.getElementById("orders");
     if (ordersBtn) {
+      var showOrders = (state.stats.harvested || 0) > 0;
+      ordersBtn.hidden = !showOrders;
       var list = state.orders && state.orders.phase === "here" ? state.orders.list : [];
-      ordersBtn.textContent = list && list.length ? "Orders " + list.length : "Orders";
+      ordersBtn.textContent = showOrders && list && list.length ? "Orders " + list.length : "Orders";
     }
     if (levelEl) levelEl.textContent = String(lv);
     if (xpFill) {
@@ -2848,16 +3724,15 @@ var PLAY = (function () {
       xpFill.style.transform = "scaleX(" + pct + ")";
     }
     if (goalEl) {
-      var open = KHAYA.tasks(state).filter(function (t) { return !t.done; }).slice(0, 3);
-      if (!open.length) open = [{ done: true, text: "The lane is underway. Keep growing it." }];
+      var open = selected() ? KHAYA.tasks(state).filter(function (t) { return !t.done; }).slice(0, 1) : [];
       goalEl.innerHTML = open.map(function (t) {
-        return "<li" + (t.done ? " class=\"done\"" : "") + ">" + t.text + "</li>";
+        return "<li>" + t.text + "</li>";
       }).join("");
     }
     var laneBtn = document.querySelector("[data-act=more]");
     if (laneBtn) {
       var badges = KHAYA.unseenFolk(state);
-      if (!state.daily || state.daily.last !== KHAYA.dayKey(new Date())) badges += 1;
+      if ((state.stats.harvested || 0) > 0 && (!state.daily || state.daily.last !== KHAYA.dayKey(new Date()))) badges += 1;
       laneBtn.innerHTML = "Lane" + (badges ? "<span class=\"badge\">" + badges + "</span>" : "");
     }
   }
@@ -2910,63 +3785,105 @@ var PLAY = (function () {
     }
   }
 
+  var cardSig = "";
   function paintCard() {
     var b = selected();
+    var now = Date.now();
+    var html = "";
+    var sig = "";
     if (ghost) {
       var def = KHAYA.BUILDINGS[ghost.type];
       var check = KHAYA.canPlace(state, ghost.type, ghost.x, ghost.y);
-      card.innerHTML = "<b>Placing " + def.name + "</b><p>" + (check.ok ? "Tap the lane to build it." : check.reason) + "</p>";
-      return;
-    }
-    if (!b) {
-      card.innerHTML = "<b>Khaya Lane</b><p>Tap a bed to plant, or open Build.</p>";
-      return;
-    }
-    var spec = KHAYA.BUILDINGS[b.type];
-    var html = "<b>" + spec.name + "</b>";
-    if (b.type === "bed") {
-      var view = KHAYA.bedView(b, Date.now());
-      if (view.phase === "empty") {
-        html += "<p>Choose a crop.</p><div class=\"row\">";
-        Object.keys(KHAYA.CROPS).forEach(function (k) {
-          var c = KHAYA.CROPS[k];
-          if (c.offer === false) return;
-          var locked = KHAYA.farmLevel(state) < c.level;
-          html += "<button type=\"button\" data-sow=\"" + k + "\"" + (locked || state.seeds < 1 ? " disabled" : "") + ">" + c.name + (locked ? " · lv " + c.level : "") + "</button>";
-        });
-        html += "</div>";
-      } else if (view.phase === "sown") {
-        var waterCost = KHAYA.CROPS[b.crop].water;
-        html += "<p>" + KHAYA.CROPS[b.crop].name + " is in. It needs " + waterCost + " water.</p>";
-        html += "<button type=\"button\" class=\"hot\" data-do=\"water\"" + (state.water < waterCost ? " disabled" : "") + ">Water</button>";
-      } else if (view.phase === "growing") {
-        html += "<p>" + KHAYA.CROPS[b.crop].name + " · " + Math.ceil(view.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + view.progress + ")\"></span></div>";
-      } else {
-        html += "<p>" + KHAYA.CROPS[b.crop].name + " is ready.</p><button type=\"button\" class=\"hot\" data-do=\"harvest\">Harvest</button>";
-      }
+      sig = "g" + ghost.type + ghost.x + "," + ghost.y + (check.ok ? 1 : 0);
+      html = "<b>Placing " + def.name + "</b><p>" + (check.ok ? "Tap the grass to build it." : check.reason) + "</p>";
+    } else if (!b) {
+      var guide = KHAYA.coach(state, now);
+      sig = "c" + (guide ? guide.act + guide.title + (guide.sow || "") : "quiet") + state.seeds + state.water;
+      if (guide) {
+        html = "<b>" + guide.title + "</b><p>" + guide.text + "</p>";
+        if (guide.act === "water") html += "<button type=\"button\" class=\"hot\" data-coach=\"water\" data-id=\"" + guide.id + "\">Water</button>";
+        else if (guide.act === "harvest") html += "<button type=\"button\" class=\"hot\" data-coach=\"harvest\" data-id=\"" + guide.id + "\">Pick</button>";
+        else if (guide.act === "sow") html += "<button type=\"button\" class=\"hot\" data-coach=\"sow\" data-id=\"" + guide.id + "\">Sow maize</button>";
+        else if (guide.act === "build") html += "<button type=\"button\" class=\"hot\" data-coach=\"build\">Build a spaza</button>";
+        else if (guide.sow) html += "<button type=\"button\" class=\"hot\" data-coach=\"sow\" data-id=\"" + guide.sow + "\">Sow maize</button>";
+      } else html = "<b>Khaya Lane</b><p>Tap a bed, or open Build.</p>";
     } else {
-      html += "<p>" + spec.blurb + "</p>";
-      var job = KHAYA.buildView(b);
-      if (job) {
-        html += "<p>Building · " + Math.ceil(job.left / 1000) + "s</p><div class=\"meter\"><span style=\"transform:scaleX(" + job.progress + ")\"></span></div>";
-      }
-      var prod = KHAYA.produceView(b);
-      if (prod) {
-        html += "<p>" + (prod.ready ? prod.stored + " notes ready" : "Next note in " + Math.ceil(prod.left / 1000) + "s") + "</p>";
-        html += "<div class=\"meter\"><span style=\"transform:scaleX(" + prod.progress + ")\"></span></div>";
-        if (prod.ready) html += "<button type=\"button\" class=\"hot\" data-do=\"collect\">Collect</button>";
-      }
-      if (!job) {
-        var up = KHAYA.canUpgrade(state, b.id);
-        var price = KHAYA.upgradeCost(state, b);
-        if (price) {
-          html += "<p class=\"fine\">" + costLine(price) + "</p>";
-          html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade</button>";
-          if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
-        } else html += "<p class=\"fine\">Fully built.</p>";
+      var spec = KHAYA.BUILDINGS[b.type];
+      html = "<b>" + spec.name + "</b>";
+      sig = "b" + b.id + b.level + (b.phase || "") + (b.crop || "") + (b.stored || 0) + (b.buildLeft || 0) + state.water + state.seeds + state.notes;
+      if (b.type === "bed") {
+        var view = KHAYA.bedView(b, now);
+        sig += view.phase + Math.round((view.progress || 0) * 20);
+        if (view.phase === "empty") {
+          html += "<p>Choose a crop.</p><div class=\"row\">";
+          Object.keys(KHAYA.CROPS).forEach(function (k) {
+            var c = KHAYA.CROPS[k];
+            if (c.offer === false) return;
+            var locked = KHAYA.farmLevel(state) < c.level;
+            html += "<button type=\"button\" data-sow=\"" + k + "\"" + (locked || state.seeds < 1 ? " disabled" : "") + ">" + c.name + (locked ? " · lv " + c.level : "") + "</button>";
+          });
+          html += "</div>";
+        } else if (view.phase === "sown") {
+          var waterCost = KHAYA.CROPS[b.crop].water;
+          html += "<p>" + KHAYA.CROPS[b.crop].name + " is in. It needs " + waterCost + " water.</p>";
+          html += "<button type=\"button\" class=\"hot\" data-do=\"water\"" + (state.water < waterCost ? " disabled" : "") + ">Water</button>";
+        } else if (view.phase === "growing") {
+          html += "<p>" + KHAYA.CROPS[b.crop].name + " · ready in " + KHAYA.formatSpan(view.left) + "</p><div class=\"meter\"><span style=\"transform:scaleX(" + view.progress + ")\"></span></div>";
+        } else {
+          html += "<p>" + KHAYA.CROPS[b.crop].name + " is ready.</p><button type=\"button\" class=\"hot\" data-do=\"harvest\">Pick</button>";
+        }
+      } else {
+        html += "<p>" + spec.blurb + "</p>";
+        var job = KHAYA.buildView(b);
+        if (job) {
+          sig += Math.round(job.progress * 20);
+          html += "<p>Building · " + KHAYA.formatSpan(job.left) + " left</p><div class=\"meter\"><span style=\"transform:scaleX(" + job.progress + ")\"></span></div>";
+        }
+        var prod = KHAYA.produceView(b, state);
+        if (prod) {
+          sig += Math.round(prod.progress * 20);
+          html += "<p>" + (prod.ready ? prod.stored + " notes ready" : "Next note in " + KHAYA.formatSpan(prod.left)) + "</p>";
+          html += "<div class=\"meter\"><span style=\"transform:scaleX(" + prod.progress + ")\"></span></div>";
+          if (prod.ready) html += "<button type=\"button\" class=\"hot\" data-do=\"collect\">Collect</button>";
+        }
+        if (!job) {
+          var up = KHAYA.canUpgrade(state, b.id);
+          var price = KHAYA.upgradeCost(state, b);
+          if (price) {
+            html += "<p class=\"fine\">" + costLine(price) + "</p>";
+            html += "<button type=\"button\" class=\"hot\" data-do=\"upgrade\"" + (up.ok ? "" : " disabled") + ">Upgrade · " + KHAYA.formatSpan(KHAYA.upgradeDuration(b)) + "</button>";
+            if (!up.ok) html += "<p class=\"fine\">" + up.reason + "</p>";
+          } else html += "<p class=\"fine\">Fully built.</p>";
+        }
       }
     }
+    if (sig === cardSig) return;
+    cardSig = sig;
     card.innerHTML = html;
+  }
+
+  function scene(dragging) {
+    var hint = null;
+    var guide = !selectedId && !ghost ? KHAYA.coach(state, Date.now()) : null;
+    if (guide && guide.id && (state.stats.harvested || 0) < 1) {
+      var target = KHAYA.buildingById(state, guide.id);
+      if (target) hint = { x: target.x, y: target.y, w: target.w, h: target.h };
+    }
+    return {
+      ghost: ghost,
+      selected: selected(),
+      born: born,
+      floats: floats,
+      drag: dragging,
+      cam: cam,
+      squash: squash,
+      ground: q.get("ground") === "1",
+      align: q.get("align") === "1",
+      light: q.get("light") || "",
+      calm: reduceMotion,
+      hint: hint,
+      sharp: sharp
+    };
   }
 
   function cellPoint(b) {
@@ -2979,9 +3896,14 @@ var PLAY = (function () {
     paintHud();
     paintCard();
     placingEl.hidden = !ghost;
-    if (ghost) placingEl.textContent = "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap the grass, or cancel";
+    if (ghost) {
+      var gcheck = KHAYA.canPlace(state, ghost.type, ghost.x, ghost.y);
+      placingEl.textContent = gcheck.ok
+        ? "Placing " + KHAYA.BUILDINGS[ghost.type].name + " — tap to set it"
+        : KHAYA.BUILDINGS[ghost.type].name + " will not fit there";
+    }
     var dragging = drag && drag.moved && !drag.ghost ? { id: drag.id, x: drag.cx, y: drag.cy } : null;
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, Date.now());
+    DRAW.render(canvas, state, scene(dragging), Date.now());
   }
 
   function act(result) {
@@ -3001,11 +3923,19 @@ var PLAY = (function () {
       born[focus.id] = Date.now();
       chime("place");
     }
+    if (result.sown && focus) {
+      var sownAt = cellPoint(focus);
+      floats.push({ x: sownAt.x, y: sownAt.y, t: Date.now(), text: "Sown", color: "#2f6d4f" });
+    }
+    if (result.grow && focus) {
+      var wet = cellPoint(focus);
+      floats.push({ x: wet.x, y: wet.y, t: Date.now(), text: "Watered", color: "#2f6d8f", kind: "water" });
+    }
     if (result.amount) {
       chime(result.crit ? "place" : "harvest");
       if (focus) {
         var p = cellPoint(focus);
-        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f" });
+        floats.push({ x: p.x, y: p.y, t: Date.now(), text: (result.crit ? "Golden ×" : "+") + result.amount + " " + result.crop, color: result.crit ? "#e2a53a" : "#2f6d4f", coins: result.crit ? 6 : 4 });
       }
       if (result.crit && result.combo >= 3) toast("Golden mielie, combo " + result.combo + ".");
       else if (result.crit) toast("A golden mielie. Triple harvest.");
@@ -3015,7 +3945,8 @@ var PLAY = (function () {
       toast("+" + result.notes + " notes");
       if (result.collected && focus) {
         var coin = cellPoint(focus);
-        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(6, result.notes) });
+        floats.push({ x: coin.x, y: coin.y, t: Date.now(), text: "+" + result.notes, color: "#c4841a", coins: Math.min(8, 3 + result.notes) });
+        squash[focus.id] = Date.now();
         var rect = canvas.getBoundingClientRect();
         flyCoins(rect.left + coin.x, rect.top + coin.y, result.notes);
       }
@@ -3051,7 +3982,7 @@ var PLAY = (function () {
     openModal("Build", html);
     modalBody.querySelectorAll("[data-arm]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        ghost = { type: btn.getAttribute("data-arm"), x: 2, y: 5 };
+        ghost = { type: btn.getAttribute("data-arm"), x: 3, y: 5 };
         selectedId = null;
         closeModal();
         paint();
@@ -3068,7 +3999,7 @@ var PLAY = (function () {
       return "<h3>" + label + " · level " + lv + "</h3><div class=\"meter\"><span style=\"transform:scaleX(" + pct + ")\"></span></div><p class=\"fine\">" + xp + " xp" + (info.max ? " · practised" : " · " + (info.next - xp) + " to the next level") + "</p>";
     }
     var html = block("Farming", state.farmXp, KHAYA.FARM_STEPS) + block("Building", state.buildXp, KHAYA.BUILD_STEPS);
-    html += "<ul class=\"unlocks\"><li>Maize and spinach from the start</li><li>Tomatoes at farming level 2</li><li>Aloe at farming level 3</li><li>Solar stand at building level 2</li><li>Home’s last step at building level 2</li></ul>";
+    html += "<ul class=\"unlocks\"><li>Maize and morogo from the start. The first ones are quick.</li><li>Pumpkin at farming level 2</li><li>Aloe at farming level 3</li><li>Solar stand at building level 2</li><li>The face-brick home at building level 2</li></ul>";
     openModal("Skills", html);
   }
 
@@ -3245,10 +4176,26 @@ var PLAY = (function () {
     });
   }
 
-  function cellFrom(ev) {
+  function cellFrom(ev, precise) {
     var rect = canvas.getBoundingClientRect();
+    var sx = ev.clientX - rect.left;
+    var sy = ev.clientY - rect.top;
     var o = DRAW.layout(canvas.clientWidth, canvas.clientHeight, cam);
-    return KHAYA.pickCell(ev.clientX - rect.left, ev.clientY - rect.top, o.ox, o.oy, o.tw, o.th);
+    var cell = KHAYA.pickCell(sx, sy, o.ox, o.oy, o.tw, o.th);
+    if (precise || ghost) return cell;
+    if (KHAYA.occupied(state, cell.x, cell.y)) return cell;
+    var best = null;
+    var bestD = o.tw * 0.62;
+    var near = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+    var i, b, c, d;
+    for (i = 0; i < near.length; i++) {
+      b = KHAYA.occupied(state, cell.x + near[i][0], cell.y + near[i][1]);
+      if (!b) continue;
+      c = KHAYA.cellNorth(b.x + b.w / 2, b.y + b.h / 2, o.ox, o.oy, o.tw, o.th);
+      d = Math.hypot(c.x - sx, c.y - sy);
+      if (d < bestD) { bestD = d; best = { x: b.x, y: b.y }; }
+    }
+    return best || cell;
   }
 
   function pinchDist() {
@@ -3309,8 +4256,8 @@ var PLAY = (function () {
     if (drag.pan) {
       cam.x += ev.clientX - drag.lx;
       cam.y += ev.clientY - drag.ly;
-      cam.vx = (ev.clientX - drag.lx) * 0.6;
-      cam.vy = (ev.clientY - drag.ly) * 0.6;
+      cam.vx = Math.max(-14, Math.min(14, (ev.clientX - drag.lx) * 0.22));
+      cam.vy = Math.max(-14, Math.min(14, (ev.clientY - drag.ly) * 0.22));
       drag.lx = ev.clientX;
       drag.ly = ev.clientY;
       DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
@@ -3338,6 +4285,7 @@ var PLAY = (function () {
       return;
     }
     if (item.ghost) {
+      if (item.moved) { paint(); return; }
       var placed = KHAYA.place(state, ghost.type, ghost.x, ghost.y);
       if (placed.ok) {
         ghost = null;
@@ -3373,6 +4321,13 @@ var PLAY = (function () {
   card.addEventListener("click", function (ev) {
     var sow = ev.target.getAttribute && ev.target.getAttribute("data-sow");
     var todo = ev.target.getAttribute && ev.target.getAttribute("data-do");
+    var coachAct = ev.target.getAttribute && ev.target.getAttribute("data-coach");
+    var coachId = Number(ev.target.getAttribute && ev.target.getAttribute("data-id"));
+    if (coachAct === "build") { openBuild(); return; }
+    if (coachAct === "water" || coachAct === "harvest" || coachAct === "sow") selectedId = coachId;
+    if (coachAct === "water") act(KHAYA.water(state, coachId, Date.now()));
+    if (coachAct === "harvest") act(KHAYA.harvest(state, coachId, Date.now()));
+    if (coachAct === "sow") act(KHAYA.sow(state, coachId, "maize"));
     if (sow) act(KHAYA.sow(state, selectedId, sow));
     if (todo === "water") act(KHAYA.water(state, selectedId, Date.now()));
     if (todo === "harvest") act(KHAYA.harvest(state, selectedId, Date.now()));
@@ -3403,7 +4358,9 @@ var PLAY = (function () {
   window.addEventListener("resize", paint);
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) {
-      KHAYA.tick(state, Date.now());
+      var returned = KHAYA.tick(state, Date.now());
+      var line = KHAYA.awayLine(returned && returned.away);
+      if (line) toast(line);
       save();
       paint();
     }
@@ -3413,7 +4370,17 @@ var PLAY = (function () {
   if (!state.welcomed) {
     state.welcomed = true;
     save();
-    openModal("Welcome to Khaya Lane", "<p class=\"rules\">Sow a bed, water it, and harvest. The spaza earns notes while you are away — tap the coin to collect. Drag a building to move it. Upgrade the home when you can. Notes stay on this device.</p><button type=\"button\" class=\"hot\" data-close>Start on the lane</button>");
+    openModal("Khaya Lane", "<p class=\"rules\">Thabo left mielies growing. Water the morogo, then pick the mielies when the bed says Pick.</p><button type=\"button\" class=\"hot\" id=\"welcomeGo\">Start with the morogo</button>");
+    var welcomeGo = document.getElementById("welcomeGo");
+    if (welcomeGo) welcomeGo.addEventListener("click", function () {
+      var guide = KHAYA.coach(state, Date.now());
+      if (guide && guide.id) selectedId = guide.id;
+      closeModal();
+      paint();
+    });
+  } else if (pendingAway) {
+    toast(pendingAway);
+    pendingAway = "";
   }
 
   var muteBtn = document.getElementById("mute");
@@ -3467,6 +4434,14 @@ var PLAY = (function () {
   var benchDts = [];
   function frame() {
     var now = Date.now();
+    framesSeen += 1;
+    if (framesSeen > 1) {
+      var dt = now - (frame.prev || now);
+      dtEma = dtEma * 0.9 + dt * 0.1;
+      if (framesSeen > 120 && dtEma > 22 && sharp > 0.55) sharp = 0.5;
+      if (framesSeen > 200 && dtEma < 18 && sharp < 1) sharp = 1;
+    }
+    frame.prev = now;
     if (bench) {
       if (!benchStart) benchStart = now;
       if (benchLast) benchDts.push(now - benchLast);
@@ -3493,16 +4468,16 @@ var PLAY = (function () {
     if (!drag || !drag.pan) {
       cam.x += cam.vx;
       cam.y += cam.vy;
-      cam.vx *= 0.9;
-      cam.vy *= 0.9;
-      if (Math.abs(cam.vx) < 0.08) cam.vx = 0;
-      if (Math.abs(cam.vy) < 0.08) cam.vy = 0;
+      cam.vx *= 0.86;
+      cam.vy *= 0.86;
+      if (Math.abs(cam.vx) < 0.2) cam.vx = 0;
+      if (Math.abs(cam.vy) < 0.2) cam.vy = 0;
       if (cam.vx || cam.vy) DRAW.clampCamera(canvas.clientWidth, canvas.clientHeight, cam);
     }
     if (now - hudAt > 350) {
       KHAYA.setToday(state, KHAYA.dayKey(new Date()));
       var ticked = KHAYA.tick(state, now);
-      if (ticked.hoot && state.orders) {
+      if (ticked.hoot && state.orders && (state.stats.harvested || 0) > 0) {
         tone(440, 0.08, "square", 0.04);
         setTimeout(function () { tone(330, 0.12, "square", 0.04); }, 120);
         state.orders.hoot = 0;
@@ -3536,7 +4511,7 @@ var PLAY = (function () {
     for (fi = 0; fi < fn; fi++) {
       if (now - floats[fi].t >= 1000) { floats.splice(fi, 1); fi -= 1; fn -= 1; }
     }
-    DRAW.render(canvas, state, { ghost: ghost, selected: selected(), born: born, floats: floats, drag: dragging, cam: cam, squash: squash, ground: q.get("ground") === "1" }, now);
+    DRAW.render(canvas, state, scene(dragging), now);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -3562,7 +4537,7 @@ var PLAY = (function () {
       if (!bed) return;
       state.stats.harvested = 5;
       KHAYA.sow(state, bed.id, "maize");
-      KHAYA.water(state, bed.id, Date.now() - 20000);
+      KHAYA.water(state, bed.id, Date.now() - 120000);
       act(KHAYA.harvest(state, bed.id, Date.now()));
     }, 10200);
     setTimeout(function () { openPlay(); }, 12800);
@@ -3583,10 +4558,13 @@ DRAW.load(function () {
     return;
   }
   paint();
+  var bootEl = document.getElementById("boot");
+  if (bootEl) bootEl.hidden = true;
 });
 window.__EISH_OK = true;
-  var boot = document.getElementById("boot");
-  if (boot) boot.hidden = true;
-  paint();
+setTimeout(function () {
+  var bootEl = document.getElementById("boot");
+  if (bootEl) bootEl.hidden = true;
+}, 4000);
   save();
 })();
