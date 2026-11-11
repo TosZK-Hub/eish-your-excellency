@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#d4652f">
+  <meta name="description" content="My Tokoloshe, a cheeky South African virtual pet.">
+  <title>My Tokoloshe</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+  <div id="app" data-room="kitchen" data-mode="live">
+    <header id="hud">
+      <div id="hud-live">
+        <div class="row">
+          <div class="title">My Tokoloshe</div>
+          <button id="mute" type="button" aria-label="Mute sound">🔊</button>
+          <div class="coins" id="coins" aria-label="Coins"><i></i><b id="coin-num">0</b></div>
+        </div>
+        <div class="row sub">
+          <div class="lvl" id="lvl">Lv 1</div>
+          <div class="xp" aria-hidden="true"><span id="xpbar"></span></div>
+        </div>
+        <div class="meters">
+          <div class="meter" data-k="hunger"><label><span>Hunger</span><b>0</b></label><div class="bar"><i></i></div></div>
+          <div class="meter" data-k="clean"><label><span>Clean</span><b>0</b></label><div class="bar"><i></i></div></div>
+          <div class="meter" data-k="energy"><label><span>Energy</span><b>0</b></label><div class="bar"><i></i></div></div>
+          <div class="meter" data-k="fun"><label><span>Fun</span><b>0</b></label><div class="bar"><i></i></div></div>
+        </div>
+      </div>
+      <div id="hud-play" hidden>
+        <button id="exit-game" type="button">Back</button>
+        <div class="gstat" id="gstat-score"><b id="g-score">0</b><span>score</span></div>
+        <div class="gstat" id="gstat-time"><b id="g-time">0</b><span>sec</span></div>
+        <div class="gstat" id="gstat-extra"><b id="g-extra">0</b><span id="g-extra-label">best</span></div>
+      </div>
+    </header>
+    <main id="stage">
+      <canvas id="view" width="360" height="360"></canvas>
+      <div id="speech" hidden aria-live="polite"></div>
+      <div id="toast" hidden></div>
+      <div id="banner" hidden></div>
+    </main>
+    <section id="tray">
+      <p id="hint"></p>
+      <div id="tray-body"></div>
+    </section>
+    <nav id="tabs" role="tablist">
+      <button class="tab" type="button" data-room="kitchen" role="tab" aria-selected="true"><span class="ico"></span>Kitchen</button>
+      <button class="tab" type="button" data-room="bath" role="tab" aria-selected="false"><span class="ico"></span>Bath</button>
+      <button class="tab" type="button" data-room="stoep" role="tab" aria-selected="false"><span class="ico"></span>Stoep</button>
+      <button class="tab" type="button" data-room="shop" role="tab" aria-selected="false"><span class="ico"></span>Shop</button>
+      <button class="tab" type="button" data-room="play" role="tab" aria-selected="false"><span class="ico"></span>Play</button>
+    </nav>
+    <div id="modal" hidden>
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <h2 id="modal-title"></h2>
+        <p id="modal-body"></p>
+        <button id="modal-ok" type="button">Sharp sharp</button>
+      </div>
+    </div>
+    <div id="gameover" hidden>
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="go-title">
+        <h2 id="go-title">Lekker</h2>
+        <p id="go-body"></p>
+        <div class="go-stats">
+          <div><b id="go-score">0</b><span>score</span></div>
+          <div><b id="go-best">0</b><span>best</span></div>
+          <div><b id="go-coins">0</b><span>coins</span></div>
+        </div>
+        <div class="go-actions">
+          <button id="go-again" type="button">Again</button>
+          <button id="go-done" type="button" class="ghost">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <noscript><p>My Tokoloshe needs JavaScript.</p></noscript>
+  <script src="js/audio.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/draw.js"></script>
+  <script src="js/games.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

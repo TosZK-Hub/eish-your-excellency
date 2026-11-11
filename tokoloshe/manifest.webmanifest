@@ -1,0 +1,18 @@
+{
+  "name": "My Tokoloshe",
+  "short_name": "Tokoloshe",
+  "description": "A cheeky little household tokoloshe. Feed, scrub, dress and play.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6efe6",
+  "theme_color": "#d4652f",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
