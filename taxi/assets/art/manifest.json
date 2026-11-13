@@ -1,7 +1,7 @@
 {
-  "version": 3,
+  "version": 2,
   "theme": "taxi-rank",
-  "notes": "SA combi pack. Paths are relative to assets/art. One sprite per facing \u2014 do not rotate. Manifest paths in the source pack were /workspace/taxi_art/out/...; these are the same files relative to out/.",
+  "notes": "Approved hand-drawn pack. Taxis face up; rotate in game. Sprites are about 2x their on-screen size.",
   "colours": [
     "red",
     "blue",
@@ -10,131 +10,32 @@
     "purple",
     "orange",
     "teal",
-    "pink"
+    "white"
   ],
-  "directions": [
-    "up",
-    "right",
-    "down",
-    "left"
+  "taxiSize": [
+    220,
+    358
   ],
-  "canvases": {
-    "up": [
-      340,
-      654
-    ],
-    "down": [
-      340,
-      654
-    ],
-    "left": [
-      654,
-      398
-    ],
-    "right": [
-      654,
-      398
-    ]
-  },
   "taxis": {
-    "red": {
-      "up": "taxi/taxi_red_up.webp",
-      "down": "taxi/taxi_red_down.webp",
-      "left": "taxi/taxi_red_left.webp",
-      "right": "taxi/taxi_red_right.webp"
-    },
-    "blue": {
-      "up": "taxi/taxi_blue_up.webp",
-      "down": "taxi/taxi_blue_down.webp",
-      "left": "taxi/taxi_blue_left.webp",
-      "right": "taxi/taxi_blue_right.webp"
-    },
-    "yellow": {
-      "up": "taxi/taxi_yellow_up.webp",
-      "down": "taxi/taxi_yellow_down.webp",
-      "left": "taxi/taxi_yellow_left.webp",
-      "right": "taxi/taxi_yellow_right.webp"
-    },
-    "green": {
-      "up": "taxi/taxi_green_up.webp",
-      "down": "taxi/taxi_green_down.webp",
-      "left": "taxi/taxi_green_left.webp",
-      "right": "taxi/taxi_green_right.webp"
-    },
-    "purple": {
-      "up": "taxi/taxi_purple_up.webp",
-      "down": "taxi/taxi_purple_down.webp",
-      "left": "taxi/taxi_purple_left.webp",
-      "right": "taxi/taxi_purple_right.webp"
-    },
-    "orange": {
-      "up": "taxi/taxi_orange_up.webp",
-      "down": "taxi/taxi_orange_down.webp",
-      "left": "taxi/taxi_orange_left.webp",
-      "right": "taxi/taxi_orange_right.webp"
-    },
-    "teal": {
-      "up": "taxi/taxi_teal_up.webp",
-      "down": "taxi/taxi_teal_down.webp",
-      "left": "taxi/taxi_teal_left.webp",
-      "right": "taxi/taxi_teal_right.webp"
-    },
-    "pink": {
-      "up": "taxi/taxi_pink_up.webp",
-      "down": "taxi/taxi_pink_down.webp",
-      "left": "taxi/taxi_pink_left.webp",
-      "right": "taxi/taxi_pink_right.webp"
-    }
+    "red": "taxi/taxi_red.webp",
+    "blue": "taxi/taxi_blue.webp",
+    "yellow": "taxi/taxi_yellow.webp",
+    "green": "taxi/taxi_green.webp",
+    "purple": "taxi/taxi_purple.webp",
+    "orange": "taxi/taxi_orange.webp",
+    "teal": "taxi/taxi_teal.webp",
+    "white": "taxi/taxi_white.webp"
   },
-  "hidden": {
-    "up": "taxi/taxi_hidden_tarp_q_up.webp",
-    "down": "taxi/taxi_hidden_tarp_q_down.webp",
-    "left": "taxi/taxi_hidden_tarp_q_left.webp",
-    "right": "taxi/taxi_hidden_tarp_q_right.webp"
-  },
-  "locked": {
-    "up": "taxi/overlay_locked_up.webp",
-    "down": "taxi/overlay_locked_down.webp",
-    "left": "taxi/overlay_locked_left.webp",
-    "right": "taxi/overlay_locked_right.webp"
-  },
+  "hiddenPlain": "taxi/taxi_hidden_tarp_plain.webp",
+  "locked": "taxi/overlay_locked.webp",
+  "arrow": "taxi/overlay_arrow.webp",
   "liveries": {
-    "stripes": {
-      "up": "livery/livery_stripes_up.webp",
-      "down": "livery/livery_stripes_down.webp",
-      "left": "livery/livery_stripes_left.webp",
-      "right": "livery/livery_stripes_right.webp"
-    },
-    "chequers": {
-      "up": "livery/livery_chequers_up.webp",
-      "down": "livery/livery_chequers_down.webp",
-      "left": "livery/livery_chequers_left.webp",
-      "right": "livery/livery_chequers_right.webp"
-    },
-    "stars": {
-      "up": "livery/livery_stars_up.webp",
-      "down": "livery/livery_stars_down.webp",
-      "left": "livery/livery_stars_left.webp",
-      "right": "livery/livery_stars_right.webp"
-    },
-    "zigzag": {
-      "up": "livery/livery_zigzag_up.webp",
-      "down": "livery/livery_zigzag_down.webp",
-      "left": "livery/livery_zigzag_left.webp",
-      "right": "livery/livery_zigzag_right.webp"
-    },
-    "flowers": {
-      "up": "livery/livery_flowers_up.webp",
-      "down": "livery/livery_flowers_down.webp",
-      "left": "livery/livery_flowers_left.webp",
-      "right": "livery/livery_flowers_right.webp"
-    },
-    "flames": {
-      "up": "livery/livery_flames_up.webp",
-      "down": "livery/livery_flames_down.webp",
-      "left": "livery/livery_flames_left.webp",
-      "right": "livery/livery_flames_right.webp"
-    }
+    "stripes": "livery/livery_stripes.webp",
+    "chequers": "livery/livery_chequers.webp",
+    "zigzag": "livery/livery_zigzag.webp",
+    "flames": "livery/livery_flames.webp",
+    "flowers": "livery/livery_flowers.webp",
+    "stars": "livery/livery_stars.webp"
   },
   "passengers": {
     "red": {
@@ -172,17 +73,17 @@
       "b": "people/passenger_b_teal.webp",
       "c": "people/passenger_c_teal.webp"
     },
-    "pink": {
-      "a": "people/passenger_a_pink.webp",
-      "b": "people/passenger_b_pink.webp",
-      "c": "people/passenger_c_pink.webp"
+    "white": {
+      "a": "people/passenger_a_white.webp",
+      "b": "people/passenger_b_white.webp",
+      "c": "people/passenger_c_white.webp"
     }
   },
   "gaartjie": "people/gaartjie_vip.webp",
   "background": "bg/rank_bg.webp",
   "tile": "bg/parking_tile.webp",
   "bay": "bg/bay_single.webp",
-  "logo": "logo/logo_combi_motion.webp",
+  "logo": "logo/logo_taxi_motion.webp",
   "icons": {
     "coin": "ui/icon_coin.webp",
     "star": "ui/icon_star.webp",
@@ -201,55 +102,37 @@
     "decals/decal_flame.webp",
     "decals/decal_flower.webp",
     "decals/decal_star.webp",
-    "livery/livery_chequers_down.webp",
-    "livery/livery_chequers_left.webp",
-    "livery/livery_chequers_right.webp",
-    "livery/livery_chequers_up.webp",
-    "livery/livery_flames_down.webp",
-    "livery/livery_flames_left.webp",
-    "livery/livery_flames_right.webp",
-    "livery/livery_flames_up.webp",
-    "livery/livery_flowers_down.webp",
-    "livery/livery_flowers_left.webp",
-    "livery/livery_flowers_right.webp",
-    "livery/livery_flowers_up.webp",
-    "livery/livery_stars_down.webp",
-    "livery/livery_stars_left.webp",
-    "livery/livery_stars_right.webp",
-    "livery/livery_stars_up.webp",
-    "livery/livery_stripes_down.webp",
-    "livery/livery_stripes_left.webp",
-    "livery/livery_stripes_right.webp",
-    "livery/livery_stripes_up.webp",
-    "livery/livery_zigzag_down.webp",
-    "livery/livery_zigzag_left.webp",
-    "livery/livery_zigzag_right.webp",
-    "livery/livery_zigzag_up.webp",
-    "logo/logo_combi_motion.webp",
+    "livery/livery_chequers.webp",
+    "livery/livery_flames.webp",
+    "livery/livery_flowers.webp",
+    "livery/livery_stars.webp",
+    "livery/livery_stripes.webp",
+    "livery/livery_zigzag.webp",
+    "logo/logo_taxi_motion.webp",
     "people/gaartjie_vip.webp",
     "people/passenger_a_blue.webp",
     "people/passenger_a_green.webp",
     "people/passenger_a_orange.webp",
-    "people/passenger_a_pink.webp",
     "people/passenger_a_purple.webp",
     "people/passenger_a_red.webp",
     "people/passenger_a_teal.webp",
+    "people/passenger_a_white.webp",
     "people/passenger_a_yellow.webp",
     "people/passenger_b_blue.webp",
     "people/passenger_b_green.webp",
     "people/passenger_b_orange.webp",
-    "people/passenger_b_pink.webp",
     "people/passenger_b_purple.webp",
     "people/passenger_b_red.webp",
     "people/passenger_b_teal.webp",
+    "people/passenger_b_white.webp",
     "people/passenger_b_yellow.webp",
     "people/passenger_c_blue.webp",
     "people/passenger_c_green.webp",
     "people/passenger_c_orange.webp",
-    "people/passenger_c_pink.webp",
     "people/passenger_c_purple.webp",
     "people/passenger_c_red.webp",
     "people/passenger_c_teal.webp",
+    "people/passenger_c_white.webp",
     "people/passenger_c_yellow.webp",
     "props/prop_crate_oranges.webp",
     "props/prop_stall_ochre.webp",
@@ -257,58 +140,18 @@
     "props/prop_stall_terracotta.webp",
     "props/prop_tree_big.webp",
     "props/prop_tree_small.webp",
-    "taxi/overlay_arrow_down.webp",
-    "taxi/overlay_arrow_left.webp",
-    "taxi/overlay_arrow_right.webp",
-    "taxi/overlay_arrow_up.webp",
-    "taxi/overlay_locked_down.webp",
-    "taxi/overlay_locked_left.webp",
-    "taxi/overlay_locked_right.webp",
-    "taxi/overlay_locked_up.webp",
-    "taxi/taxi_base_white_down.webp",
-    "taxi/taxi_base_white_left.webp",
-    "taxi/taxi_base_white_right.webp",
-    "taxi/taxi_base_white_up.webp",
-    "taxi/taxi_blue_down.webp",
-    "taxi/taxi_blue_left.webp",
-    "taxi/taxi_blue_right.webp",
-    "taxi/taxi_blue_up.webp",
-    "taxi/taxi_green_down.webp",
-    "taxi/taxi_green_left.webp",
-    "taxi/taxi_green_right.webp",
-    "taxi/taxi_green_up.webp",
-    "taxi/taxi_hidden_tarp_down.webp",
-    "taxi/taxi_hidden_tarp_left.webp",
-    "taxi/taxi_hidden_tarp_q_down.webp",
-    "taxi/taxi_hidden_tarp_q_left.webp",
-    "taxi/taxi_hidden_tarp_q_right.webp",
-    "taxi/taxi_hidden_tarp_q_up.webp",
-    "taxi/taxi_hidden_tarp_right.webp",
-    "taxi/taxi_hidden_tarp_up.webp",
-    "taxi/taxi_orange_down.webp",
-    "taxi/taxi_orange_left.webp",
-    "taxi/taxi_orange_right.webp",
-    "taxi/taxi_orange_up.webp",
-    "taxi/taxi_pink_down.webp",
-    "taxi/taxi_pink_left.webp",
-    "taxi/taxi_pink_right.webp",
-    "taxi/taxi_pink_up.webp",
-    "taxi/taxi_purple_down.webp",
-    "taxi/taxi_purple_left.webp",
-    "taxi/taxi_purple_right.webp",
-    "taxi/taxi_purple_up.webp",
-    "taxi/taxi_red_down.webp",
-    "taxi/taxi_red_left.webp",
-    "taxi/taxi_red_right.webp",
-    "taxi/taxi_red_up.webp",
-    "taxi/taxi_teal_down.webp",
-    "taxi/taxi_teal_left.webp",
-    "taxi/taxi_teal_right.webp",
-    "taxi/taxi_teal_up.webp",
-    "taxi/taxi_yellow_down.webp",
-    "taxi/taxi_yellow_left.webp",
-    "taxi/taxi_yellow_right.webp",
-    "taxi/taxi_yellow_up.webp",
+    "taxi/overlay_arrow.webp",
+    "taxi/overlay_locked.webp",
+    "taxi/taxi_blue.webp",
+    "taxi/taxi_green.webp",
+    "taxi/taxi_hidden_tarp.webp",
+    "taxi/taxi_hidden_tarp_plain.webp",
+    "taxi/taxi_orange.webp",
+    "taxi/taxi_purple.webp",
+    "taxi/taxi_red.webp",
+    "taxi/taxi_teal.webp",
+    "taxi/taxi_white.webp",
+    "taxi/taxi_yellow.webp",
     "ui/icon_coin.webp",
     "ui/icon_extra_bay.webp",
     "ui/icon_hoot.webp",

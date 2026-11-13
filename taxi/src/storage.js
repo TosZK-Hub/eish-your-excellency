@@ -8,6 +8,7 @@ function fresh() {
     livery: 'plain',
     owned: ['plain'],
     sound: true,
+    arrows: false,
     dailyDate: '',
     dailyStreak: 0,
     dailyStars: 0,
@@ -114,6 +115,13 @@ export function equipLivery(id) {
 export function setSound(on) {
   const save = load();
   save.sound = !!on;
+  persist(save);
+  return save;
+}
+
+export function setArrows(on) {
+  const save = load();
+  save.arrows = !!on;
   persist(save);
   return save;
 }

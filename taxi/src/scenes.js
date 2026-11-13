@@ -1,4 +1,4 @@
-import { COLORS, COPY, DIR_NAME, LIVERIES, theme } from './theme.js';
+import { COLORS, COPY, LIVERIES, theme } from './theme.js';
 import {
   DIRS,
   applyAction,
@@ -27,14 +27,11 @@ function queueArt(loader, manifest) {
   const image = (key, rel) => {
     if (rel) loader.image(key, base + rel);
   };
-  Object.entries(manifest.taxis).forEach(([colour, facings]) => {
-    Object.entries(facings).forEach(([dir, rel]) => image(`taxi-${colour}-${dir}`, rel));
-  });
-  Object.entries(manifest.hidden).forEach(([dir, rel]) => image(`tarp-${dir}`, rel));
-  Object.entries(manifest.locked).forEach(([dir, rel]) => image(`lock-${dir}`, rel));
-  Object.entries(manifest.liveries).forEach(([name, facings]) => {
-    Object.entries(facings).forEach(([dir, rel]) => image(`livery-${name}-${dir}`, rel));
-  });
+  Object.entries(manifest.taxis).forEach(([colour, rel]) => image(`taxi-${colour}`, rel));
+  image('tarp-plain', manifest.hiddenPlain);
+  image('lock', manifest.locked);
+  image('arrow', manifest.arrow);
+  Object.entries(manifest.liveries).forEach(([name, rel]) => image(`livery-${name}`, rel));
   Object.entries(manifest.passengers).forEach(([colour, variants]) => {
     Object.entries(variants).forEach(([variant, rel]) => image(`passenger-${variant}-${colour}`, rel));
   });
@@ -44,14 +41,6 @@ function queueArt(loader, manifest) {
   image('bay', manifest.bay);
   image('logo', manifest.logo);
   Object.entries(manifest.icons).forEach(([id, rel]) => image(`icon-${id}`, rel));
-}
-
-function facingName(dir) {
-  return DIR_NAME[dir] || 'down';
-}
-
-function nativeSize(dir) {
-  return dir === 'left' || dir === 'right' ? { w: 654, h: 398 } : { w: 340, h: 654 };
 }
 
 function buzz(length) {
@@ -190,6 +179,11 @@ export class TitleScene extends Phaser.Scene {
     }, { depth: 4 });
     this.add.text(W / 2, 652, theme.footnote, font(12, { family: 'Nunito, sans-serif', wrap: 320 })).setOrigin(0.5).setDepth(3);
     glyphButton(this, 350, 36, audio.isMuted() ? '✕' : '♪', () => this.toggleMute());
+    glyphButton(this, 298, 36, storage.load().arrows ? '➤' : '·', () => {
+      storage.setArrows(!storage.load().arrows);
+      audio.tap();
+      this.scene.restart();
+    });
     this.add.image(36, 36, 'icon-coin').setDisplaySize(28, 28).setDepth(4);
     this.add.text(56, 36, String(save.coins), font(18)).setOrigin(0, 0.5).setDepth(4);
     this.input.on('pointerdown', () => audio.unlock());
@@ -297,9 +291,10 @@ export class ShopScene extends Phaser.Scene {
       const y = 70 + index * step;
       const g = this.add.graphics().setDepth(2);
       panel(g, 16, y, 358, cardH);
-      const preview = this.add.image(64, y + cardH / 2 + 8, 'taxi-red-right').setOrigin(0.5, 0.7).setScale(78 / 654).setDepth(3);
+      const previewScale = 62 / 358;
+      const preview = this.add.image(64, y + cardH / 2, 'taxi-red').setOrigin(0.5).setScale(previewScale).setDepth(3);
       if (item.id !== 'plain') {
-        this.add.image(64, y + cardH / 2 + 8, `livery-${item.id}-right`).setOrigin(0.5, 0.7).setScale(78 / 654).setDepth(4);
+        this.add.image(64, y + cardH / 2, `livery-${item.id}`).setOrigin(0.5).setScale(previewScale).setDepth(4);
       }
       this.add.text(118, y + 24, item.name, font(16)).setOrigin(0, 0.5).setDepth(4);
       this.add.text(118, y + 46, item.blurb, font(12, { family: 'Nunito, sans-serif' })).setOrigin(0, 0.5).setDepth(4);
@@ -403,8 +398,9 @@ export class GameScene extends Phaser.Scene {
     }
     this.state = createState(this.level);
     this.hidden = this.level.taxis.map((taxi) => !!taxi.hidden);
-    const savedLivery = storage.load().livery;
-    this.livery = LIVERIES.some((item) => item.id === savedLivery) ? savedLivery : 'plain';
+    const saved = storage.load();
+    this.livery = LIVERIES.some((item) => item.id === saved.livery) ? saved.livery : 'plain';
+    this.showArrows = !!saved.arrows || (this.launch.mode !== 'daily' && this.level.id >= 1 && this.level.id <= 3);
     if (!this.textures.exists('dust')) {
       const puff = this.make.graphics({ add: false });
       puff.fillStyle(0xfff6e4, 0.95);
@@ -510,7 +506,7 @@ export class GameScene extends Phaser.Scene {
       boardX: (W - gridW) / 2,
       boardY: boardTop + roof + Math.max(0, (boardBottom - boardTop - roof - gridH) / 2),
       cell,
-      spriteScale: (cell * 1.62) / 654,
+      spriteScale: (cell * 0.9) / 220,
     };
   }
 
@@ -522,7 +518,10 @@ export class GameScene extends Phaser.Scene {
   clearWorld() {
     for (const obj of this.owned) obj.destroy();
     this.owned = [];
-    for (const item of this.queueIcons) item.img.destroy();
+    for (const item of this.queueIcons) {
+      this.tweens.killTweensOf(item.img);
+      item.img.destroy();
+    }
     this.queueIcons = [];
     this.views = [];
   }
@@ -564,31 +563,40 @@ export class GameScene extends Phaser.Scene {
 
   makeTaxi(taxi) {
     const hidden = this.hidden[taxi.id];
-    const dir = facingName(taxi.dir);
     const color = COLORS[taxi.color].id;
     const root = this.add.container(0, 0);
-    const body = this.add.image(0, 0, hidden ? `tarp-${dir}` : `taxi-${color}-${dir}`).setOrigin(0.5, 1);
+    const body = this.add.image(0, 0, hidden ? 'tarp-plain' : `taxi-${color}`).setOrigin(0.5);
     root.add(body);
     let livery = null;
     if (this.livery && this.livery !== 'plain') {
-      livery = this.add.image(0, 0, `livery-${this.livery}-${dir}`).setOrigin(0.5, 1);
+      livery = this.add.image(0, 0, `livery-${this.livery}`).setOrigin(0.5);
       livery.setVisible(!hidden);
       root.add(livery);
     }
+    if (this.showArrows) {
+      root.add(this.add.image(0, 0, 'arrow').setOrigin(0.5));
+    }
     let lock = null;
     if (this.state.locks[taxi.id] > 0) {
-      lock = this.add.image(0, 0, `lock-${dir}`).setOrigin(0.5, 1);
+      lock = this.add.image(0, 0, 'lock').setOrigin(0.5);
       root.add(lock);
     }
+    let question = null;
+    if (hidden) {
+      question = this.add.image(0, 0, 'icon-question').setOrigin(0.5).setDisplaySize(78, 78);
+      question.setAngle(-taxi.dir * 90);
+      root.add(question);
+    }
+    root.setAngle(taxi.dir * 90);
     root.setDepth(80 + taxi.r * 20 + taxi.c);
     const center = this.cellCenter(taxi.c, taxi.r);
-    const hit = this.add.zone(center.x, center.y, this.m.cell - 2, this.m.cell - 2)
+    const hit = this.add.zone(center.x, center.y, this.m.cell - 4, this.m.cell - 4)
       .setInteractive({ useHandCursor: true })
       .setDepth(90);
     hit.on('pointerdown', () => this.onTaxi(taxi.id));
     this.track(root);
     this.track(hit);
-    this.views[taxi.id] = { root, body, livery, lock, hit, dir };
+    this.views[taxi.id] = { root, body, livery, lock, question, hit };
   }
 
   cellCenter(c, r) {
@@ -610,17 +618,21 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
         const pos = this.bayAnchor(bay);
-        view.root.setPosition(pos.x, pos.y);
-        view.root.setScale(this.bayFit(view.dir));
+        view.root.setPosition(pos.x, pos.y - 8);
+        view.root.setAngle(taxi.dir * 90);
+        view.root.setScale(this.bayFit(taxi.dir));
         view.root.setDepth(8);
+        if (view.question) view.question.setAngle(-taxi.dir * 90);
         view.hit.disableInteractive();
         this.paintDots(bay);
       } else {
-        view.root.setPosition(this.cellFoot(taxi.c, taxi.r).x, this.cellFoot(taxi.c, taxi.r).y);
+        const center = this.cellCenter(taxi.c, taxi.r);
+        view.root.setPosition(center.x, center.y);
+        view.root.setAngle(taxi.dir * 90);
         view.root.setScale(this.m.spriteScale);
         view.root.setDepth(80 + taxi.r * 20 + taxi.c);
+        if (view.question) view.question.setAngle(-taxi.dir * 90);
         view.root.setVisible(true);
-        const center = this.cellCenter(taxi.c, taxi.r);
         view.hit.setPosition(center.x, center.y);
         view.hit.setInteractive({ useHandCursor: true });
       }
@@ -644,8 +656,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   bayFit(dir) {
-    const size = nativeSize(dir);
-    return Math.min((this.m.bayW * 0.82) / size.w, (this.m.bayH * 0.72) / size.h);
+    const longWays = dir % 2 === 0;
+    const visW = longWays ? 220 : 358;
+    const visH = longWays ? 358 : 220;
+    return Math.min((this.m.bayW * 0.78) / visW, (this.m.bayH * 0.82) / visH);
   }
 
   bayIndexOf(id) {
@@ -679,7 +693,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   layoutQueue() {
-    for (const item of this.queueIcons) item.img.destroy();
+    for (const item of this.queueIcons) {
+      this.tweens.killTweensOf(item.img);
+      item.img.destroy();
+    }
     this.queueIcons = [];
     const open = [];
     for (let i = 0; i < this.state.queue.length; i += 1) {
@@ -695,7 +712,18 @@ export class GameScene extends Phaser.Scene {
         ring.setStrokeStyle(3, 0x3b2416);
         this.queueIcons.push({ idx: -1, img: ring });
       }
-      const img = this.add.image(x, this.m.queueY + 4, key).setOrigin(0.5, 0.85).setScale((n === 0 ? 54 : 46) / 256).setDepth(6);
+      const img = this.add.image(x, this.m.queueY + 6, key).setOrigin(0.5, 0.9).setScale((key === 'passenger-gaartjie' ? 58 : 48) / (key === 'passenger-gaartjie' ? 112 : 96)).setDepth(6);
+      if (!reduced) {
+        this.tweens.add({
+          targets: img,
+          y: img.y - 3,
+          duration: 640 + (idx % 4) * 80,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut',
+          delay: (n % 6) * 90,
+        });
+      }
       this.queueIcons.push({ idx, img });
     });
     if (open.length > shown.length) {
@@ -840,8 +868,9 @@ export class GameScene extends Phaser.Scene {
     const view = this.views[id];
     if (!view) return;
     const color = COLORS[this.level.taxis[id].color].id;
-    view.body.setTexture(`taxi-${color}-${view.dir}`);
+    view.body.setTexture(`taxi-${color}`);
     if (view.livery) view.livery.setVisible(true);
+    if (view.question) view.question.setVisible(false);
   }
 
   revealAround(id) {
@@ -918,10 +947,11 @@ export class GameScene extends Phaser.Scene {
     view.root.setDepth(800);
     this.children.bringToTop(view.root);
     audio.vroom();
+    await tween(this, view.body, { scaleX: 1.08, scaleY: 0.9, duration: 70, yoyo: true });
     const points = this.pathPoints(this.level.taxis[event.id]);
     await this.moveAlong(view.root, points, 180 + points.length * 55);
     const anchor = this.bayAnchor(event.bay);
-    const fit = this.bayFit(view.dir);
+    const fit = this.bayFit(this.level.taxis[event.id].dir);
     await tween(this, view.root, {
       x: anchor.x,
       y: anchor.y,

@@ -47,7 +47,7 @@ export const COLORS = [
   { id: 'purple', name: 'Purple', hex: '#7A4E9A', emoji: '🟪' },
   { id: 'orange', name: 'Orange', hex: '#F07A2A', emoji: '🟧' },
   { id: 'teal', name: 'Teal', hex: '#1F8A84', emoji: '🩵' },
-  { id: 'pink', name: 'Pink', hex: '#E56AA8', emoji: '🩷' },
+  { id: 'white', name: 'White', hex: '#F8F2E7', emoji: '⬜' },
 ];
 
 export const SPARE_COLOR = 7;
