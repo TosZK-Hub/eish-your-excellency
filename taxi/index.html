@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#E6A23C">
+  <meta name="theme-color" content="#FF8A1F">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Taxi Rank Rush</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="assets/art/ui/app-icon.png">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="style.css">
   <style>
     @font-face {
       font-family: Fredoka;
@@ -38,53 +39,101 @@
       font-style: normal;
       font-display: swap;
     }
-    html, body {
-      margin: 0;
-      height: 100%;
-      background: #2A1810;
-      color: #3B2416;
-      font-family: Nunito, sans-serif;
-      overflow: hidden;
-      touch-action: manipulation;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-    #stage {
-      height: 100dvh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    #game {
-      width: min(100vw, calc(100dvh * 390 / 693), 430px);
-      aspect-ratio: 390 / 693;
-      max-height: 100dvh;
-      position: relative;
-      background: #E2C48A;
-    }
-    #bootmsg {
-      margin: 0;
-      padding: 2rem 1rem;
-      text-align: center;
-      font-family: Fredoka, sans-serif;
-    }
-    #live {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-    }
   </style>
 </head>
 <body>
   <div id="live" aria-live="polite"></div>
-  <div id="stage">
-    <div id="game">
-      <p id="bootmsg">Loading the rank…</p>
-    </div>
+  <div id="app">
+    <p id="boot">Loading the rank…</p>
+    <div id="toast" class="toast" hidden></div>
+
+    <section id="screen-title" class="screen" hidden>
+      <header class="topbar">
+        <div id="t-coins" class="coin-pill"></div>
+        <span style="flex:1"></span>
+        <button id="t-arrows" class="icon-btn" type="button" aria-label="Direction arrows"></button>
+        <button id="t-mute" class="icon-btn" type="button" aria-label="Sound"></button>
+      </header>
+      <div class="title-hero">
+        <canvas id="turntable"></canvas>
+        <h1 id="t-title">Taxi Rank Rush</h1>
+        <p id="t-sub" class="sub"></p>
+      </div>
+      <div class="menu">
+        <button id="t-play" class="btn primary" type="button">Play</button>
+        <button id="t-levels" class="btn" type="button">Levels</button>
+        <button id="t-daily" class="btn" type="button">Rush Hour</button>
+        <button id="t-shop" class="btn" type="button">Liveries</button>
+      </div>
+      <p id="t-foot" class="foot"></p>
+    </section>
+
+    <section id="screen-map" class="screen" hidden>
+      <header class="topbar">
+        <button id="m-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1 id="m-title">Levels</h1>
+        <div id="m-coins" class="coin-pill"></div>
+      </header>
+      <p id="m-range" class="range"></p>
+      <div id="m-grid" class="level-grid"></div>
+      <div class="pager">
+        <button id="m-prev" class="btn" type="button">Prev</button>
+        <button id="m-next" class="btn" type="button">Next</button>
+      </div>
+    </section>
+
+    <section id="screen-shop" class="screen" hidden>
+      <header class="topbar">
+        <button id="s-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1 id="s-title">Liveries</h1>
+        <div id="s-coins" class="coin-pill"></div>
+      </header>
+      <div id="s-list" class="shop-list"></div>
+    </section>
+
+    <section id="screen-daily" class="screen" hidden>
+      <header class="topbar">
+        <button id="d-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1 id="d-title">Rush Hour</h1>
+        <span style="width:42px"></span>
+      </header>
+      <div class="daily-card">
+        <h1>Rush Hour</h1>
+        <p id="d-date"></p>
+        <p id="d-lead"></p>
+        <p id="d-streak"></p>
+        <p id="d-done" hidden></p>
+        <p id="d-stars" class="stars-done" hidden></p>
+        <button id="d-play" class="btn primary" type="button">Play</button>
+        <button id="d-share" class="btn" type="button" hidden>Share</button>
+      </div>
+    </section>
+
+    <section id="screen-game" class="screen" hidden>
+      <header class="hud">
+        <div class="topbar">
+          <button id="g-back" class="icon-btn" type="button" aria-label="Back"></button>
+          <h1 id="g-title"></h1>
+          <button id="g-restart" class="icon-btn" type="button" aria-label="Restart"></button>
+          <button id="g-mute" class="icon-btn" type="button" aria-label="Sound"></button>
+        </div>
+        <div class="stats">
+          <span id="g-moves">Moves 0</span>
+          <span id="g-time">0s</span>
+          <span id="g-par">Par</span>
+          <span id="g-coins" class="coin-pill"></span>
+        </div>
+        <p id="g-intro" class="intro" hidden></p>
+      </header>
+      <div id="board-wrap"><canvas id="board"></canvas></div>
+      <div class="boosters">
+        <button id="g-bay" class="btn" type="button">Extra bay</button>
+        <button id="g-undo" class="btn" type="button">Undo</button>
+        <button id="g-shuffle" class="btn" type="button">Shuffle</button>
+      </div>
+      <div id="modal" class="modal" hidden></div>
+    </section>
   </div>
-  <script src="vendor/phaser.min.js"></script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

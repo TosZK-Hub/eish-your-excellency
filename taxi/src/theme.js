@@ -23,19 +23,19 @@ export const ink = '#3B2416';
 export const INK = 0x3b2416;
 
 export const palette = {
-  ink: '#3B2416',
-  inkSoft: '#5A3A28',
-  cream: '#FFF6E4',
-  creamDeep: '#F6E7C1',
-  ochre: '#E6A23C',
-  ochreDeep: '#C9842A',
-  ground: '#E2C48A',
-  groundDeep: '#C6A15A',
-  sky: '#F6D7A8',
-  canopy: '#F07A2A',
+  ink: '#1C2430',
+  inkSoft: '#5C6B7A',
+  cream: '#FFFFFF',
+  creamDeep: '#E7EEF5',
+  ochre: '#FF8A1F',
+  ochreDeep: '#D46500',
+  ground: '#4E5968',
+  groundDeep: '#3E4652',
+  sky: '#B7DEF2',
+  canopy: '#F4F7FB',
   good: '#3E9B4F',
   danger: '#E23D3D',
-  white: '#FFFCFA',
+  white: '#F4F7FB',
 };
 
 /** Index order is the level-data colour id. Do not reorder. */
@@ -47,7 +47,7 @@ export const COLORS = [
   { id: 'purple', name: 'Purple', hex: '#7A4E9A', emoji: '🟪' },
   { id: 'orange', name: 'Orange', hex: '#F07A2A', emoji: '🟧' },
   { id: 'teal', name: 'Teal', hex: '#1F8A84', emoji: '🩵' },
-  { id: 'white', name: 'White', hex: '#F8F2E7', emoji: '⬜' },
+  { id: 'pink', name: 'Pink', hex: '#E56AA8', emoji: '🩷' },
 ];
 
 export const SPARE_COLOR = 7;

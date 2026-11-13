@@ -6,11 +6,11 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#2A1810",
-  "theme_color": "#E6A23C",
+  "background_color": "#E7F4FB",
+  "theme_color": "#FF8A1F",
   "icons": [
     {
-      "src": "assets/art/ui/app-icon.png",
+      "src": "assets/icon.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"

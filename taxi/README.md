@@ -26,26 +26,25 @@ Debug flags:
 
 ## What's in the box
 
-- Phaser 4.2.1 MIT, vendored at `vendor/phaser.min.js` (no runtime CDN)
+- Three.js r170 MIT, vendored at `vendor/three.module.js` (no runtime CDN)
 - Fredoka and Nunito, SIL OFL, self-hosted in `assets/fonts/`
 - 60 seeded levels in `data/levels.json`
-- Generator and breadth-first solver in `src/engine.js` (no Phaser, so Node can prove them)
-- Combi art in `assets/art/` (v3 WebP). One sprite per facing, listed in `assets/art/manifest.json`. Do not rotate them.
+- Generator and breadth-first solver in `src/engine.js` (no DOM, so Node can prove them)
+- The rank is a low-poly 3D scene: white high-roof combis, a colour stripe, flat toon shading, and an orthographic camera. Liveries are extra geometry drawn in code
 - Six cosmetic liveries bought with coins. Rewarded boosters are a fake "watch ad" dialog, not an ad SDK
 - Daily Rush Hour seeded by the local date, with an emoji-grid share
 
-Twists: tarp taxis (`?`), hand-brake taxis (two taps), a gaartjie who jumps the queue, and grey spares that never fill.
+Twists: tarp taxis (`?`), hand-brake taxis (two taps), a gaartjie who jumps the queue, and pink spare combis that never fill.
 
 ## Reskin
 
-`src/theme.js` holds the name, copy, palette, and colour ids. Art files are swappable PNGs with stable manifest keys (taxi per colour, livery overlays, passenger per colour, rank, bays, icons). Replacing those two is enough for a later "City Rush" skin.
+`src/theme.js` holds the name, copy, palette, and colour ids. The combi colours are read from that list. Replacing the theme module is the start of a later "City Rush" skin.
 
 ## Checks
 
 ```bash
 node tools/make-levels.mjs
 node tools/verify-levels.mjs
-node tools/make-art.mjs
 node tools/cache-manifest.mjs
 ```
 
