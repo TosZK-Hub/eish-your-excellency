@@ -1,22 +1,29 @@
 import * as audio from './audio.js';
 import {
+  LEVEL_COUNT,
   applyAction,
+  buildLevel,
   createState,
   dateKey,
+  difficultyOf,
   generateDaily,
   grantExtraBay,
+  hashString,
+  hintTaxi,
   interpret,
+  interpretSend,
   isLose,
   isWin,
   loseReason,
-  noteBump,
   prepare,
+  regionFor,
   shareText,
   shuffleRemaining,
   starsFor,
+  weekendLevel,
 } from './engine.js';
 import * as storage from './storage.js';
-import { COPY, LIVERIES, theme } from './theme.js';
+import { COPY, HORNS, LIVERIES, RANKS, REGIONS, SHOUTS, theme } from './theme.js';
 import { createBoard, createTurntable, renderThumb } from './world.js';
 
 const reduced = typeof matchMedia === 'function'
@@ -37,10 +44,10 @@ globalThis.TRR_FLAGS = flags;
 const saveAtBoot = storage.load();
 audio.setMuted(flags.mute || saveAtBoot.sound === false);
 audio.setMusicOn(saveAtBoot.music !== false);
+audio.setHorn(saveAtBoot.horn || 'hoot');
 audio.preloadMenu();
 
 const $ = (id) => document.getElementById(id);
-let campaign = null;
 let dailyLevel = null;
 let board = null;
 let turntable = null;
@@ -216,18 +223,26 @@ function showOnly(name) {
 
 function showTitle() {
   const save = storage.load();
-  const next = Math.min(60, Math.max(1, save.unlocked));
+  const next = Math.min(LEVEL_COUNT, Math.max(1, save.unlocked));
   $('t-play').textContent = save.unlocked > 1 ? `Play ${next}` : COPY.play;
   paintCoins();
   paintSound();
+  const weekend = [0, 6].includes(new Date().getDay()) || params.has('event');
+  $('t-event').hidden = !weekend;
   showOnly('title');
+  if (turntable && turntable.setStage) turntable.setStage(storage.load().rank || 0);
   announce('title', theme.title);
 }
 
 let mapPage = 0;
+function worldOpts() {
+  const save = storage.load();
+  return { livery: save.livery, colorblind: !!save.colorblind, showArrows: true };
+}
+
 function showMap() {
   const save = storage.load();
-  mapPage = Math.floor((Math.min(60, save.unlocked) - 1) / 12);
+  mapPage = Math.floor((Math.min(LEVEL_COUNT, save.unlocked) - 1) / 12);
   paintCoins();
   drawMap();
   showOnly('map');
@@ -243,10 +258,9 @@ function drawMap() {
     const id = mapPage * 12 + i + 1;
     const open = id <= save.unlocked;
     const stars = storage.starsFor(save, id);
-    const level = campaign.levels[id - 1];
-    const mark = (level.twists || []).map((twist) => ({
-      hidden: '?', lock: 'B', gaartjie: 'G', spare: 'S',
-    }[twist] || '')).filter(Boolean).join(' ');
+    const level = buildLevel(id);
+    const badge = level.difficulty === 'super' ? 'S' : level.difficulty === 'hard' ? 'H' : '';
+    const mark = [badge, level.tutorial ? level.tutorial.mech.slice(0, 1).toUpperCase() : ''].filter(Boolean).join(' ');
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `level${open ? '' : ' locked'}${id === save.unlocked ? ' current' : ''}`;
@@ -373,8 +387,10 @@ function ensureBoard() {
   observer.observe(wrap);
   $('board').addEventListener('pointerdown', (event) => {
     if (!game || game.busy || game.over || game.adOpen) return;
-    const id = board.pick(event.clientX, event.clientY);
-    if (id >= 0) onTaxi(id);
+    const hit = board.pick(event.clientX, event.clientY);
+    if (!hit) return;
+    if (hit.kind === 'queue') onSend(hit.queue);
+    else if (hit.kind === 'taxi') onTaxi(hit.id);
   });
   return true;
 }
@@ -429,15 +445,18 @@ function startLevel(launch) {
   const save = storage.load();
   let level;
   let modeLaunch = launch;
-  if (launch.mode === 'daily') {
+  if (launch.mode === 'event' && launch.level) {
+    level = launch.level;
+    prepare(level);
+  } else if (launch.mode === 'daily') {
     level = dailyLevel || generateDaily(new Date());
     prepare(level);
     level.intro = level.intro || 'Rush Hour. One shared rank for today.';
     dailyLevel = level;
   } else {
-    const id = Math.min(60, Math.max(1, launch.id | 0));
-    const raw = campaign.levels.find((item) => item.id === id);
-    level = JSON.parse(JSON.stringify(raw));
+    const id = Math.min(LEVEL_COUNT, Math.max(1, launch.id | 0));
+    const fails = storage.load().fails[String(id)] || 0;
+    level = buildLevel(id, { easier: fails >= 2 ? 1 : 0 });
     prepare(level);
     modeLaunch = { mode: 'level', id };
   }
@@ -447,6 +466,10 @@ function startLevel(launch) {
     level,
     state: createState(level),
     hidden: level.taxis.map((taxi) => !!taxi.hidden),
+    squeezeUsed: false,
+    adBayUsed: false,
+    lastInput: performance.now(),
+    hinted: false,
     livery,
     showArrows: !!save.arrows || (modeLaunch.mode !== 'daily' && level.id >= 1 && level.id <= 3),
     elapsed: 0,
@@ -469,7 +492,17 @@ function startLevel(launch) {
   showOnly('game');
   audio.setMusicScene(musicForLevel(level, modeLaunch.mode));
   announce('game', level.name || `Level ${level.id}`);
-  board.load(level, game.state, game.hidden, { livery, showArrows: game.showArrows });
+  board.load(level, game.state, game.hidden, worldOpts());
+  const diff = $('g-diff');
+  if (diff) {
+    diff.textContent = level.difficulty === 'super' ? 'Super Hard' : level.difficulty === 'hard' ? 'Hard' : '';
+    diff.hidden = !diff.textContent;
+    diff.className = `badge ${level.difficulty || ''}`;
+  }
+  const timeStat = $('g-time');
+  if (timeStat) timeStat.hidden = modeLaunch.mode !== 'daily';
+  $('screen-game').classList.toggle('rain', !!level.rain);
+  showCoach();
   board.start();
   requestAnimationFrame(() => board.resize());
   paintSound();
@@ -480,34 +513,39 @@ function startLevel(launch) {
 
 function pushUndo() {
   game.undo.push({
-    locks: Array.from(game.state.locks),
-    exited: Array.from(game.state.exited),
-    bayTaxi: Array.from(game.state.bayTaxi),
-    bayFilled: Array.from(game.state.bayFilled),
-    boarded: Array.from(game.state.boarded),
-    queue: game.state.queue.slice(),
-    gaartjie: game.state.gaartjie,
-    moves: game.state.moves,
-    extraUsed: game.state.extraUsed,
-    hidden: game.hidden.slice(),
+    state: {
+      exited: Array.from(game.state.exited),
+      bayTaxi: Array.from(game.state.bayTaxi),
+      bayFilled: Array.from(game.state.bayFilled),
+      boarded: game.state.boarded.map((row) => Array.from(row)),
+      queues: game.state.queues.map((queue) => queue.map((person) => ({ ...person }))),
+      moves: game.state.moves,
+      departed: game.state.departed,
+      combo: game.state.combo,
+      squeezeUsed: game.state.squeezeUsed,
+      revealed: Array.from(game.state.revealed),
+    },
+    coins: storage.load().coins,
     elapsed: game.elapsed,
   });
   if (game.undo.length > 40) game.undo.shift();
 }
 
 function restore(snap) {
+  const raw = snap.state;
   game.state = {
-    locks: Uint8Array.from(snap.locks),
-    exited: Uint8Array.from(snap.exited),
-    bayTaxi: Int16Array.from(snap.bayTaxi),
-    bayFilled: Uint8Array.from(snap.bayFilled),
-    boarded: Uint8Array.from(snap.boarded),
-    queue: snap.queue.slice(),
-    gaartjie: snap.gaartjie,
-    moves: snap.moves,
-    extraUsed: snap.extraUsed,
+    exited: Uint8Array.from(raw.exited),
+    bayTaxi: Int16Array.from(raw.bayTaxi),
+    bayFilled: Uint8Array.from(raw.bayFilled),
+    boarded: raw.boarded.map((row) => Uint8Array.from(row)),
+    queues: raw.queues.map((queue) => queue.map((person) => ({ ...person }))),
+    moves: raw.moves,
+    departed: raw.departed,
+    combo: raw.combo,
+    squeezeUsed: raw.squeezeUsed,
+    revealed: Uint8Array.from(raw.revealed),
   };
-  game.hidden = snap.hidden.slice();
+  storage.setCoins(snap.coins);
   game.elapsed = snap.elapsed;
   game.shown = -1;
 }
@@ -531,23 +569,93 @@ function revealAround(id) {
 
 async function playEvents(events) {
   for (const event of events) {
-    if (event.t === 'unlock') await board.unlock(event.id, game.state.locks[event.id]);
-    else if (event.t === 'exit') {
+    if (event.t === 'exit') {
       audio.vroom();
       await board.exit(event.id, event.bay);
     } else if (event.t === 'board') {
       audio.pop();
       await board.board(event);
     } else if (event.t === 'depart') {
-      audio.pop();
+      const shout = event.combo >= 2;
+      if (shout) audio.cheer(event.combo);
+      else audio.hoot();
+      const pay = (2 + (event.combo >= 2 ? event.combo : 0)) * (game.level.reward || 1);
+      storage.addCoins(pay);
+      bumpMission('depart');
+      if (event.combo >= 3) bumpMission('combo', event.combo);
+      if (shout) showToast(`${SHOUTS[event.combo % SHOUTS.length]} x${event.combo}`);
       await board.depart(event.taxiId);
+      refresh();
     }
   }
+  board.syncPeople(game.state);
+}
+
+function bumpMission(kind, value) {
+  const today = dateKey(new Date());
+  const save = storage.load();
+  if (save.missionsDate !== today) {
+    save.missionsDate = today;
+    save.missionProgress = [0, 0, 0];
+    save.missionClaimed = [false, false, false];
+    storage.setCoins(save.coins);
+  }
+  const fresh = storage.load();
+  if (fresh.missionsDate !== today) return;
+  if (kind === 'depart') fresh.missionProgress[0] += 1;
+  if (kind === 'combo') fresh.missionProgress[1] = Math.max(fresh.missionProgress[1] || 0, value || 0);
+  if (kind === 'clear') fresh.missionProgress[2] += 1;
+  localStorage.setItem('trr_save_v1', JSON.stringify(fresh));
+}
+
+function offerRescue() {
+  if (!game.squeezeUsed) {
+    game.adOpen = true;
+    const card = openCard();
+    const title = document.createElement('h2');
+    title.textContent = 'Gaartjie squeeze';
+    const body = document.createElement('p');
+    body.textContent = 'One free bay for this try. No advert.';
+    card.append(title, body, button('Take the bay', 'btn primary', () => {
+      game.squeezeUsed = true;
+      game.adOpen = false;
+      closeModal();
+      const res = grantExtraBay(game.state, game.level);
+      game.state = res.state;
+      board.load(game.level, game.state, null, worldOpts());
+      if (isLose(game.state, game.level)) offerRescue();
+    }));
+    return;
+  }
+  if (!game.adBayUsed) {
+    game.adOpen = true;
+    const card = openCard();
+    const title = document.createElement('h2');
+    title.textContent = COPY.adTitle;
+    const body = document.createElement('p');
+    body.textContent = 'One more bay. Placeholder ad, nothing plays.';
+    card.append(title, body, button(COPY.watch, 'btn primary', () => {
+      game.adBayUsed = true;
+      game.adOpen = false;
+      closeModal();
+      const res = grantExtraBay(game.state, game.level);
+      game.state = res.state;
+      board.load(game.level, game.state, null, worldOpts());
+      if (isLose(game.state, game.level)) showLose(loseReason(game.state));
+    }), button(COPY.notNow, 'btn', () => {
+      game.adBayUsed = true;
+      game.adOpen = false;
+      closeModal();
+      showLose(loseReason(game.state));
+    }));
+    return;
+  }
+  showLose(loseReason(game.state));
 }
 
 function afterAction() {
   if (isWin(game.state)) showWin();
-  else if (isLose(game.state, game.level)) showLose(loseReason(game.state));
+  else if (isLose(game.state, game.level)) offerRescue();
 }
 
 async function finish(work) {
@@ -572,24 +680,57 @@ function pointOf(id) {
   return spot || null;
 }
 
+function touch() {
+  game.lastInput = performance.now();
+  game.hinted = false;
+}
+
+function refuse(id, message, blocker) {
+  const spot = pointOf(id);
+  finish((async () => {
+    audio.hoot();
+    buzz(14);
+    if (spot) showToast(message, spot.x, spot.y);
+    else showToast(message);
+    await board.bump(id);
+    if (blocker >= 0) board.flash(blocker);
+  })());
+}
+
+function commit(action) {
+  pushUndo();
+  const res = applyAction(game.state, game.level, action);
+  if (!res) {
+    game.undo.pop();
+    return;
+  }
+  game.state = res.state;
+  board.setState(game.state);
+  finish((async () => {
+    await playEvents(res.events);
+    afterAction();
+  })());
+}
+
 function onTaxi(id) {
   if (!game || game.busy || game.over || game.adOpen) return;
+  touch();
   const tap = interpret(game.state, game.level, id);
   if (tap.t === 'none') return;
-  if (!game.timing) game.timing = true;
+  if (!game.timing && game.launch.mode === 'daily') game.timing = true;
+  if (tap.reveal) game.state.revealed[id] = 1;
   if (tap.t === 'bump') {
-    pushUndo();
-    game.state = noteBump(game.state);
-    board.setState(game.state);
-    reveal(id);
-    const spot = pointOf(id);
-    finish((async () => {
-      audio.hoot();
-      buzz(14);
-      if (spot) showToast(COPY.hoot, spot.x, spot.y);
-      else showToast(COPY.hoot);
-      await board.bump(id);
-    })());
+    refuse(id, COPY.hoot, tap.blocker);
+    board.syncPeople(game.state);
+    return;
+  }
+  if (tap.t === 'locked') {
+    const left = Math.max(0, (game.level.taxis[id].lockAfter || 0) - game.state.departed);
+    refuse(id, `Lock ${left}`, null);
+    return;
+  }
+  if (tap.t === 'red') {
+    refuse(id, 'Red robot', null);
     return;
   }
   if (tap.t === 'nobay') {
@@ -598,30 +739,24 @@ function onTaxi(id) {
       board.shake();
       showToast('Bays full');
       await wait(180);
-      if (isLose(game.state, game.level)) showLose('full');
+      if (isLose(game.state, game.level)) offerRescue();
     })());
     return;
   }
-  pushUndo();
-  const res = applyAction(game.state, game.level, { t: tap.t, id });
-  if (!res) {
-    game.undo.pop();
+  commit({ t: tap.t, id: tap.id });
+}
+
+function onSend(queue) {
+  if (!game || game.busy || game.over || game.adOpen) return;
+  touch();
+  const tap = interpretSend(game.state, game.level, queue);
+  if (tap.t === 'wait') {
+    showToast('No seat yet');
+    audio.hoot();
     return;
   }
-  game.state = res.state;
-  board.setState(game.state);
-  if (tap.t === 'exit') revealAround(id);
-  if (tap.t === 'unlock') {
-    reveal(id);
-    const spot = pointOf(id);
-    audio.brake();
-    if (spot) showToast(COPY.brake, spot.x, spot.y);
-    else showToast(COPY.brake);
-  }
-  finish((async () => {
-    await playEvents(res.events);
-    afterAction();
-  })());
+  if (tap.t !== 'send') return;
+  commit(tap);
 }
 
 function botNext() {
@@ -629,20 +764,30 @@ function botNext() {
   const action = game.level.guide[game.botAt];
   game.botAt += 1;
   if (!action) return;
-  onTaxi(action.id);
+  if (action.t === 'send') onSend(action.queue);
+  else onTaxi(action.id);
 }
 
 function askAd(kind) {
   if (!game || game.busy || game.adOpen) return;
+  const tokenKind = kind === 'bay' ? 'bay' : kind;
+  if ((storage.load().tokens[tokenKind] || 0) > 0) {
+    storage.spendToken(tokenKind);
+    if (kind === 'bay') doExtraBay();
+    else if (kind === 'undo') doUndo();
+    else doShuffle();
+    refresh();
+    return;
+  }
   if (kind === 'undo' && !game.undo.length) {
     showToast('Nothing to undo');
     return;
   }
   if (kind === 'bay' && game.state.extraUsed) return;
   if (kind === 'shuffle') {
-    let waiting = 0;
-    for (let i = 0; i < game.state.boarded.length; i += 1) if (!game.state.boarded[i]) waiting += 1;
-    if (waiting < 2) {
+      let waiting = 0;
+      for (const row of game.state.boarded) for (const flag of row) if (!flag) waiting += 1;
+      if (waiting < 2) {
       showToast('Queue is short');
       return;
     }
@@ -775,6 +920,9 @@ function showWin() {
   audio.win();
   audio.coin();
   audio.duck(1.3);
+  if (!daily) storage.clearFail(game.level.id);
+  bumpMission('clear');
+  if ((game.level.reward || 1) > 1) storage.addCoins(award.gain);
   buzz(20);
   announce('win', `Win ${stars} stars ${game.state.moves} moves`);
   const card = openCard();
@@ -814,7 +962,7 @@ function showWin() {
     });
     card.append(preview, share);
   }
-  if (!daily && game.level.id < 60) {
+  if (!daily && game.level.id < LEVEL_COUNT) {
     card.append(button(COPY.next, 'btn primary', () => {
       audio.tap();
       startLevel({ mode: 'level', id: game.level.id + 1 });
@@ -836,6 +984,7 @@ function showLose(reason) {
   game.over = true;
   game.timing = false;
   audio.lose();
+  if (game.launch.mode !== 'daily') storage.noteFail(game.level.id);
   announce('lose', reason === 'full' ? COPY.loseFull : COPY.loseJam);
   const card = openCard();
   const title = document.createElement('h2');
@@ -865,6 +1014,13 @@ function showLose(reason) {
 function tick(now) {
   const dt = now - lastTick;
   lastTick = now;
+  if (game && !game.over && !game.busy && board && board.pulse && now - (game.lastInput || now) > 10000 && !game.hinted) {
+    const id = hintTaxi(game.state, game.level);
+    if (id >= 0) {
+      game.hinted = true;
+      board.pulse(id);
+    }
+  }
   if (game && game.timing && !game.over && !document.hidden) {
     game.elapsed += Math.min(dt, 1000);
     const sec = Math.floor(game.elapsed / 1000);
@@ -890,7 +1046,7 @@ function bind() {
   $('g-bay').innerHTML = `${ICONS.bay}<span>${COPY.extraBay}</span>`;
   $('g-undo').innerHTML = `${ICONS.undo}<span>${COPY.undo}</span>`;
   $('g-shuffle').innerHTML = `${ICONS.shuffle}<span>${COPY.shuffle}</span>`;
-  for (const id of ['m-back', 's-back', 'd-back', 'g-back']) $(id).innerHTML = ICONS.back;
+  for (const id of ['m-back', 's-back', 'd-back', 'g-back', 'r-back', 'n-back', 'set-back']) $(id).innerHTML = ICONS.back;
   $('g-restart').innerHTML = ICONS.restart;
   for (const id of ['t-coins', 'm-coins', 's-coins', 'g-coins']) {
     const node = $(id);
@@ -899,7 +1055,7 @@ function bind() {
 
   $('t-play').addEventListener('click', () => {
     audio.tap();
-    const next = Math.min(60, Math.max(1, storage.load().unlocked));
+    const next = Math.min(LEVEL_COUNT, Math.max(1, storage.load().unlocked));
     startLevel({ mode: 'level', id: next });
   });
   $('t-levels').addEventListener('click', () => {
@@ -914,15 +1070,34 @@ function bind() {
     audio.tap();
     showShop();
   });
+  $('t-rank').addEventListener('click', () => {
+    audio.tap();
+    showRank();
+  });
+  $('t-missions').addEventListener('click', () => {
+    audio.tap();
+    showMissions();
+  });
+  $('t-event').addEventListener('click', () => {
+    audio.tap();
+    showEvent();
+  });
+  $('t-settings').addEventListener('click', () => {
+    audio.tap();
+    showOnly('settings');
+    $('set-cb').textContent = storage.load().colorblind ? 'Colour-blind palette: on' : 'Colour-blind palette: off';
+  });
+  $('set-back').addEventListener('click', () => showTitle());
+  $('set-cb').addEventListener('click', () => {
+    storage.setColorblind(!storage.load().colorblind);
+    $('set-cb').textContent = storage.load().colorblind ? 'Colour-blind palette: on' : 'Colour-blind palette: off';
+  });
+  $('r-back').addEventListener('click', () => showTitle());
+  $('n-back').addEventListener('click', () => showTitle());
   $('t-mute').addEventListener('click', toggleMute);
   $('g-mute').addEventListener('click', toggleMute);
   $('t-music').addEventListener('click', toggleMusic);
   $('g-music').addEventListener('click', toggleMusic);
-  $('t-arrows').addEventListener('click', () => {
-    storage.setArrows(!storage.load().arrows);
-    audio.tap();
-    paintSound();
-  });
   $('m-back').addEventListener('click', () => {
     audio.tap();
     showTitle();
@@ -953,7 +1128,7 @@ function bind() {
     }
   });
   $('m-next').addEventListener('click', () => {
-    if (mapPage < 4) {
+    if (mapPage < Math.ceil(LEVEL_COUNT / 12) - 1) {
       mapPage += 1;
       drawMap();
     }
@@ -968,10 +1143,140 @@ function bind() {
   requestAnimationFrame(tick);
 }
 
+function showCoach() {
+  const coach = $('coach');
+  if (!coach) return;
+  const lesson = game && game.level && game.level.tutorial;
+  if (!lesson || storage.load().seen.includes(lesson.mech)) {
+    coach.hidden = true;
+    return;
+  }
+  coach.hidden = false;
+  $('coach-text').textContent = lesson.text;
+  $('coach-go').onclick = () => {
+    storage.markSeen(lesson.mech);
+    coach.hidden = true;
+    const spot = board.project(lesson.focus || 0);
+    const hand = $('coach-hand');
+    if (spot && hand) {
+      const app = $('app').getBoundingClientRect();
+      hand.hidden = false;
+      hand.style.left = `${spot.x - app.left}px`;
+      hand.style.top = `${spot.y - app.top}px`;
+      setTimeout(() => { hand.hidden = true; }, 1800);
+    }
+  };
+}
+
+function showRank() {
+  const list = $('rank-list');
+  list.replaceChildren();
+  const save = storage.load();
+  RANKS.forEach((stage, index) => {
+    const row = document.createElement('article');
+    row.className = 'shop-row';
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = stage.name;
+    const blurb = document.createElement('p');
+    blurb.textContent = index < save.rank ? 'Built' : index === save.rank ? 'Yours now' : `${stage.cost} coins`;
+    copy.append(name, blurb);
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'btn small primary';
+    action.textContent = index <= save.rank ? 'Built' : 'Build';
+    action.disabled = index !== save.rank + 1;
+    action.addEventListener('click', () => {
+      if (save.coins < stage.cost) {
+        showToast('Need coins');
+        return;
+      }
+      storage.addCoins(-stage.cost);
+      storage.setRank(index);
+      audio.coin();
+      showRank();
+    });
+    row.append(copy, action);
+    list.append(row);
+  });
+  showOnly('rank');
+  if (turntable) {
+    turntable.setStage(storage.load().rank);
+    turntable.resize();
+    turntable.start();
+  }
+  announce('rank', 'Your rank');
+}
+
+function showMissions() {
+  const list = $('mission-list');
+  list.replaceChildren();
+  const today = dateKey(new Date());
+  const save = storage.load();
+  if (save.missionsDate !== today) {
+    save.missionsDate = today;
+    save.missionProgress = [0, 0, 0];
+    save.missionClaimed = [false, false, false];
+    localStorage.setItem('trr_save_v1', JSON.stringify(save));
+  }
+  const jobs = [
+    ['Depart 8 combis', 8, 15, null],
+    ['Reach a x3 combo', 3, 10, 'undo'],
+    ['Clear 2 levels', 2, 12, 'shuffle'],
+  ];
+  jobs.forEach((job, index) => {
+    const row = document.createElement('article');
+    row.className = 'shop-row';
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = job[0];
+    const blurb = document.createElement('p');
+    const progress = storage.load().missionProgress[index] || 0;
+    blurb.textContent = `${Math.min(progress, job[1])} / ${job[1]}`;
+    copy.append(name, blurb);
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'btn small primary';
+    const claimed = storage.load().missionClaimed[index];
+    action.textContent = claimed ? 'Done' : 'Claim';
+    action.disabled = claimed || progress < job[1];
+    action.addEventListener('click', () => {
+      const current = storage.load();
+      current.missionClaimed[index] = true;
+      current.coins += job[2];
+      if (job[3]) current.tokens[job[3]] = (current.tokens[job[3]] || 0) + 1;
+      localStorage.setItem('trr_save_v1', JSON.stringify(current));
+      audio.coin();
+      showMissions();
+    });
+    row.append(copy, action);
+    list.append(row);
+  });
+  showOnly('missions');
+  announce('missions', 'Missions');
+}
+
+function showEvent() {
+  const save = storage.load();
+  const week = dateKey(new Date()).slice(0, 7);
+  if (save.eventWeek !== week) {
+    save.eventWeek = week;
+    save.eventStep = 0;
+    save.eventDone = false;
+    localStorage.setItem('trr_save_v1', JSON.stringify(save));
+  }
+  const current = storage.load();
+  if (current.eventDone) {
+    showToast('Ladder cleared');
+    showTitle();
+    return;
+  }
+  const level = weekendLevel(current.eventStep || 0, hashString(`month-end:${week}`));
+  startLevel({ mode: 'event', id: (current.eventStep || 0) + 1, level });
+}
+
 async function boot() {
   bind();
-  const res = await fetch('data/levels.json');
-  campaign = await res.json();
   const canvas = $('turntable');
   const created = createTurntable(canvas);
   if (created.ok) {
@@ -982,7 +1287,15 @@ async function boot() {
     turntable.resize();
   }
   $('boot').hidden = true;
-  if (flags.level >= 1 && flags.level <= 60) startLevel({ mode: 'level', id: flags.level | 0 });
+  const mechLevel = {
+    size: 4, luggage: 8, twotone: 12, tarp: 16, lock: 20, gaartjie: 24,
+    robot: 28, cone: 32, officer: 36, queues: 40, tow: 44, rain: 48,
+  }[params.get('mech')];
+  const regionLevel = { durban: 1, joburg: 31, cape: 61, gqeberha: 91, bloem: 121 }[params.get('region')];
+  if (flags.level >= 1 && flags.level <= LEVEL_COUNT) startLevel({ mode: 'level', id: flags.level | 0 });
+  else if (mechLevel) startLevel({ mode: 'level', id: mechLevel });
+  else if (regionLevel) startLevel({ mode: 'level', id: regionLevel });
+  else if (params.has('event')) showEvent();
   else if (flags.daily) showDaily();
   else showTitle();
   globalThis.TRR = {

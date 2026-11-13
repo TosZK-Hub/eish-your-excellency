@@ -9,6 +9,18 @@ function fresh() {
     owned: ['plain'],
     sound: true,
     music: true,
+    colorblind: false,
+    rank: 0,
+    horn: 'hoot',
+    tokens: { bay: 1, undo: 3, shuffle: 1 },
+    fails: {},
+    seen: [],
+    missionsDate: '',
+    missionProgress: [0, 0, 0],
+    missionClaimed: [false, false, false],
+    eventWeek: '',
+    eventStep: 0,
+    eventDone: false,
     arrows: false,
     dailyDate: '',
     dailyStreak: 0,
@@ -25,6 +37,13 @@ export function load() {
       data.owned = ['plain', ...(data.owned || []).filter((id) => id !== 'plain')];
     }
     if (!data.stars || typeof data.stars !== 'object') data.stars = {};
+    if (!data.tokens || typeof data.tokens !== 'object') data.tokens = { bay: 1, undo: 3, shuffle: 1 };
+    data.tokens = { bay: 1, undo: 3, shuffle: 1, ...data.tokens };
+    if (!data.fails || typeof data.fails !== 'object') data.fails = {};
+    if (!Array.isArray(data.seen)) data.seen = [];
+    if (!Array.isArray(data.missionProgress)) data.missionProgress = [0, 0, 0];
+    if (!Array.isArray(data.missionClaimed)) data.missionClaimed = [false, false, false];
+    data.rank = data.rank | 0;
     return data;
   } catch {
     return fresh();
@@ -116,6 +135,78 @@ export function equipLivery(id) {
 export function setSound(on) {
   const save = load();
   save.sound = !!on;
+  persist(save);
+  return save;
+}
+
+export function addCoins(amount) {
+  const save = load();
+  save.coins = Math.max(0, save.coins + amount);
+  persist(save);
+  return save;
+}
+
+export function setCoins(amount) {
+  const save = load();
+  save.coins = Math.max(0, amount | 0);
+  persist(save);
+  return save;
+}
+
+export function addToken(kind) {
+  const save = load();
+  save.tokens[kind] = (save.tokens[kind] || 0) + 1;
+  persist(save);
+  return save;
+}
+
+export function spendToken(kind) {
+  const save = load();
+  if (!save.tokens[kind]) return { ok: false, save };
+  save.tokens[kind] -= 1;
+  persist(save);
+  return { ok: true, save };
+}
+
+export function noteFail(id) {
+  const save = load();
+  const key = String(id);
+  save.fails[key] = (save.fails[key] || 0) + 1;
+  persist(save);
+  return save;
+}
+
+export function clearFail(id) {
+  const save = load();
+  delete save.fails[String(id)];
+  persist(save);
+  return save;
+}
+
+export function markSeen(mech) {
+  const save = load();
+  if (!save.seen.includes(mech)) save.seen.push(mech);
+  persist(save);
+  return save;
+}
+
+export function setRank(stage) {
+  const save = load();
+  save.rank = stage;
+  persist(save);
+  return save;
+}
+
+export function setColorblind(on) {
+  const save = load();
+  save.colorblind = !!on;
+  persist(save);
+  return save;
+}
+
+export function setHorn(id) {
+  const save = load();
+  save.horn = id;
   persist(save);
   return save;
 }

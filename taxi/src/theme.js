@@ -135,6 +135,51 @@ export const LEVEL_INTROS = {
   18: COPY.spareIntro,
 };
 
+export const SIGNS = [
+  { id: 'town', label: 'Town' },
+  { id: 'local', label: 'Local' },
+  { id: 'rank', label: 'To the rank' },
+  { id: 'thumb', label: 'Thumb' },
+  { id: 'peace', label: 'Peace' },
+  { id: 'fist', label: 'Fist' },
+  { id: 'point', label: 'Point' },
+  { id: 'wave', label: 'Wave' },
+];
+
+export const CB_HEX = ['#0072B2', '#E69F00', '#F0E442', '#009E73', '#56B4E9', '#D55E00', '#111111', '#CC79A7'];
+
+export function colorHex(index, colorblind) {
+  const hex = colorblind ? (CB_HEX[index] || CB_HEX[0]) : (COLORS[index] || COLORS[0]).hex;
+  return Number.parseInt(hex.slice(1), 16);
+}
+
+export const REGIONS = [
+  { id: 'durban', name: 'Durban', sky: '#B7DEF2', ground: '#4E5968', grass: '#7DBE6A' },
+  { id: 'joburg', name: 'Joburg', sky: '#F0D7A0', ground: '#5A5348', grass: '#C2A15A' },
+  { id: 'cape', name: 'Cape Town', sky: '#8EC6E6', ground: '#3D4A55', grass: '#3E9B6A' },
+  { id: 'gqeberha', name: 'Gqeberha', sky: '#C5DFF0', ground: '#4A5560', grass: '#6AAA78' },
+  { id: 'bloem', name: 'Bloemfontein', sky: '#F6E2B8', ground: '#6A5A48', grass: '#D2B56A' },
+];
+
+export const RANKS = [
+  { id: 'dirt', name: 'Dirt lot', cost: 0 },
+  { id: 'shelter', name: 'Shelter', cost: 40 },
+  { id: 'stall', name: 'Food stall', cost: 90 },
+  { id: 'mural', name: 'Mural wall', cost: 150 },
+  { id: 'sound', name: 'Sound system', cost: 230 },
+  { id: 'solar', name: 'Solar lights', cost: 330 },
+  { id: 'roof', name: 'Roof', cost: 460 },
+];
+
+export const HORNS = [
+  { id: 'hoot', name: 'Rank hoot', price: 0 },
+  { id: 'sharp', name: 'Sharp', price: 40 },
+  { id: 'low', name: 'Low note', price: 40 },
+  { id: 'bell', name: 'Bell', price: 70 },
+];
+
+export const SHOUTS = ['Sharp!', 'Yebo!', 'Hau!', 'Lekker!'];
+
 export function colorById(id) {
   return COLORS.find((c) => c.id === id) || COLORS[0];
 }

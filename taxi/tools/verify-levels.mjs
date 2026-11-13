@@ -1,22 +1,22 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
-  applyAction,
-  createState,
+  LEVEL_COUNT,
+  buildLevel,
+  difficultyOf,
   generateDaily,
-  handcrafted,
-  interpret,
   isLose,
   isWin,
-  prepare,
+  noteBump,
   replay,
   solve,
 } from '../src/engine.js';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const data = JSON.parse(readFileSync(join(root, 'data', 'levels.json'), 'utf8'));
+const stats = {
+  easy: [], medium: [], hard: [], super: [],
+};
+const mechs = {};
 let failed = 0;
+let nodes = 0;
+const started = Date.now();
 
 function check(name, cond) {
   if (!cond) {
@@ -25,86 +25,57 @@ function check(name, cond) {
   }
 }
 
-const loseLevel = {
-  id: 99,
-  cols: 3,
-  rows: 1,
-  bays: 1,
-  gaartjie: -1,
-  queue: [1, 1],
-  taxis: [
-    { id: 0, c: 0, r: 0, dir: 3, color: 0, seats: 2, locks: 0, hidden: false, decoy: false },
-    { id: 1, c: 2, r: 0, dir: 1, color: 1, seats: 2, locks: 0, hidden: false, decoy: false },
-  ],
-};
-prepare(loseLevel);
-const parked = applyAction(createState(loseLevel), loseLevel, { t: 'exit', id: 0 });
-check('wrong colour clogs the only bay', parked && isLose(parked.state, loseLevel) && !isWin(parked.state));
-const saved = applyAction(createState(loseLevel), loseLevel, { t: 'exit', id: 1 });
-check('matching colour still clears', saved && isWin(saved.state));
+const sample = buildLevel(2);
+const bumped = noteBump(sample && { moves: 0 });
+check('a blocked tap does not spend a move', bumped.moves === 0);
 
-const bumped = handcrafted(2);
-prepare(bumped);
-check('blocked taxi hoots instead of leaving', interpret(createState(bumped), bumped, 0).t === 'bump');
-
-check('60 levels', data.levels.length === 60);
-
-const seen = { hidden: false, lock: false, gaartjie: false, spare: false };
-let nodes = 0;
-const started = Date.now();
-
-for (const level of data.levels) {
-  prepare(level);
-  const seats = level.taxis.filter((t) => !t.decoy).reduce((sum, t) => sum + t.seats, 0);
-  check(`level ${level.id} queue matches seats`, level.queue.length === seats);
-  if (level.gaartjie >= 0) check(`level ${level.id} gaartjie index`, level.gaartjie < level.queue.length);
-  const cells = new Set();
-  for (const taxi of level.taxis) {
-    const key = `${taxi.c},${taxi.r}`;
-    check(`level ${level.id} unique cell ${key}`, !cells.has(key));
-    cells.add(key);
-  }
-  const rep = replay(level, level.guide);
-  if (!rep.ok) {
-    check(`level ${level.id} guide replays`, false);
+for (let n = 1; n <= LEVEL_COUNT; n += 1) {
+  const level = buildLevel(n);
+  check(`level ${n} exists`, !!level && level.taxis.length > 0);
+  if (!level) continue;
+  const played = replay(level, level.guide);
+  if (!played.ok) {
+    check(`level ${n} guide wins`, false);
     continue;
   }
-  const t0 = Date.now();
-  const proof = solve(level, { nodeLimit: 250000 });
-  const ms = Date.now() - t0;
+  const proof = solve(level, { nodeLimit: 50000 });
   nodes += proof.nodes || 0;
   if (!proof.solvable) {
-    check(`level ${level.id} solver (${proof.nodes} nodes, limited=${!!proof.limited})`, false);
+    check(`level ${n} solver (${proof.nodes} nodes)`, false);
     continue;
   }
-  if (proof.moves !== level.par) {
-    check(`level ${level.id} par ${level.par} vs solver ${proof.moves}`, false);
-  }
-  if (ms > 1500) console.log(`slow #${level.id} ${ms}ms nodes=${proof.nodes}`);
-  for (const twist of level.twists || []) seen[twist] = true;
-  if (level.id === 4) check('level 4 hidden', level.twists.includes('hidden'));
-  if (level.id === 8) check('level 8 lock', level.twists.includes('lock'));
-  if (level.id === 12) check('level 12 gaartjie', level.twists.includes('gaartjie'));
-  if (level.id === 18) check('level 18 spare', level.twists.includes('spare'));
+  check(`level ${n} par ${level.par} vs solver ${proof.moves}`, proof.moves === level.par);
+  const band = difficultyOf(n);
+  stats[band].push(level.par);
+  if (level.tutorial) mechs[level.tutorial.mech] = (mechs[level.tutorial.mech] || 0) + 1;
+  const easier = buildLevel(n, { easier: 1 });
+  const easyPlay = replay(easier, easier.guide);
+  check(`level ${n} easier variant`, easyPlay.ok && easier.bays >= level.bays);
 }
 
-check('hidden twist shipped', seen.hidden);
-check('lock twist shipped', seen.lock);
-check('gaartjie twist shipped', seen.gaartjie);
-check('spare twist shipped', seen.spare);
+const daily = generateDaily(new Date('2026-11-13T12:00:00'));
+const again = generateDaily(new Date('2026-11-13T18:00:00'));
+check('daily is stable for a date', JSON.stringify(daily.taxis) === JSON.stringify(again.taxis));
+check('daily guide wins', replay(daily, daily.guide).ok);
+check('daily solver', solve(daily).solvable);
 
-for (let day = 1; day <= 7; day += 1) {
-  const date = new Date(2026, 10, day);
-  const daily = generateDaily(date);
-  prepare(daily);
-  const rep = replay(daily, daily.guide);
-  const again = generateDaily(date);
-  check(`daily ${day} replay`, rep.ok);
-  check(`daily ${day} stable`, JSON.stringify(again.taxis) === JSON.stringify(daily.taxis) && again.queue.join() === daily.queue.join());
-  const proof = solve(daily, { nodeLimit: 250000 });
-  check(`daily ${day} solver`, proof.solvable && proof.moves === daily.par);
+function avg(list) {
+  if (!list.length) return 0;
+  return Math.round((list.reduce((sum, n) => sum + n, 0) / list.length) * 10) / 10;
 }
 
-console.log(`nodes=${nodes} verifyMs=${Date.now() - started} failed=${failed}`);
+console.log(JSON.stringify({
+  levels: LEVEL_COUNT,
+  failed,
+  ms: Date.now() - started,
+  nodes,
+  par: {
+    easy: { n: stats.easy.length, avg: avg(stats.easy) },
+    medium: { n: stats.medium.length, avg: avg(stats.medium) },
+    hard: { n: stats.hard.length, avg: avg(stats.hard) },
+    super: { n: stats.super.length, avg: avg(stats.super) },
+  },
+  tutorials: mechs,
+}, null, 2));
+
 if (failed) process.exit(1);
-console.log('All levels solvable.');

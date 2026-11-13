@@ -46,12 +46,20 @@
   <div id="app">
     <p id="boot">Loading the rank…</p>
     <div id="toast" class="toast" hidden></div>
+    <div id="coach" class="modal" hidden>
+      <div class="card">
+        <h2>Watch this</h2>
+        <p id="coach-text"></p>
+        <button id="coach-go" class="btn primary" type="button">Got it</button>
+      </div>
+    </div>
+    <div id="coach-hand" class="hand" hidden>☝</div>
 
     <section id="screen-title" class="screen" hidden>
       <header class="topbar">
         <div id="t-coins" class="coin-pill"></div>
         <span style="flex:1"></span>
-        <button id="t-arrows" class="icon-btn" type="button" aria-label="Direction arrows"></button>
+        <button id="t-settings" class="icon-btn" type="button" aria-label="Settings">⚙</button>
         <button id="t-music" class="icon-btn" type="button" data-music aria-label="Music"></button>
         <button id="t-mute" class="icon-btn" type="button" aria-label="Sound"></button>
       </header>
@@ -65,6 +73,9 @@
         <button id="t-levels" class="btn" type="button">Levels</button>
         <button id="t-daily" class="btn" type="button">Rush Hour</button>
         <button id="t-shop" class="btn" type="button">Liveries</button>
+        <button id="t-rank" class="btn" type="button">Your rank</button>
+        <button id="t-missions" class="btn" type="button">Missions</button>
+        <button id="t-event" class="btn" type="button" hidden>Month-End Rush</button>
       </div>
       <p id="t-foot" class="foot"></p>
     </section>
@@ -110,6 +121,28 @@
       </div>
     </section>
 
+    <section id="screen-rank" class="screen" hidden>
+      <header class="topbar">
+        <button id="r-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1>Your rank</h1>
+      </header>
+      <div id="rank-list" class="shop-list"></div>
+    </section>
+    <section id="screen-missions" class="screen" hidden>
+      <header class="topbar">
+        <button id="n-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1>Missions</h1>
+      </header>
+      <div id="mission-list" class="shop-list"></div>
+    </section>
+    <section id="screen-settings" class="screen" hidden>
+      <header class="topbar">
+        <button id="set-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1>Settings</h1>
+      </header>
+      <button id="set-cb" class="btn" type="button">Colour-blind palette</button>
+      <p class="sub">Hand signs stay the same. Only the colours shift.</p>
+    </section>
     <section id="screen-game" class="screen" hidden>
       <header class="hud">
         <div class="topbar">
@@ -123,6 +156,7 @@
           <span id="g-moves">Moves 0</span>
           <span id="g-time">0s</span>
           <span id="g-par">Par</span>
+          <span id="g-diff" class="badge" hidden></span>
           <span id="g-coins" class="coin-pill"></span>
         </div>
         <p id="g-intro" class="intro" hidden></p>

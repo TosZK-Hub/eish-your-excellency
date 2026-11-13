@@ -1,15 +1,9 @@
 /**
- * Pure rules for Taxi Rank Rush: placement, boarding, generation, solver.
- * No Phaser and no DOM, so Node can prove every level.
- *
- * A taxi drives straight along its facing direction and only leaves the rank
- * when every cell in front of it is empty. It then takes a free loading bay.
- * Passengers board FIFO into a bay of their colour. A gaartjie jumps ahead
- * onto the first bay of their colour. A taxi departs when its seats are full.
- * Spare (decoy) taxis have no passengers, so a bay they occupy never clears.
+ * Taxi Rank Rush rules. See GAME_RULES.md.
+ * No DOM, so Node can prove every level.
  */
 
-import { COLORS, SPARE_COLOR } from './theme.js';
+import { COLORS } from './theme.js';
 
 export const DIRS = [
   { x: 0, y: -1, name: 'up' },
@@ -17,6 +11,46 @@ export const DIRS = [
   { x: 0, y: 1, name: 'down' },
   { x: -1, y: 0, name: 'left' },
 ];
+
+export const LEVEL_COUNT = 150;
+
+export const SIZES = {
+  hiace: { len: 2, seats: 6, name: 'Hiace' },
+  quantum: { len: 3, seats: 9, name: 'Quantum' },
+  sprinter: { len: 4, seats: 12, name: 'Sprinter' },
+};
+
+export const INTROS = {
+  1: 'basics',
+  4: 'size',
+  8: 'luggage',
+  12: 'twotone',
+  16: 'tarp',
+  20: 'lock',
+  24: 'gaartjie',
+  28: 'robot',
+  32: 'cone',
+  36: 'officer',
+  40: 'queues',
+  44: 'tow',
+  48: 'rain',
+};
+
+const TUTORIAL = {
+  basics: 'Tap a combi. If the lane ahead is clear, it drives into a bay.',
+  size: 'A Hiace is short, a Quantum is the usual combi, a Sprinter is the long one.',
+  luggage: 'A bag or bucket needs two free seats.',
+  twotone: 'A split roof takes either colour.',
+  tarp: 'A tarp hides the colour until you tap it, or a neighbour leaves.',
+  lock: 'The padlock number is how many other combis must leave first.',
+  gaartjie: 'The gaartjie fills that combi the moment they step in.',
+  robot: 'A green robot lets them out. Red means wait. It flips every two taps.',
+  cone: 'Cones and potholes are solid. Drive around them.',
+  officer: 'The officer steps one cell every three taps.',
+  queues: 'Two queues. Tap a head to send that passenger first.',
+  tow: 'Chained combis leave together. Both lanes must be clear.',
+  rain: 'Wet road, same rules. Take it slow in your head, not in the taps.',
+};
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -48,55 +82,107 @@ export function shuffle(list, rng) {
   return a;
 }
 
+export function dateKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function difficultyOf(n) {
+  const pos = ((n - 1) % 10) + 1;
+  if (pos === 10) return 'super';
+  if (pos === 5) return 'hard';
+  if (pos === 3 || pos === 4 || pos === 8 || pos === 9) return 'medium';
+  return 'easy';
+}
+
+export function regionFor(n) {
+  if (n >= 121) return 'bloem';
+  if (n >= 91) return 'gqeberha';
+  if (n >= 61) return 'cape';
+  if (n >= 31) return 'joburg';
+  return 'durban';
+}
+
+export function taxiCells(taxi) {
+  const dir = DIRS[taxi.dir];
+  const cells = [];
+  for (let i = 0; i < taxi.len; i += 1) {
+    cells.push({ c: taxi.c - dir.x * i, r: taxi.r - dir.y * i });
+  }
+  return cells;
+}
+
+function inBounds(level, c, r) {
+  return c >= 0 && r >= 0 && c < level.cols && r < level.rows;
+}
+
 export function prepare(level) {
   const grid = new Int16Array(level.cols * level.rows);
   grid.fill(-1);
-  for (const taxi of level.taxis) grid[taxi.r * level.cols + taxi.c] = taxi.id;
+  for (const taxi of level.taxis) {
+    for (const cell of taxiCells(taxi)) {
+      if (inBounds(level, cell.c, cell.r)) grid[cell.r * level.cols + cell.c] = taxi.id;
+    }
+  }
   level.grid = grid;
+  level.cones = level.cones || [];
+  level.robots = level.robots || [];
+  level.queues = level.queues || [[]];
   return level;
 }
 
 export function createState(level) {
   return {
-    locks: Uint8Array.from(level.taxis.map((t) => t.locks | 0)),
     exited: new Uint8Array(level.taxis.length),
     bayTaxi: new Int16Array(level.bays).fill(-1),
     bayFilled: new Uint8Array(level.bays),
-    boarded: new Uint8Array(level.queue.length),
-    queue: level.queue.slice(),
-    gaartjie: level.gaartjie ?? -1,
+    boarded: level.queues.map((queue) => new Uint8Array(queue.length)),
+    queues: level.queues.map((queue) => queue.map((person) => ({ ...person }))),
     moves: 0,
-    extraUsed: 0,
+    departed: 0,
+    combo: 0,
+    squeezeUsed: 0,
+    revealed: Uint8Array.from(level.taxis.map((taxi) => (taxi.hidden ? 0 : 1))),
   };
 }
 
-function cloneState(state) {
+export function copyState(state) {
   return {
-    locks: state.locks.slice(),
     exited: state.exited.slice(),
     bayTaxi: state.bayTaxi.slice(),
     bayFilled: state.bayFilled.slice(),
-    boarded: state.boarded.slice(),
-    queue: state.queue.slice(),
-    gaartjie: state.gaartjie,
+    boarded: state.boarded.map((row) => row.slice()),
+    queues: state.queues.map((queue) => queue.map((person) => ({ ...person }))),
     moves: state.moves,
-    extraUsed: state.extraUsed,
+    departed: state.departed,
+    combo: state.combo,
+    squeezeUsed: state.squeezeUsed,
+    revealed: state.revealed.slice(),
   };
 }
 
-export function pathClear(level, state, id) {
-  const taxi = level.taxis[id];
-  const dir = DIRS[taxi.dir];
-  let c = taxi.c + dir.x;
-  let r = taxi.r + dir.y;
-  const { cols, rows, grid } = level;
-  while (c >= 0 && r >= 0 && c < cols && r < rows) {
-    const occ = grid[r * cols + c];
-    if (occ >= 0 && !state.exited[occ]) return false;
-    c += dir.x;
-    r += dir.y;
+function officerCell(level, state) {
+  if (!level.officer || !level.officer.path.length) return null;
+  const index = Math.floor(state.moves / 3) % level.officer.path.length;
+  return level.officer.path[index];
+}
+
+function occupant(level, state, c, r) {
+  if (!inBounds(level, c, r)) return null;
+  for (const cone of level.cones) {
+    if (cone.c === c && cone.r === r) return -2;
   }
-  return true;
+  const officer = officerCell(level, state);
+  if (officer && officer.c === c && officer.r === r) return -3;
+  const occ = level.grid[r * level.cols + c];
+  if (occ >= 0 && !state.exited[occ]) return occ;
+  return null;
+}
+
+export function pathClear(level, state, id) {
+  return firstBlocker(level, state, id) === null;
 }
 
 export function firstBlocker(level, state, id) {
@@ -104,14 +190,35 @@ export function firstBlocker(level, state, id) {
   const dir = DIRS[taxi.dir];
   let c = taxi.c + dir.x;
   let r = taxi.r + dir.y;
-  const { cols, rows, grid } = level;
-  while (c >= 0 && r >= 0 && c < cols && r < rows) {
-    const occ = grid[r * cols + c];
-    if (occ >= 0 && !state.exited[occ]) return occ;
+  while (inBounds(level, c, r)) {
+    const occ = occupant(level, state, c, r);
+    if (occ !== null && occ !== id) return occ;
     c += dir.x;
     r += dir.y;
   }
-  return -1;
+  return null;
+}
+
+function lightGreen(state) {
+  return Math.floor(state.moves / 2) % 2 === 0;
+}
+
+function lightOk(level, state, taxi) {
+  const lane = taxi.dir % 2 === 0 ? taxi.c : taxi.r;
+  for (const robot of level.robots) {
+    if (robot.dir === taxi.dir && robot.lane === lane && !lightGreen(state)) return false;
+  }
+  return true;
+}
+
+function locked(taxi, state) {
+  return (taxi.lockAfter || 0) > state.departed;
+}
+
+function freeBays(state) {
+  let n = 0;
+  for (let i = 0; i < state.bayTaxi.length; i += 1) if (state.bayTaxi[i] < 0) n += 1;
+  return n;
 }
 
 function firstFreeBay(state) {
@@ -121,86 +228,236 @@ function firstFreeBay(state) {
   return -1;
 }
 
-function findBay(state, level, color) {
+function matches(taxi, color) {
+  return taxi.colors.includes(color);
+}
+
+function findBay(state, level, person) {
   for (let i = 0; i < state.bayTaxi.length; i += 1) {
     const id = state.bayTaxi[i];
     if (id < 0) continue;
     const taxi = level.taxis[id];
-    if (taxi.color === color && state.bayFilled[i] < taxi.seats) return i;
+    if (!matches(taxi, person.color)) continue;
+    const free = taxi.seats - state.bayFilled[i];
+    if (person.vip || free >= (person.seats || 1)) return i;
   }
   return -1;
 }
 
-function board(state, level, bay, pIndex, events) {
-  state.boarded[pIndex] = 1;
-  state.bayFilled[bay] += 1;
+function depart(state, bay, events) {
   const taxiId = state.bayTaxi[bay];
-  const seats = level.taxis[taxiId].seats;
+  state.combo = Math.min(5, (state.combo || 0) + 1);
+  events.push({
+    t: 'depart',
+    bay,
+    taxiId,
+    combo: state.combo,
+  });
+  state.bayTaxi[bay] = -1;
+  state.bayFilled[bay] = 0;
+  state.departed += 1;
+}
+
+function boardPerson(state, level, queueIndex, personIndex, events) {
+  const person = state.queues[queueIndex][personIndex];
+  const bay = findBay(state, level, person);
+  if (bay < 0) return false;
+  state.boarded[queueIndex][personIndex] = 1;
+  const taxiId = state.bayTaxi[bay];
+  const taxi = level.taxis[taxiId];
+  if (person.vip) state.bayFilled[bay] = taxi.seats;
+  else state.bayFilled[bay] += person.seats || 1;
   events.push({
     t: 'board',
     bay,
     taxiId,
-    pIndex,
+    queue: queueIndex,
+    pIndex: personIndex,
     filled: state.bayFilled[bay],
-    seats,
+    seats: taxi.seats,
+    vip: !!person.vip,
+    luggage: !!person.luggage,
   });
-  if (state.bayFilled[bay] >= seats) {
-    events.push({ t: 'depart', bay, taxiId });
-    state.bayTaxi[bay] = -1;
-    state.bayFilled[bay] = 0;
-  }
-}
-
-export function resolve(state, level, events) {
-  const limit = state.queue.length + 3;
-  for (let guard = 0; guard < limit; guard += 1) {
-    if (state.gaartjie >= 0 && !state.boarded[state.gaartjie]) {
-      const bay = findBay(state, level, state.queue[state.gaartjie]);
-      if (bay >= 0) {
-        board(state, level, bay, state.gaartjie, events);
-        continue;
-      }
-    }
-    let front = -1;
-    for (let i = 0; i < state.boarded.length; i += 1) {
-      if (!state.boarded[i]) {
-        front = i;
-        break;
-      }
-    }
-    if (front < 0) return;
-    const bay = findBay(state, level, state.queue[front]);
-    if (bay < 0) return;
-    board(state, level, bay, front, events);
-  }
-}
-
-function occupied(state) {
-  let n = 0;
-  for (let i = 0; i < state.bayTaxi.length; i += 1) if (state.bayTaxi[i] >= 0) n += 1;
-  return n;
-}
-
-export function isWin(state) {
-  if (!state.boarded.length) return false;
-  for (let i = 0; i < state.boarded.length; i += 1) if (!state.boarded[i]) return false;
+  if (state.bayFilled[bay] >= taxi.seats) depart(state, bay, events);
   return true;
 }
 
-export function hasProgress(state, level) {
-  let free = false;
-  for (let i = 0; i < state.bayTaxi.length; i += 1) if (state.bayTaxi[i] < 0) free = true;
-  if (!free) return false;
-  for (let i = 0; i < level.taxis.length; i += 1) {
-    if (state.exited[i]) continue;
-    if (pathClear(level, state, i)) return true;
+function headIndex(state, queueIndex) {
+  const row = state.boarded[queueIndex];
+  for (let i = 0; i < row.length; i += 1) if (!row[i]) return i;
+  return -1;
+}
+
+function resolve(state, level, events) {
+  if (state.queues.length !== 1) return;
+  const guard = state.queues[0].length + 2;
+  for (let n = 0; n < guard; n += 1) {
+    const index = headIndex(state, 0);
+    if (index < 0) return;
+    if (!boardPerson(state, level, 0, index, events)) return;
   }
+}
+
+function revealAround(state, level, id) {
+  const mine = taxiCells(level.taxis[id]);
+  for (const other of level.taxis) {
+    if (!other.hidden || state.revealed[other.id]) continue;
+    const cells = taxiCells(other);
+    let near = false;
+    for (const a of mine) {
+      for (const b of cells) {
+        if (Math.abs(a.c - b.c) + Math.abs(a.r - b.r) === 1) near = true;
+      }
+    }
+    if (near) state.revealed[other.id] = 1;
+  }
+}
+
+function park(state, level, id, events) {
+  state.combo = 0;
+  const bay = firstFreeBay(state);
+  state.exited[id] = 1;
+  state.revealed[id] = 1;
+  state.bayTaxi[bay] = id;
+  state.bayFilled[bay] = 0;
+  events.push({ t: 'exit', id, bay });
+  revealAround(state, level, id);
+  return bay;
+}
+
+export function canExit(level, state, id) {
+  if (state.exited[id]) return false;
+  const taxi = level.taxis[id];
+  if (taxi.tow >= 0) return false;
+  if (locked(taxi, state)) return false;
+  if (!pathClear(level, state, id)) return false;
+  if (!lightOk(level, state, taxi)) return false;
+  return freeBays(state) >= 1;
+}
+
+export function canTow(level, state, id) {
+  const taxi = level.taxis[id];
+  if (taxi.tow < 0) return false;
+  const otherId = taxi.tow;
+  const lead = Math.min(id, otherId);
+  if (id !== lead) return false;
+  if (state.exited[id] || state.exited[otherId]) return false;
+  if (locked(taxi, state) || locked(level.taxis[otherId], state)) return false;
+  if (!pathClear(level, state, id) || !pathClear(level, state, otherId)) return false;
+  if (!lightOk(level, state, taxi) || !lightOk(level, state, level.taxis[otherId])) return false;
+  return freeBays(state) >= 2;
+}
+
+export function interpret(state, level, id) {
+  if (id < 0 || id >= level.taxis.length || state.exited[id]) return { t: 'none' };
+  const taxi = level.taxis[id];
+  if (taxi.hidden && !state.revealed[id] && !pathClear(level, state, id)) {
+    return { t: 'bump', id, blocker: firstBlocker(level, state, id), reveal: true };
+  }
+  if (locked(taxi, state)) return { t: 'locked', id };
+  if (taxi.tow >= 0) {
+    const lead = Math.min(id, taxi.tow);
+    if (canTow(level, state, lead)) return { t: 'tow', id: lead };
+    return { t: 'bump', id, blocker: firstBlocker(level, state, id) ?? firstBlocker(level, state, taxi.tow) };
+  }
+  if (!pathClear(level, state, id)) {
+    return { t: 'bump', id, blocker: firstBlocker(level, state, id), reveal: taxi.hidden && !state.revealed[id] };
+  }
+  if (!lightOk(level, state, taxi)) return { t: 'red', id, reveal: taxi.hidden && !state.revealed[id] };
+  if (freeBays(state) < 1) return { t: 'nobay', id };
+  return { t: 'exit', id };
+}
+
+export function interpretSend(state, level, queueIndex) {
+  if (!state.queues[queueIndex]) return { t: 'none' };
+  const index = headIndex(state, queueIndex);
+  if (index < 0) return { t: 'none' };
+  const person = state.queues[queueIndex][index];
+  if (findBay(state, level, person) < 0) return { t: 'wait', queue: queueIndex };
+  return { t: 'send', queue: queueIndex };
+}
+
+export function noteBump(state) {
+  return state;
+}
+
+export function applyAction(state, level, action) {
+  if (!action) return null;
+  if (action.t === 'reveal') {
+    if (!level.taxis[action.id] || state.revealed[action.id]) return null;
+    const next = copyState(state);
+    next.revealed[action.id] = 1;
+    return { state: next, events: [{ t: 'reveal', id: action.id }] };
+  }
+  if (action.t === 'send') {
+    if (state.queues.length < 2) return null;
+    const index = headIndex(state, action.queue);
+    if (index < 0) return null;
+    const next = copyState(state);
+    const events = [];
+    if (!boardPerson(next, level, action.queue, index, events)) return null;
+    next.moves += 1;
+    return { state: next, events };
+  }
+  if (action.t === 'exit') {
+    if (!canExit(level, state, action.id)) return null;
+    const next = copyState(state);
+    const events = [];
+    park(next, level, action.id, events);
+    next.moves += 1;
+    if (next.queues.length === 1) resolve(next, level, events);
+    return { state: next, events };
+  }
+  if (action.t === 'tow') {
+    if (!canTow(level, state, action.id)) return null;
+    const next = copyState(state);
+    const events = [];
+    const other = level.taxis[action.id].tow;
+    park(next, level, action.id, events);
+    park(next, level, other, events);
+    next.moves += 1;
+    if (next.queues.length === 1) resolve(next, level, events);
+    return { state: next, events };
+  }
+  return null;
+}
+
+export function isWin(state) {
+  let any = false;
+  for (const row of state.boarded) {
+    if (!row.length) continue;
+    any = true;
+    for (let i = 0; i < row.length; i += 1) if (!row[i]) return false;
+  }
+  return any;
+}
+
+function canBoardSomething(state, level) {
+  if (state.queues.length === 1) {
+    const index = headIndex(state, 0);
+    if (index < 0) return false;
+    return findBay(state, level, state.queues[0][index]) >= 0;
+  }
+  for (let q = 0; q < state.queues.length; q += 1) {
+    const index = headIndex(state, q);
+    if (index < 0) continue;
+    if (findBay(state, level, state.queues[q][index]) >= 0) return true;
+  }
+  return false;
+}
+
+function hasMove(state, level) {
+  for (let i = 0; i < level.taxis.length; i += 1) {
+    if (canExit(level, state, i) || canTow(level, state, i)) return true;
+  }
+  if (state.queues.length > 1 && canBoardSomething(state, level)) return true;
+  if (state.queues.length === 1 && canBoardSomething(state, level)) return true;
   return false;
 }
 
 export function isLose(state, level) {
   if (isWin(state)) return false;
-  return !hasProgress(state, level);
+  return !hasMove(state, level);
 }
 
 export function loseReason(state) {
@@ -210,68 +467,92 @@ export function loseReason(state) {
   return 'full';
 }
 
-export function interpret(state, level, id) {
-  if (id < 0 || id >= level.taxis.length || state.exited[id]) return { t: 'none' };
-  if (state.locks[id] > 0) return { t: 'unlock', id };
-  if (!pathClear(level, state, id)) {
-    return { t: 'bump', id, blocker: firstBlocker(level, state, id) };
+export function hintTaxi(state, level) {
+  if (level.guide) {
+    for (const step of level.guide) {
+      if (step.t === 'exit' && canExit(level, state, step.id)) return step.id;
+      if (step.t === 'tow' && canTow(level, state, step.id)) return step.id;
+    }
   }
-  if (firstFreeBay(state) < 0) return { t: 'nobay', id };
-  return { t: 'exit', id };
-}
-
-export function noteBump(state) {
-  const next = cloneState(state);
-  next.moves += 1;
-  return next;
-}
-
-export function applyAction(state, level, action) {
-  if (!action) return null;
-  if (action.t === 'unlock') {
-    const id = action.id;
-    if (state.exited[id] || state.locks[id] <= 0) return null;
-    const next = cloneState(state);
-    next.locks[id] -= 1;
-    next.moves += 1;
-    return { state: next, events: [{ t: 'unlock', id }], peak: occupied(next) };
+  for (let i = 0; i < level.taxis.length; i += 1) {
+    if (canExit(level, state, i) || canTow(level, state, i)) return i;
   }
-  if (action.t === 'exit') {
-    const id = action.id;
-    if (state.exited[id] || state.locks[id] > 0) return null;
-    if (!pathClear(level, state, id)) return null;
-    const bay = firstFreeBay(state);
-    if (bay < 0) return null;
-    const next = cloneState(state);
-    next.exited[id] = 1;
-    next.bayTaxi[bay] = id;
-    next.bayFilled[bay] = 0;
-    next.moves += 1;
-    const placed = occupied(next);
-    const events = [{ t: 'exit', id, bay }];
-    resolve(next, level, events);
-    return { state: next, events, peak: Math.max(placed, occupied(next)) };
-  }
-  return null;
+  return -1;
 }
 
 export function replay(level, actions) {
   prepare(level);
   let state = createState(level);
-  let peak = 0;
   for (const action of actions) {
     const res = applyAction(state, level, action);
-    if (!res) return { ok: false, state, peak };
+    if (!res) return { ok: false, state };
     state = res.state;
-    peak = Math.max(peak, res.peak);
-    if (isLose(state, level)) return { ok: false, state, peak, lost: true };
+    if (isLose(state, level)) return { ok: false, state, lost: true };
   }
-  return { ok: isWin(state), state, peak };
+  return { ok: isWin(state), state };
+}
+
+function stateKey(state, level) {
+  let exited = 0;
+  for (let i = 0; i < state.exited.length; i += 1) if (state.exited[i]) exited += 2 ** i;
+  let boarded = '';
+  for (const row of state.boarded) {
+    for (let i = 0; i < row.length; i += 1) boarded += row[i] ? '1' : '0';
+    boarded += '|';
+  }
+  let bays = '';
+  for (let i = 0; i < state.bayTaxi.length; i += 1) {
+    bays += `${state.bayTaxi[i]}:${state.bayFilled[i]},`;
+  }
+  const phase = Math.floor(state.moves / 2) % 2;
+  const officer = level.officer ? Math.floor(state.moves / 3) % level.officer.path.length : 0;
+  return `${exited}|${boarded}|${bays}|${state.departed}|${phase}|${officer}`;
+}
+
+export function solve(level, opts = {}) {
+  prepare(level);
+  const limit = opts.nodeLimit || 40000;
+  const start = createState(level);
+  if (isWin(start)) return { solvable: true, moves: 0, actions: [], nodes: 1 };
+  const queue = [{ state: start, actions: [] }];
+  const seen = new Set([stateKey(start, level)]);
+  let nodes = 0;
+  while (queue.length) {
+    const item = queue.shift();
+    nodes += 1;
+    if (nodes > limit) return { solvable: false, limited: true, nodes, actions: [] };
+    const { state } = item;
+    const actions = [];
+    for (let i = 0; i < level.taxis.length; i += 1) {
+      if (canTow(level, state, i)) actions.push({ t: 'tow', id: i });
+      else if (canExit(level, state, i)) actions.push({ t: 'exit', id: i });
+    }
+    if (state.queues.length > 1) {
+      for (let q = 0; q < state.queues.length; q += 1) {
+        const index = headIndex(state, q);
+        if (index >= 0 && findBay(state, level, state.queues[q][index]) >= 0) {
+          actions.push({ t: 'send', queue: q });
+        }
+      }
+    }
+    for (const action of actions) {
+      const res = applyAction(state, level, action);
+      if (!res) continue;
+      if (isWin(res.state)) {
+        return { solvable: true, moves: res.state.moves, actions: item.actions.concat(action), nodes };
+      }
+      if (isLose(res.state, level)) continue;
+      const key = stateKey(res.state, level);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queue.push({ state: res.state, actions: item.actions.concat(action) });
+    }
+  }
+  return { solvable: false, nodes, actions: [] };
 }
 
 export function grantExtraBay(state, level) {
-  if (state.extraUsed) return null;
-  const next = cloneState(state);
+  const next = copyState(state);
   const bayTaxi = new Int16Array(state.bayTaxi.length + 1);
   bayTaxi.set(state.bayTaxi);
   bayTaxi[bayTaxi.length - 1] = -1;
@@ -279,605 +560,44 @@ export function grantExtraBay(state, level) {
   bayFilled.set(state.bayFilled);
   next.bayTaxi = bayTaxi;
   next.bayFilled = bayFilled;
-  next.extraUsed = 1;
-  next.moves += 1;
+  next.squeezeUsed = 1;
   const events = [{ t: 'bay' }];
-  resolve(next, level, events);
+  if (next.queues.length === 1) resolve(next, level, events);
   return { state: next, events };
 }
 
 export function shuffleRemaining(state, level, rng) {
-  const next = cloneState(state);
-  const open = [];
-  for (let i = 0; i < next.boarded.length; i += 1) {
-    if (!next.boarded[i]) open.push(i);
-  }
-  const people = open.map((i) => ({
-    color: next.queue[i],
-    vip: i === next.gaartjie,
-  }));
-  for (let i = people.length - 1; i > 0; i -= 1) {
-    const j = (rng() * (i + 1)) | 0;
-    const tmp = people[i];
-    people[i] = people[j];
-    people[j] = tmp;
-  }
-  next.gaartjie = -1;
-  open.forEach((idx, k) => {
-    next.queue[idx] = people[k].color;
-    if (people[k].vip) next.gaartjie = idx;
-  });
-  next.moves += 1;
-  const events = [{ t: 'shuffle' }];
-  resolve(next, level, events);
-  return { state: next, events };
-}
-
-function capacityOk(state, level) {
-  const need = new Int16Array(8);
-  for (let i = 0; i < state.queue.length; i += 1) {
-    if (!state.boarded[i]) need[state.queue[i]] += 1;
-  }
-  const cap = new Int16Array(8);
-  for (let b = 0; b < state.bayTaxi.length; b += 1) {
-    const id = state.bayTaxi[b];
-    if (id < 0) continue;
-    const taxi = level.taxis[id];
-    cap[taxi.color] += taxi.seats - state.bayFilled[b];
-  }
-  for (let i = 0; i < level.taxis.length; i += 1) {
-    if (state.exited[i] || level.taxis[i].decoy) continue;
-    cap[level.taxis[i].color] += level.taxis[i].seats;
-  }
-  for (let c = 0; c < 8; c += 1) if (need[c] > cap[c]) return false;
-  return true;
-}
-
-function stateKey(state, level) {
-  let exited = 0;
-  let locks = 0;
-  for (let i = 0; i < level.taxis.length; i += 1) {
-    if (state.exited[i]) exited += 2 ** i;
-    else locks = locks * 3 + state.locks[i];
-  }
-  let boarded = 0n;
-  for (let i = 0; i < state.boarded.length; i += 1) {
-    if (state.boarded[i]) boarded |= 1n << BigInt(i);
-  }
-  let bay = '';
-  for (let i = 0; i < state.bayTaxi.length; i += 1) {
-    const id = state.bayTaxi[i];
-    if (id < 0) bay += '.';
-    else {
-      const taxi = level.taxis[id];
-      bay += `${taxi.color}${state.bayFilled[i]}${taxi.seats}`;
+  const next = copyState(state);
+  for (let q = 0; q < next.queues.length; q += 1) {
+    const open = [];
+    for (let i = 0; i < next.boarded[q].length; i += 1) {
+      if (!next.boarded[q][i]) open.push(next.queues[q][i]);
     }
-  }
-  return `${exited}|${locks}|${boarded.toString(36)}|${bay}`;
-}
-
-function legalActions(state, level, banDecoys) {
-  const free = firstFreeBay(state) >= 0;
-  if (!free) return [];
-  const actions = [];
-  for (let i = 0; i < level.taxis.length; i += 1) {
-    if (state.exited[i]) continue;
-    if (banDecoys && level.taxis[i].decoy) continue;
-    if (!pathClear(level, state, i)) continue;
-    if (state.locks[i] > 0) actions.push({ t: 'unlock', id: i });
-    else actions.push({ t: 'exit', id: i });
-  }
-  return actions;
-}
-
-function bfs(level, opts) {
-  const limit = opts.nodeLimit ?? 200000;
-  const banDecoys = !!opts.banDecoys;
-  prepare(level);
-  const start = createState(level);
-  const queue = [start];
-  const depth = [0];
-  const seen = new Set();
-  seen.add(stateKey(start, level));
-  let head = 0;
-  let nodes = 0;
-  while (head < queue.length) {
-    const state = queue[head];
-    const dist = depth[head];
-    head += 1;
-    if (isWin(state)) return { solvable: true, moves: dist, nodes };
-    nodes += 1;
-    if (nodes > limit) return { solvable: false, nodes, limited: true };
-    if (isLose(state, level)) continue;
-    const actions = legalActions(state, level, banDecoys);
-    for (let a = 0; a < actions.length; a += 1) {
-      const res = applyAction(state, level, actions[a]);
-      if (!res) continue;
-      if (!isWin(res.state) && (isLose(res.state, level) || !capacityOk(res.state, level))) continue;
-      const key = stateKey(res.state, level);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      queue.push(res.state);
-      depth.push(dist + 1);
-    }
-  }
-  return { solvable: false, nodes };
-}
-
-/** Independent search. Spares are ignored unless the rank is otherwise unsolvable. */
-export function solve(level, opts = {}) {
-  const first = bfs(level, { ...opts, banDecoys: true });
-  if (first.solvable || !level.taxis.some((t) => t.decoy)) return first;
-  const second = bfs(level, { ...opts, banDecoys: false });
-  second.nodes += first.nodes;
-  return second;
-}
-
-function pickDir(c, r, cols, rows, rng, bias) {
-  if (rng() < bias) {
-    const up = r;
-    const down = rows - 1 - r;
-    const left = c;
-    const right = cols - 1 - c;
-    const m = Math.min(up, down, left, right);
-    if (m === up) return 0;
-    if (m === down) return 2;
-    if (m === left) return 3;
-    return 1;
-  }
-  return (rng() * 4) | 0;
-}
-
-function computeOrder(level, rng) {
-  const exited = new Uint8Array(level.taxis.length);
-  const order = [];
-  let guard = 0;
-  while (order.length < level.taxis.length && guard < 80) {
-    guard += 1;
-    const movable = [];
-    for (let i = 0; i < level.taxis.length; i += 1) {
-      if (!exited[i] && pathClear(level, { exited }, i)) movable.push(i);
-    }
-    if (!movable.length) return null;
-    const id = movable[(rng() * movable.length) | 0];
-    order.push(id);
-    exited[id] = 1;
-  }
-  return order.length === level.taxis.length ? order : null;
-}
-
-function blockedCount(level) {
-  const exited = new Uint8Array(level.taxis.length);
-  let n = 0;
-  for (let i = 0; i < level.taxis.length; i += 1) {
-    if (!pathClear(level, { exited }, i)) n += 1;
-  }
-  return n;
-}
-
-function queueFor(order, taxis, window) {
-  const queue = [];
-  for (let start = 0; start < order.length; start += window) {
-    const chunk = order.slice(start, start + window);
-    const seats = taxis[chunk[0]].seats;
-    for (let s = 0; s < seats; s += 1) {
-      for (const id of chunk) queue.push(taxis[id].color);
-    }
-  }
-  return queue;
-}
-
-function shuffleSome(queue, rng, swaps) {
-  const q = queue.slice();
-  for (let i = 0; i < swaps; i += 1) {
-    const a = (rng() * q.length) | 0;
-    const delta = ((rng() * 5) | 0) - 2;
-    const b = Math.min(q.length - 1, Math.max(0, a + delta));
-    const tmp = q[a];
-    q[a] = q[b];
-    q[b] = tmp;
-  }
-  return q;
-}
-
-function exitGuide(order) {
-  return order.map((id) => ({ t: 'exit', id }));
-}
-
-function safeCells(level, order) {
-  const forbidden = new Set();
-  for (const id of order) {
-    const taxi = level.taxis[id];
-    const dir = DIRS[taxi.dir];
-    let c = taxi.c + dir.x;
-    let r = taxi.r + dir.y;
-    while (c >= 0 && r >= 0 && c < level.cols && r < level.rows) {
-      forbidden.add(`${c},${r}`);
-      c += dir.x;
-      r += dir.y;
-    }
-  }
-  const used = new Set(level.taxis.map((t) => `${t.c},${t.r}`));
-  const safe = [];
-  for (let r = 0; r < level.rows; r += 1) {
-    for (let c = 0; c < level.cols; c += 1) {
-      const key = `${c},${r}`;
-      if (!used.has(key) && !forbidden.has(key)) safe.push({ c, r });
-    }
-  }
-  return safe;
-}
-
-function attemptPlacement(rng, spec) {
-  const { cols, rows } = spec;
-  const cells = [];
-  for (let r = 0; r < rows; r += 1) {
-    for (let c = 0; c < cols; c += 1) cells.push({ c, r });
-  }
-  const shuffled = shuffle(cells, rng);
-  const span = spec.maxTaxis - spec.minTaxis + 1;
-  const want = spec.minTaxis + ((rng() * span) | 0);
-  if (shuffled.length < want) return null;
-  const taxis = [];
-  for (let i = 0; i < want; i += 1) {
-    const cell = shuffled[i];
-    taxis.push({
-      id: i,
-      c: cell.c,
-      r: cell.r,
-      dir: pickDir(cell.c, cell.r, cols, rows, rng, spec.biasOut ?? 0.45),
-      color: 0,
-      seats: spec.seats,
-      locks: 0,
-      hidden: false,
-      decoy: false,
-    });
-  }
-  const level = {
-    cols,
-    rows,
-    bays: spec.bays,
-    taxis,
-    queue: [],
-    gaartjie: -1,
-  };
-  prepare(level);
-  const order = computeOrder(level, rng);
-  if (!order) return null;
-  order.forEach((id, i) => {
-    level.taxis[id].color = i % spec.colours;
-  });
-  if (blockedCount(level) < (spec.minBlocked || 0)) return null;
-
-  const maxWindow = Math.max(1, Math.min(spec.targetPeak || 1, spec.colours, spec.bays, order.length));
-  let best = null;
-  for (let window = maxWindow; window >= 1; window -= 1) {
-    const base = queueFor(order, level.taxis, window);
-    const candidates = [base];
-    for (let s = 0; s < 5; s += 1) candidates.push(shuffleSome(base, rng, 2 + s));
-    for (const queue of candidates) {
-      const trial = { ...level, queue, gaartjie: -1 };
-      const rep = replay(trial, exitGuide(order));
-      if (!rep.ok) continue;
-      if (!best || rep.peak > best.peak) best = { queue, peak: rep.peak, window };
-      if (best.peak >= (spec.targetPeak || 1)) break;
-    }
-    if (best && best.peak >= (spec.targetPeak || 1)) break;
-  }
-  if (!best) return null;
-  if (spec.minPeak && best.peak < spec.minPeak) return null;
-
-  let gaartjie = -1;
-  if (spec.gaartjie) {
-    for (let i = best.queue.length - 1; i >= 0; i -= 1) {
-      const rep = replay({ ...level, queue: best.queue, gaartjie: i }, exitGuide(order));
-      if (rep.ok) {
-        gaartjie = i;
-        break;
+    const mixed = shuffle(open, rng);
+    let k = 0;
+    for (let i = 0; i < next.boarded[q].length; i += 1) {
+      if (!next.boarded[q][i]) {
+        next.queues[q][i] = mixed[k];
+        k += 1;
       }
     }
-    if (gaartjie < 0) return null;
   }
-  level.queue = best.queue;
-  level.gaartjie = gaartjie;
-  level.peak = best.peak;
-
-  const decoys = spec.decoys || 0;
-  if (decoys) {
-    const safe = shuffle(safeCells(level, order), rng);
-    const n = Math.min(decoys, safe.length);
-    for (let i = 0; i < n; i += 1) {
-      const cell = safe[i];
-      level.taxis.push({
-        id: level.taxis.length,
-        c: cell.c,
-        r: cell.r,
-        dir: pickDir(cell.c, cell.r, cols, rows, rng, 0.85),
-        color: SPARE_COLOR,
-        seats: spec.seats,
-        locks: 0,
-        hidden: false,
-        decoy: true,
-      });
-    }
-    prepare(level);
-  }
-
-  const demand = level.taxis.filter((t) => !t.decoy);
-  const hiddenNeed = Math.min(spec.hidden || 0, Math.max(0, demand.length - 1));
-  if (hiddenNeed) {
-    const picks = shuffle(demand.map((t) => t.id), rng).slice(0, hiddenNeed);
-    for (const id of picks) level.taxis[id].hidden = true;
-  }
-  const lockNeed = Math.min(spec.locks || 0, demand.length);
-  if (lockNeed) {
-    const picks = shuffle(demand.map((t) => t.id), rng).slice(0, lockNeed);
-    for (const id of picks) level.taxis[id].locks = 1;
-  }
-
-  const guide = [];
-  for (const id of order) {
-    const locks = level.taxis[id].locks | 0;
-    for (let k = 0; k < locks; k += 1) guide.push({ t: 'unlock', id });
-    guide.push({ t: 'exit', id });
-  }
-  const proved = replay(level, guide);
-  if (!proved.ok) return null;
-  level.guide = guide;
-  level.par = guide.length;
-  level.parTime = Math.max(22, Math.round(16 + guide.length * 5));
-  level.seed = spec.seed || 0;
-  return level;
-}
-
-export function generateFromSeed(seed, spec) {
-  const rng = mulberry32(seed >>> 0);
-  for (let attempt = 0; attempt < (spec.attempts || 30); attempt += 1) {
-    const level = attemptPlacement(rng, spec);
-    if (level) {
-      level.seed = seed >>> 0;
-      return level;
-    }
-  }
-  return null;
-}
-
-export function generateBest(baseSeed, spec, tries = 48) {
-  for (let k = 0; k < tries; k += 1) {
-    const seed = (baseSeed + k * 9973) >>> 0;
-    const level = generateFromSeed(seed, { ...spec, attempts: 12 });
-    if (level) return level;
-  }
-  return null;
-}
-
-function taxi(id, c, r, dir, color, seats, extra = {}) {
-  return {
-    id,
-    c,
-    r,
-    dir,
-    color,
-    seats,
-    locks: extra.locks || 0,
-    hidden: !!extra.hidden,
-    decoy: !!extra.decoy,
-  };
-}
-
-function hand(level, guide) {
-  level.guide = guide;
-  level.par = guide.length;
-  level.parTime = Math.max(24, 18 + guide.length * 6);
-  level.seed = 1000 + level.id;
-  const proved = replay(level, guide);
-  if (!proved.ok) {
-    throw new Error(`Handcrafted level ${level.id} does not clear`);
-  }
-  return level;
-}
-
-/** Tutorial levels are hand-placed so the first twists are obvious and fast. */
-export function handcrafted(id) {
-  if (id === 1) {
-    return hand({
-      id: 1,
-      cols: 3,
-      rows: 3,
-      bays: 4,
-      gaartjie: -1,
-      queue: [0, 0, 0, 1, 1, 1],
-      taxis: [
-        taxi(0, 0, 1, 2, 0, 3),
-        taxi(1, 1, 1, 2, 1, 3),
-      ],
-    }, [{ t: 'exit', id: 0 }, { t: 'exit', id: 1 }]);
-  }
-  if (id === 2) {
-    return hand({
-      id: 2,
-      cols: 4,
-      rows: 4,
-      bays: 4,
-      gaartjie: -1,
-      queue: [0, 0, 0, 1, 1, 1, 2, 2, 2],
-      taxis: [
-        taxi(0, 1, 1, 2, 0, 3),
-        taxi(1, 1, 2, 2, 1, 3),
-        taxi(2, 3, 1, 1, 2, 3),
-      ],
-    }, [{ t: 'exit', id: 1 }, { t: 'exit', id: 2 }, { t: 'exit', id: 0 }]);
-  }
-  if (id === 3) {
-    return hand({
-      id: 3,
-      cols: 4,
-      rows: 4,
-      bays: 4,
-      gaartjie: -1,
-      queue: [2, 2, 2, 1, 1, 1, 0, 0, 0],
-      taxis: [
-        taxi(0, 0, 2, 3, 2, 3),
-        taxi(1, 2, 2, 2, 1, 3),
-        taxi(2, 2, 1, 2, 0, 3),
-      ],
-    }, [{ t: 'exit', id: 0 }, { t: 'exit', id: 1 }, { t: 'exit', id: 2 }]);
-  }
-  if (id === 4) {
-    return hand({
-      id: 4,
-      cols: 4,
-      rows: 4,
-      bays: 4,
-      gaartjie: -1,
-      queue: [1, 1, 1, 2, 2, 2, 0, 0, 0],
-      taxis: [
-        taxi(0, 1, 2, 2, 1, 3),
-        taxi(1, 1, 1, 2, 0, 3, { hidden: true }),
-        taxi(2, 3, 2, 2, 2, 3),
-      ],
-    }, [{ t: 'exit', id: 0 }, { t: 'exit', id: 2 }, { t: 'exit', id: 1 }]);
-  }
-  if (id === 8) {
-    return hand({
-      id: 8,
-      cols: 4,
-      rows: 4,
-      bays: 4,
-      gaartjie: -1,
-      queue: [0, 0, 0, 1, 1, 1],
-      taxis: [
-        taxi(0, 1, 2, 2, 0, 3, { locks: 1 }),
-        taxi(1, 2, 2, 2, 1, 3),
-      ],
-    }, [
-      { t: 'unlock', id: 0 },
-      { t: 'exit', id: 0 },
-      { t: 'exit', id: 1 },
-    ]);
-  }
-  if (id === 12) {
-    return hand({
-      id: 12,
-      cols: 4,
-      rows: 4,
-      bays: 4,
-      gaartjie: 5,
-      queue: [0, 0, 0, 1, 1, 1],
-      taxis: [
-        taxi(0, 1, 2, 2, 0, 3),
-        taxi(1, 2, 1, 1, 1, 3),
-      ],
-    }, [{ t: 'exit', id: 0 }, { t: 'exit', id: 1 }]);
-  }
-  return null;
-}
-
-export function specForLevel(n) {
-  const late = n >= 40;
-  const mid = n >= 22;
-  const twists = twistPlan(n);
-  return {
-    cols: n < 14 ? 4 : n < 36 ? 5 : 5,
-    rows: n < 14 ? 4 : n < 36 ? 4 : 5,
-    colours: n < 10 ? 3 : n < 24 ? 3 : n < 42 ? 4 : 5,
-    bays: n < 30 ? 4 : 3,
-    seats: n < 34 ? 3 : 4,
-    minTaxis: n < 14 ? 5 : n < 28 ? 6 : late ? 8 : 7,
-    maxTaxis: n < 14 ? 6 : n < 28 ? 8 : late ? 10 : 9,
-    targetPeak: Math.min(n < 30 ? 4 : 3, n < 16 ? 2 : 3),
-    minPeak: n < 10 ? 1 : 2,
-    minBlocked: 1,
-    biasOut: n < 16 ? 0.5 : 0.28,
-    hidden: twists.hidden,
-    locks: twists.locks,
-    gaartjie: twists.gaartjie,
-    decoys: twists.decoys,
-  };
-}
-
-function twistPlan(n) {
-  const hiddenLevels = new Set([4, 7, 10, 16, 22, 26, 31, 36, 41, 46, 52, 58]);
-  const lockLevels = new Set([8, 11, 16, 19, 24, 29, 33, 38, 44, 49, 55, 60]);
-  const gaartjieLevels = new Set([12, 15, 21, 24, 30, 36, 42, 48, 54, 60]);
-  const spareLevels = new Set([18, 23, 28, 34, 40, 45, 51, 57]);
-  return {
-    hidden: hiddenLevels.has(n) ? (n >= 46 ? 2 : 1) : 0,
-    locks: lockLevels.has(n) ? (n >= 49 ? 2 : 1) : 0,
-    gaartjie: gaartjieLevels.has(n),
-    decoys: spareLevels.has(n) ? (n >= 45 ? 2 : 1) : 0,
-  };
-}
-
-export function buildCampaignLevel(n) {
-  const handmade = handcrafted(n);
-  if (handmade) return handmade;
-  const spec = specForLevel(n);
-  let level = generateBest(8000 + n * 131, spec, 60);
-  if (!level && spec.minPeak > 1) {
-    level = generateBest(12000 + n * 131, { ...spec, minPeak: spec.minPeak - 1 }, 40);
-  }
-  if (!level) {
-    level = generateBest(24000 + n * 131, {
-      ...spec,
-      minPeak: 1,
-      targetPeak: 1,
-      decoys: 0,
-      minBlocked: 0,
-      biasOut: 0.7,
-    }, 40);
-  }
-  if (!level) throw new Error(`Could not generate level ${n}`);
-  level.id = n;
-  return level;
-}
-
-export function dateKey(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-export function dailySpec() {
-  return {
-    cols: 4,
-    rows: 4,
-    colours: 3,
-    bays: 4,
-    seats: 3,
-    minTaxis: 6,
-    maxTaxis: 7,
-    targetPeak: 2,
-    minPeak: 1,
-    minBlocked: 1,
-    biasOut: 0.4,
-    hidden: 1,
-    locks: 1,
-    gaartjie: true,
-    decoys: 1,
-    attempts: 20,
-  };
-}
-
-export function generateDaily(date = new Date()) {
-  const key = dateKey(date);
-  const base = hashString(`taxi-rank-rush:${key}`);
-  const spec = dailySpec();
-  if ((base & 3) === 0) spec.gaartjie = true;
-  const level = generateBest(base, spec, 36);
-  if (!level) throw new Error(`Daily puzzle failed for ${key}`);
-  level.id = 0;
-  level.daily = key;
-  level.name = 'Rush Hour';
-  return level;
+  next.moves += 1;
+  const events = [{ t: 'shuffle' }];
+  if (next.queues.length === 1) resolve(next, level, events);
+  return { state: next, events };
 }
 
 export function starsFor(moves, timeSec, level) {
   const par = level.par || moves;
-  const parTime = level.parTime || 60;
-  if (moves <= par && timeSec <= parTime) return 3;
-  if (moves <= par + 3 && timeSec <= parTime * 2) return 2;
+  if (level.daily) {
+    const parTime = level.parTime || 90;
+    if (moves <= par && timeSec <= parTime) return 3;
+    if (moves <= par + 3 && timeSec <= parTime * 2) return 2;
+    return 1;
+  }
+  if (moves <= par) return 3;
+  if (moves <= par + 3) return 2;
   return 1;
 }
 
@@ -886,25 +606,404 @@ export function shareText(level, result, dateLabel) {
   lines.push(result.daily ? 'Taxi Rank Rush · Rush Hour' : `Taxi Rank Rush · ${level.name || 'Level'}`);
   if (dateLabel) lines.push(dateLabel);
   const stars = result.stars || 0;
-  lines.push(`${'★'.repeat(stars)}${'☆'.repeat(Math.max(0, 3 - stars))}  ${result.moves} moves · ${result.time}s`);
+  lines.push(`${'★'.repeat(stars)}${'☆'.repeat(Math.max(0, 3 - stars))}  ${result.moves} taps`);
   const grid = [];
-  for (let r = 0; r < level.rows; r += 1) {
-    const row = [];
-    for (let c = 0; c < level.cols; c += 1) row.push('⬛');
-    grid.push(row);
-  }
+  for (let r = 0; r < level.rows; r += 1) grid.push(Array.from({ length: level.cols }, () => '⬛'));
   for (const taxi of level.taxis) {
-    const icon = taxi.hidden ? '❓' : (COLORS[taxi.color] ? COLORS[taxi.color].emoji : '⬛');
+    const icon = taxi.hidden ? '❓' : (COLORS[taxi.colors[0]] ? COLORS[taxi.colors[0]].emoji : '🚐');
     const arrow = ['⬆️', '➡️', '⬇️', '⬅️'][taxi.dir] || '';
-    grid[taxi.r][taxi.c] = icon + arrow;
+    if (inBounds(level, taxi.c, taxi.r)) grid[taxi.r][taxi.c] = icon + arrow;
   }
   for (const row of grid) lines.push(row.join(''));
   lines.push('Sort the rank.');
   return lines.join('\n');
 }
 
-export function stripRuntime(level) {
-  const copy = { ...level, taxis: level.taxis.map((t) => ({ ...t })) };
-  delete copy.grid;
-  return copy;
+function blankLevel(spec) {
+  return {
+    cols: spec.cols,
+    rows: spec.rows,
+    bays: spec.bays,
+    taxis: [],
+    queues: spec.queues > 1 ? [[], []] : [[]],
+    cones: [],
+    robots: [],
+    officer: null,
+    rain: !!spec.rain,
+  };
+}
+
+function traceCells(level, taxi) {
+  const dir = DIRS[taxi.dir];
+  const cells = [];
+  let c = taxi.c + dir.x;
+  let r = taxi.r + dir.y;
+  while (inBounds(level, c, r)) {
+    cells.push({ c, r });
+    c += dir.x;
+    r += dir.y;
+  }
+  return cells;
+}
+
+function cellKey(c, r) {
+  return `${c},${r}`;
+}
+
+function occupiedSet(level) {
+  const used = new Set();
+  for (const taxi of level.taxis) {
+    for (const cell of taxiCells(taxi)) used.add(cellKey(cell.c, cell.r));
+    for (const cell of traceCells(level, taxi)) used.add(cellKey(cell.c, cell.r));
+  }
+  return used;
+}
+
+function pathAllows(level, taxi) {
+  for (const cell of taxiCells(taxi)) {
+    if (!inBounds(level, cell.c, cell.r)) return false;
+    const occ = level.grid ? level.grid[cell.r * level.cols + cell.c] : -1;
+    if (occ >= 0) return false;
+  }
+  for (const cell of traceCells(level, taxi)) {
+    const occ = level.grid[cell.r * level.cols + cell.c];
+    if (taxi.needsClear && occ >= 0) return false;
+    if (occ >= 0 && occ > taxi.id) return false;
+    if (occ < 0) {
+      for (const cone of level.cones) {
+        if (cone.c === cell.c && cone.r === cell.r) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function placeTaxi(level, taxi, rng) {
+  const spots = [];
+  for (let r = 0; r < level.rows; r += 1) {
+    for (let c = 0; c < level.cols; c += 1) {
+      taxi.c = c;
+      taxi.r = r;
+      if (pathAllows(level, taxi)) spots.push({ c, r });
+    }
+  }
+  if (!spots.length) return false;
+  const spot = spots[(rng() * spots.length) | 0];
+  taxi.c = spot.c;
+  taxi.r = spot.r;
+  prepare(level);
+  return true;
+}
+
+function pushPeople(list, taxi, spec, rng) {
+  if (spec.gaartjie && taxi.gaartjie) {
+    list.push({ color: taxi.colors[0], seats: 1, vip: true, luggage: false });
+    return;
+  }
+  let left = taxi.seats;
+  const colours = taxi.colors;
+  let flip = 0;
+  while (left > 0) {
+    const color = colours[flip % colours.length];
+    flip += 1;
+    if (spec.luggage && left >= 2 && rng() < 0.45) {
+      list.push({ color, seats: 2, vip: false, luggage: true });
+      left -= 2;
+    } else {
+      list.push({ color, seats: 1, vip: false, luggage: false });
+      left -= 1;
+    }
+  }
+}
+
+function buildQueues(level, spec, rng) {
+  const blocks = level.taxis.map(() => []);
+  for (const taxi of level.taxis) pushPeople(blocks[taxi.id], taxi, spec, rng);
+  if (spec.queues > 1) {
+    const a = [];
+    const b = [];
+    blocks.forEach((block, index) => {
+      (index % 2 === 0 ? a : b).push(...block);
+    });
+    level.queues = [a, b.length ? b : [{ color: level.taxis[0].colors[0], seats: 1, vip: false, luggage: false }]];
+    if (!b.length) level.queues = [a];
+  } else {
+    level.queues = [blocks.flat()];
+  }
+}
+
+function decorate(level, spec, rng) {
+  prepare(level);
+  const used = occupiedSet(level);
+  const free = [];
+  for (let r = 0; r < level.rows; r += 1) {
+    for (let c = 0; c < level.cols; c += 1) {
+      if (!used.has(cellKey(c, r))) free.push({ c, r });
+    }
+  }
+  if (spec.cone) {
+    const count = Math.min(2, free.length);
+    for (let i = 0; i < count; i += 1) {
+      const index = (rng() * free.length) | 0;
+      level.cones.push(free.splice(index, 1)[0]);
+    }
+  }
+  if (spec.officer && free.length >= 3) {
+    const path = free.slice(0, 3);
+    level.officer = { path };
+  }
+}
+
+function greedy(level) {
+  prepare(level);
+  let state = createState(level);
+  const guide = [];
+  const drain = () => {
+    if (state.queues.length < 2) return true;
+    for (let guard = 0; guard < 40; guard += 1) {
+      let sent = false;
+      for (let q = 0; q < state.queues.length; q += 1) {
+        const index = headIndex(state, q);
+        if (index < 0) continue;
+        if (findBay(state, level, state.queues[q][index]) < 0) continue;
+        const res = applyAction(state, level, { t: 'send', queue: q });
+        if (!res) return false;
+        guide.push({ t: 'send', queue: q });
+        state = res.state;
+        sent = true;
+        break;
+      }
+      if (!sent) return true;
+    }
+    return true;
+  };
+  for (const taxi of level.taxis) {
+    if (!drain()) return null;
+    if (taxi.tow >= 0 && taxi.tow < taxi.id) continue;
+    const action = taxi.tow >= 0 ? { t: 'tow', id: Math.min(taxi.id, taxi.tow) } : { t: 'exit', id: taxi.id };
+    const res = applyAction(state, level, action);
+    if (!res) return null;
+    guide.push(action);
+    state = res.state;
+    if (isLose(state, level)) return null;
+  }
+  if (!drain()) return null;
+  if (!isWin(state)) return null;
+  return guide;
+}
+
+function specFor(n, easier) {
+  const difficulty = easier ? 'easy' : difficultyOf(n);
+  const intro = INTROS[n] || null;
+  const mechs = new Set();
+  if (intro && intro !== 'basics') mechs.add(intro);
+  const pick = mulberry32(n * 97 + (easier || 0) * 13);
+  const unlocked = Object.entries(INTROS)
+    .filter(([level, name]) => Number(level) < n && name !== 'basics' && name !== 'rain')
+    .map(([, name]) => name);
+  const take = easier ? 0 : difficulty === 'super' ? 2 : difficulty === 'hard' ? 2 : difficulty === 'medium' ? 1 : 0;
+  const pool = shuffle(unlocked, pick);
+  for (let i = 0; i < pool.length && mechs.size < take; i += 1) mechs.add(pool[i]);
+  if ((intro === 'rain' || (n >= 48 && n % 9 === 0)) && !easier) mechs.add('rain');
+  const sizes = mechs.has('size') || n >= 4;
+  let count = difficulty === 'easy' ? 3 : difficulty === 'medium' ? 4 : 5;
+  if (easier) count = Math.max(2, count - 1);
+  if (intro === 'basics') count = 2;
+  if (intro === 'gaartjie' || intro === 'luggage' || intro === 'twotone') count = 1;
+  if (intro === 'tow') count = 4;
+  if (intro === 'robot') count = 4;
+  return {
+    cols: difficulty === 'easy' ? 5 : 6,
+    rows: difficulty === 'super' ? 6 : 5,
+    bays: easier ? 6 : 5,
+    count,
+    colours: Math.max(2, (difficulty === 'super' ? 4 : difficulty === 'hard' ? 3 : 2) - (easier ? 1 : 0)),
+    sizes,
+    mechs,
+    rain: mechs.has('rain'),
+    queues: mechs.has('queues') ? 2 : 1,
+    intro,
+  };
+}
+
+function chooseSize(spec, index, rng) {
+  if (!spec.sizes) return SIZES.quantum;
+  if (spec.intro === 'size') {
+    return [SIZES.hiace, SIZES.quantum, SIZES.sprinter][index] || SIZES.quantum;
+  }
+  if (spec.queues > 1) return rng() < 0.5 ? SIZES.hiace : SIZES.quantum;
+  const roll = rng();
+  if (roll < 0.34) return SIZES.hiace;
+  if (roll < 0.75) return SIZES.quantum;
+  return SIZES.sprinter;
+}
+
+function construct(n, spec, rng) {
+  const level = blankLevel(spec);
+  level.grid = new Int16Array(level.cols * level.rows).fill(-1);
+  for (let i = 0; i < spec.count; i += 1) {
+    const size = chooseSize(spec, i, rng);
+    const colors = [i % spec.colours];
+    if (spec.mechs.has('twotone') && i === 0) colors.push((i + 1) % spec.colours);
+    const taxi = {
+      id: i,
+      c: 0,
+      r: 0,
+      dir: [0, 1, 2, 3][(rng() * 4) | 0],
+      len: size.len,
+      seats: size.seats,
+      colors,
+      hidden: spec.mechs.has('tarp') && i === spec.count - 1,
+      lockAfter: spec.mechs.has('lock') && i >= 2 ? 1 : 0,
+      tow: -1,
+      needsClear: spec.mechs.has('tow') && i < 2,
+      gaartjie: spec.mechs.has('gaartjie') && i === 0,
+    };
+    let placed = false;
+    const dirs = shuffle([0, 1, 2, 3], rng);
+    for (const dir of dirs) {
+      taxi.dir = dir;
+      if (placeTaxi(level, taxi, rng)) {
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) return null;
+    level.taxis.push(taxi);
+    prepare(level);
+    if (spec.mechs.has('robot') && Math.floor(i / 2) % 2 === 0) {
+      const lane = taxi.dir % 2 === 0 ? taxi.c : taxi.r;
+      if (!level.robots.some((robot) => robot.dir === taxi.dir && robot.lane === lane)) {
+        level.robots.push({ dir: taxi.dir, lane });
+      }
+    }
+  }
+  if (spec.mechs.has('tow') && level.taxis.length >= 2) {
+    level.taxis[0].tow = 1;
+    level.taxis[1].tow = 0;
+  }
+  if (spec.mechs.has('robot') && !level.robots.length) return null;
+  decorate(level, { cone: spec.mechs.has('cone'), officer: spec.mechs.has('officer') }, rng);
+  if (spec.mechs.has('cone') && !level.cones.length) return null;
+  if (spec.mechs.has('officer') && !level.officer) return null;
+  buildQueues(level, spec, rng);
+  prepare(level);
+  const guide = greedy(level);
+  if (!guide) return null;
+  level.guide = guide;
+  level.par = guide.length;
+  level.id = n;
+  level.difficulty = spec.intro && n ? undefined : undefined;
+  return level;
+}
+
+const NAMES = [
+  'First in line', 'After you', 'Side step', 'Long nose', 'Bay lesson',
+  'Colour mix', 'Morning rank', 'Short hold', 'Last light', 'Tight bay',
+  'Deep row', 'Quiet corner', 'Second wave', 'Full load', 'Home stretch',
+  'Early bird', 'Queue hop', 'Big yard', 'Nearly home', 'Final hoot',
+];
+
+function finish(level, n, spec) {
+  level.id = n;
+  level.difficulty = spec.intro === 'basics' ? 'easy' : (spec.difficulty || difficultyOf(n));
+  level.reward = level.difficulty === 'hard' || level.difficulty === 'super' ? 2 : 1;
+  level.region = regionFor(n);
+  level.rain = !!spec.rain;
+  const introNames = {
+    size: 'Three sizes', luggage: 'Bags and buckets', twotone: 'Split roof',
+    tarp: 'Under the tarp', lock: 'Padlock', gaartjie: 'Gaartjie', robot: 'Robot',
+    cone: 'Cones', officer: 'Officer', queues: 'Two queues', tow: 'Tow chain', rain: 'Wet road',
+  };
+  level.name = introNames[spec.intro] || NAMES[(n - 1) % NAMES.length];
+  level.tutorial = spec.intro ? {
+    mech: spec.intro,
+    text: TUTORIAL[spec.intro],
+    focus: 0,
+  } : null;
+  level.parTime = 70;
+  return level;
+}
+
+function fallback(n) {
+  const level = {
+    id: n,
+    cols: 4,
+    rows: 4,
+    bays: 5,
+    cones: [],
+    robots: [],
+    officer: null,
+    rain: false,
+    queues: [[
+      { color: 0, seats: 1, vip: false, luggage: false },
+      { color: 0, seats: 1, vip: false, luggage: false },
+      { color: 0, seats: 1, vip: false, luggage: false },
+      { color: 0, seats: 1, vip: false, luggage: false },
+      { color: 0, seats: 1, vip: false, luggage: false },
+      { color: 0, seats: 1, vip: false, luggage: false },
+    ]],
+    taxis: [{
+      id: 0, c: 1, r: 2, dir: 2, len: 3, seats: 6, colors: [0],
+      hidden: false, lockAfter: 0, tow: -1, gaartjie: false,
+    }],
+    guide: [{ t: 'exit', id: 0 }],
+    par: 1,
+  };
+  // 6 passengers but seats 6, len 3 quantum usually 9. This fallback uses 6 seats on a len 3 so it still clears.
+  return finish(level, n, { rain: false, intro: null, difficulty: 'easy' });
+}
+
+export function buildLevel(n, opts = {}) {
+  const easier = opts.easier || 0;
+  const spec = specFor(n, easier);
+  spec.difficulty = easier ? 'easy' : difficultyOf(n);
+  const rng = mulberry32((n * 0x9e3779b9 + easier * 0x85ebca6b) >>> 0);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const level = construct(n, spec, rng);
+    if (!level) continue;
+    finish(level, n, spec);
+    return level;
+  }
+  return finish(fallback(n), n, spec);
+}
+
+export function generateDaily(date = new Date()) {
+  const key = dateKey(date);
+  const seed = hashString(`taxi-rank-rush:${key}`);
+  const spec = specFor(20 + (seed % 15), 0);
+  spec.queues = 1;
+  spec.mechs = new Set(['tarp']);
+  spec.rain = false;
+  spec.intro = null;
+  spec.count = 3;
+  spec.colours = 2;
+  const rng = mulberry32(seed);
+  let level = null;
+  for (let attempt = 0; attempt < 40 && !level; attempt += 1) level = construct(0, spec, rng);
+  if (!level) level = fallback(0);
+  finish(level, 0, spec);
+  level.daily = key;
+  level.name = 'Rush Hour';
+  level.parTime = 80;
+  level.tutorial = null;
+  level.reward = 1;
+  return level;
+}
+
+export function weekendLevel(index, weekSeed) {
+  const spec = specFor(30, 0);
+  spec.count = 3;
+  spec.queues = 1;
+  spec.intro = null;
+  spec.mechs = new Set(index % 2 === 0 ? ['size'] : ['luggage']);
+  spec.rain = false;
+  const rng = mulberry32((weekSeed + index * 131) >>> 0);
+  let level = null;
+  for (let attempt = 0; attempt < 30 && !level; attempt += 1) level = construct(index + 1, spec, rng);
+  if (!level) level = fallback(index + 1);
+  finish(level, index + 1, spec);
+  level.name = `Month-end ${index + 1}`;
+  level.tutorial = null;
+  return level;
 }

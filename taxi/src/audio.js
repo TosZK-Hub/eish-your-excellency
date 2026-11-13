@@ -224,9 +224,28 @@ export function tap() {
   tone(640, 0.05, 'sine', 0.05);
 }
 
+const HORNS = {
+  hoot: [540, 360],
+  sharp: [760, 520],
+  low: [280, 180],
+  bell: [880, 660],
+};
+let horn = 'hoot';
+
+export function setHorn(id) {
+  if (HORNS[id]) horn = id;
+}
+
 export function hoot() {
-  tone(540, 0.09, 'square', 0.07, 540);
-  tone(360, 0.16, 'square', 0.06);
+  const pair = HORNS[horn] || HORNS.hoot;
+  tone(pair[0], 0.09, 'square', 0.07, pair[0]);
+  tone(pair[1], 0.16, 'square', 0.06);
+}
+
+export function cheer(combo) {
+  const lift = Math.min(4, Math.max(1, combo || 1));
+  tone(420 + lift * 70, 0.12, 'square', 0.07);
+  tone(560 + lift * 80, 0.16, 'square', 0.06);
 }
 
 export function vroom() {

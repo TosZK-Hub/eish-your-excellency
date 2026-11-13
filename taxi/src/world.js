@@ -3,8 +3,8 @@
  * The puzzle rules stay in engine.js. This module only shows them.
  */
 
-import { DIRS } from './engine.js';
-import { COLORS } from './theme.js';
+import { DIRS, taxiCells } from './engine.js';
+import { colorHex, REGIONS } from './theme.js';
 import {
   AmbientLight,
   BoxGeometry,
@@ -30,6 +30,7 @@ import {
   Scene,
   SphereGeometry,
   Sprite,
+  TorusGeometry,
   SpriteMaterial,
   SRGBColorSpace,
   Vector2,
@@ -357,13 +358,79 @@ function makeArrow() {
   return g;
 }
 
-function makePerson(color, variant, vip) {
+function makeSign(colorIndex) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#1c2430';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  const mark = colorIndex % 8;
+  if (mark === 0) { ctx.beginPath(); ctx.moveTo(32, 14); ctx.lineTo(32, 50); ctx.stroke(); }
+  else if (mark === 1) { ctx.beginPath(); ctx.moveTo(14, 32); ctx.lineTo(50, 32); ctx.stroke(); }
+  else if (mark === 2) { ctx.beginPath(); ctx.arc(32, 32, 12, 0, Math.PI * 2); ctx.stroke(); }
+  else if (mark === 3) { ctx.strokeRect(22, 16, 8, 28); ctx.strokeRect(22, 36, 20, 8); }
+  else if (mark === 4) { ctx.beginPath(); ctx.moveTo(18, 44); ctx.lineTo(32, 16); ctx.lineTo(46, 44); ctx.stroke(); }
+  else if (mark === 5) { ctx.fillStyle = '#1c2430'; ctx.fillRect(20, 20, 24, 24); }
+  else if (mark === 6) { ctx.beginPath(); ctx.moveTo(32, 16); ctx.lineTo(32, 46); ctx.moveTo(22, 36); ctx.lineTo(32, 48); ctx.lineTo(42, 36); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.arc(32, 34, 12, Math.PI * 0.2, Math.PI * 1.4); ctx.stroke(); }
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  const sprite = new Sprite(new SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sprite.scale.set(0.28, 0.28, 1);
+  return sprite;
+}
+
+function makeNumberLock() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  const sprite = new Sprite(new SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sprite.scale.set(0.42, 0.42, 1);
+  sprite.userData.paint = (n) => {
+    ctx.clearRect(0, 0, 128, 128);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(64, 64, 56, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#1c2430';
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.fillStyle = '#1c2430';
+    ctx.font = '700 64px Nunito, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(n), 64, 70);
+    tex.needsUpdate = true;
+  };
+  sprite.userData.paint(1);
+  return sprite;
+}
+
+function makePerson(color, variant, vip, luggage, signIndex) {
   const g = new Group();
   const cloth = toon(color);
   const skin = toon(0xf0c7a2);
   const body = mesh(new CapsuleGeometry(0.11, 0.16, 2, 8), cloth, 0, 0.32, 0, true);
   const head = mesh(sphGeo(0.105, 8, 6), skin, 0, 0.56, 0, true);
   g.add(body, head);
+  if (signIndex != null) {
+    const sign = makeSign(signIndex);
+    sign.position.set(0, 0.78, 0);
+    sign.scale.set(0.22, 0.22, 1);
+    g.add(sign);
+  }
+  if (luggage) {
+    g.add(mesh(boxGeo(0.16, 0.12, 0.12), toon(0xc9842a), 0.16, 0.2, 0.02));
+  }
   if (vip) {
     const vest = slab(0.18, 0.14, 0.12, toon(0xf2c14e), 0, 0.32, 0.02);
     const cap = mesh(cylGeo(0.09, 0.045, 8), toon(0x243044), 0, 0.66, 0);
@@ -464,6 +531,10 @@ export function createBoard(canvas) {
   let plan = null;
   let views = [];
   let people = [];
+  let heads = [];
+  let hazardRoot = null;
+  let officerMesh = null;
+  let lightMeshes = [];
   let queueRoot = null;
   let plus = null;
   let plusCtx = null;
@@ -578,7 +649,9 @@ export function createBoard(canvas) {
   }
 
   function buildEnvironment() {
-    const grass = new Mesh(new PlaneGeometry(plan.span + 8, (plan.maxZ - plan.minZ) + 8), toon(0x7dbe6a));
+    const look = regionLook(level && level.region);
+    scene.background = new Color(look.sky);
+    const grass = new Mesh(new PlaneGeometry(plan.span + 8, (plan.maxZ - plan.minZ) + 8), toon(look.grass));
     grass.rotation.x = -Math.PI / 2;
     grass.position.set(0, -0.02, (plan.minZ + plan.maxZ) / 2);
     grass.receiveShadow = true;
@@ -588,7 +661,7 @@ export function createBoard(canvas) {
     const yardFar = plan.maxZ - 0.2;
     const asphalt = new Mesh(
       new PlaneGeometry(plan.span + 1.15, yardFar - yardNear),
-      toon(0x4e5968),
+      toon(look.ground),
     );
     asphalt.rotation.x = -Math.PI / 2;
     asphalt.position.set(0, 0, (yardNear + yardFar) / 2);
@@ -675,57 +748,143 @@ export function createBoard(canvas) {
     plusTex.needsUpdate = true;
   }
 
-  function buildPeople(force) {
+  function addHazards() {
+    hazardRoot = new Group();
+    root.add(hazardRoot);
+    for (const cone of level.cones || []) {
+      const at = plan.cell(cone.c, cone.r);
+      const body = new Mesh(new ConeGeometry(0.16, 0.32, 7), toon(0xf07a2a));
+      body.position.set(at.x, 0.16, at.z);
+      body.castShadow = true;
+      hazardRoot.add(body);
+    }
+    if (level.officer && level.officer.path) {
+      officerMesh = makePerson(0xf2c14e, 0, false, false, 1);
+      officerMesh.scale.setScalar(0.85);
+      hazardRoot.add(officerMesh);
+      syncOfficer();
+    }
+    lightMeshes = [];
+    for (const robot of level.robots || []) {
+      const along = robot.dir === 0 ? 0 : robot.dir === 2 ? level.rows - 1 : robot.lane;
+      const across = robot.dir % 2 === 0 ? robot.lane : (robot.dir === 1 ? level.cols - 1 : 0);
+      const c = robot.dir % 2 === 0 ? robot.lane : across;
+      const r = robot.dir % 2 === 0 ? (robot.dir === 2 ? level.rows - 1 : 0) : robot.lane;
+      const at = plan.cell(Math.max(0, Math.min(level.cols - 1, c)), Math.max(0, Math.min(level.rows - 1, r)));
+      const pole = mesh(boxGeo(0.06, 0.7, 0.06), toon(0x243044), at.x, 0.35, at.z, true);
+      const lampMat = new MeshBasicMaterial({ color: 0x3e9b4f });
+      const lamp = mesh(sphGeo(0.1, 8, 6), lampMat, at.x, 0.78, at.z);
+      lamp.userData.robot = robot;
+      lamp.userData.mat = lampMat;
+      hazardRoot.add(pole, lamp);
+      lightMeshes.push(lamp);
+    }
+    syncLights();
+    if (level.region === 'cape') {
+      const hill = new Mesh(new ConeGeometry(0.7, 0.9, 5), toon(0x8aa0b8));
+      hill.position.set(plan.maxX + 0.2, 0.4, plan.minZ);
+      hazardRoot.add(hill);
+    } else if (level.region === 'joburg') {
+      const tower = mesh(boxGeo(0.18, 1.1, 0.18), toon(0xd7dde6), plan.minX - 0.1, 0.55, plan.maxZ, true);
+      hazardRoot.add(tower);
+    } else if (level.region === 'gqeberha') {
+      const arch = mesh(boxGeo(0.9, 0.08, 0.08), toon(0xc5ced6), 0, 0.7, plan.maxZ + 0.2);
+      hazardRoot.add(arch);
+    } else if (level.region === 'bloem') {
+      const spire = mesh(boxGeo(0.16, 0.9, 0.16), toon(0xe7d7b0), plan.maxX, 0.45, plan.maxZ, true);
+      hazardRoot.add(spire);
+    } else {
+      const wheel = new Mesh(new TorusGeometry(0.28, 0.05, 6, 10), toon(0xf4f7fb));
+      wheel.position.set(plan.minX, 0.35, plan.minZ);
+      hazardRoot.add(wheel);
+    }
+  }
+
+  function syncOfficer() {
+    if (!officerMesh || !level.officer) return;
+    const index = Math.floor((state.moves || 0) / 3) % level.officer.path.length;
+    const cell = level.officer.path[index];
+    const at = plan.cell(cell.c, cell.r);
+    officerMesh.position.set(at.x, 0, at.z);
+  }
+
+  function syncLights() {
+    const green = Math.floor((state.moves || 0) / 2) % 2 === 0;
+    for (const lamp of lightMeshes || []) {
+      lamp.userData.mat.color.set(green ? 0x3e9b4f : 0xe23d3d);
+    }
+  }
+
+  function buildPeople() {
     queueRoot.clear();
     people = [];
-    forceVisible.clear();
-    for (const idx of force) forceVisible.add(idx);
-    for (let i = 0; i < state.queue.length; i += 1) {
-      const vip = i === state.gaartjie;
-      const person = makePerson(COLORS_HEX(state.queue[i]), i % 3, vip);
-      person.userData.phase = i * 0.8;
-      person.userData.leaving = false;
-      queueRoot.add(person);
-      people.push(person);
-    }
+    heads = [];
+    const queues = state.queues || [state.queue || []];
+    const boarded = state.boarded || [];
+    queues.forEach((queue, q) => {
+      const flags = boarded[q] || [];
+      let shown = 0;
+      queue.forEach((person, index) => {
+        if (flags[index]) return;
+        if (shown >= 5) return;
+        const meshPerson = makePerson(COLORS_HEX(person.color), index % 3, !!person.vip, !!person.luggage, person.color);
+        meshPerson.userData.queue = q;
+        meshPerson.userData.index = index;
+        meshPerson.userData.phase = index + q;
+        meshPerson.userData.head = shown === 0;
+        meshPerson.userData.slot = shown;
+        queueRoot.add(meshPerson);
+        people.push(meshPerson);
+        if (shown === 0) heads.push(meshPerson);
+        shown += 1;
+      });
+    });
     placePeople();
   }
 
   function placePeople() {
-    const open = [];
-    for (let i = 0; i < state.queue.length; i += 1) {
-      if (people[i] && people[i].userData.leaving) continue;
-      if (!state.boarded[i] || forceVisible.has(i)) open.push(i);
-    }
-    const shown = open.slice(0, 6);
-    const gap = 0.48;
-    const start = -((Math.max(shown.length, 1) - 1) * gap) / 2;
+    const rows = [[], []];
     for (const person of people) {
-      if (!person.userData.leaving) person.visible = false;
+      if (person.userData.leaving) continue;
+      rows[person.userData.queue] = rows[person.userData.queue] || [];
+      rows[person.userData.queue].push(person);
     }
-    shown.forEach((idx, n) => {
-      const person = people[idx];
-      person.visible = true;
-      person.position.set(start + n * gap, 0, plan.queueZ);
-      person.userData.baseY = 0;
+    rows.forEach((row, q) => {
+      const gap = 0.46;
+      const start = -((Math.max(row.length, 1) - 1) * gap) / 2;
+      const z = plan.queueZ - q * 0.62;
+      row.forEach((person, n) => {
+        person.visible = true;
+        person.position.set(start + n * gap, 0, z);
+      });
+      if (q === 0 && row[0]) ring.position.set(row[0].position.x, 0.025, z);
     });
-    const extra = open.length - shown.length;
-    plus.visible = extra > 0;
-    if (extra > 0) {
-      paintPlus(extra);
-      plus.position.set(start + shown.length * gap, 0.45, plan.queueZ);
-    }
-    ring.visible = shown.length > 0;
-    if (shown.length) ring.position.set(start, 0.025, plan.queueZ);
+    ring.visible = !!(rows[0] && rows[0][0]);
+    plus.visible = false;
+  }
+
+  function centerOf(taxi) {
+    const dir = DIRS[taxi.dir];
+    const len = taxi.len || 1;
+    const tailC = taxi.c - dir.x * (len - 1);
+    const tailR = taxi.r - dir.y * (len - 1);
+    return plan.cell((taxi.c + tailC) / 2, (taxi.r + tailR) / 2);
+  }
+
+  function fitScale(taxi) {
+    const len = taxi.len || 3;
+    return (len * CELL * 0.86) / 1.05;
   }
 
   function applyVisual(view, taxi) {
-    const covered = !!hidden[taxi.id];
+    const covered = !!(taxi.hidden && state.revealed && !state.revealed[taxi.id]);
     view.body.visible = !covered;
     view.tarp.visible = covered;
     view.question.visible = covered;
-    view.lock.visible = state.locks[taxi.id] > 0;
-    view.arrow.visible = showArrows;
+    const left = Math.max(0, (taxi.lockAfter || 0) - (state.departed || 0));
+    view.lock.visible = left > 0;
+    if (left > 0 && view.lock.userData.paint) view.lock.userData.paint(left);
+    view.arrow.visible = true;
     view.question.position.y = 1.32;
     view.lock.position.set(covered ? 0.28 : 0, 1.28, 0);
   }
@@ -754,12 +913,14 @@ export function createBoard(canvas) {
       view.group.visible = true;
       view.group.position.set(p.x, 0, p.z);
       view.group.rotation.y = 0;
+      view.group.scale.set(0.38, 0.38, 0.38);
       showSeats(taxi.id, state.bayFilled[bay]);
     } else {
-      const p = plan.cell(taxi.c, taxi.r);
+      const p = centerOf(taxi);
       view.group.visible = true;
       view.group.position.set(p.x, 0, p.z);
       view.group.rotation.y = yawForDir(taxi.dir);
+      view.group.scale.set(1, 1, fitScale(taxi));
       view.pick.visible = true;
       showSeats(taxi.id, 0);
     }
@@ -818,7 +979,8 @@ export function createBoard(canvas) {
     level = nextLevel;
     state = nextState;
     hidden = nextHidden;
-    showArrows = !!(opts && opts.showArrows);
+    showArrows = true;
+    colorblind = !!(opts && opts.colorblind);
     const livery = (opts && opts.livery) || 'plain';
     plan = layoutPlan(level, state.bayTaxi.length);
     if (root) scene.remove(root);
@@ -845,16 +1007,30 @@ export function createBoard(canvas) {
     plus.scale.set(0.55, 0.28, 1);
     root.add(plus);
 
+    addHazards();
     for (const taxi of level.taxis) {
-      const group = makeCombi(COLORS_HEX(taxi.color));
+      const colors = taxi.colors || [taxi.color || 0];
+      const group = makeCombi(COLORS_HEX(colors[0]));
       addLivery(group, livery);
+      if (colors[1] != null) {
+        const stripe = slab(0.04, 0.07, 0.9, toon(COLORS_HEX(colors[1])), -0.34, 0.52, 0.04);
+        group.userData.body.add(stripe);
+      }
+      const sign = makeSign(colors[0]);
+      sign.position.set(0, 1.08, -0.2);
+      group.userData.body.add(sign);
       const tarp = makeTarp();
       const question = makeQuestion();
-      const lock = makePadlock();
+      const lock = makeNumberLock();
       const arrow = makeArrow();
-      const pick = mesh(boxGeo(CELL * 0.92, 1.3, CELL * 0.92), pickMat, 0, 0.65, 0);
+      const flashBox = mesh(
+        boxGeo(0.8, 0.5, 1.1),
+        new MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0, depthWrite: false }),
+        0, 0.5, 0,
+      );
+      const pick = mesh(boxGeo(CELL * 0.92, 1.3, 1.05), pickMat, 0, 0.65, 0);
       pick.userData.id = taxi.id;
-      group.add(tarp, question, lock, arrow, pick);
+      group.add(tarp, question, lock, arrow, pick, flashBox);
       root.add(group);
       views[taxi.id] = {
         group,
@@ -864,6 +1040,7 @@ export function createBoard(canvas) {
         lock,
         arrow,
         pick,
+        flash: flashBox,
       };
       placeTaxi(taxi);
     }
@@ -925,12 +1102,17 @@ export function createBoard(canvas) {
     pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
     const targets = [];
+    for (const head of heads) targets.push(head);
     for (const view of views) {
       if (view && view.pick.visible) targets.push(view.pick);
     }
-    const hits = raycaster.intersectObjects(targets, false);
-    if (!hits.length) return -1;
-    return hits[0].object.userData.id;
+    const hits = raycaster.intersectObjects(targets, true);
+    if (!hits.length) return null;
+    let obj = hits[0].object;
+    while (obj && obj.userData.queue == null && obj.userData.id == null && obj.parent) obj = obj.parent;
+    if (obj && obj.userData.queue != null) return { kind: 'queue', queue: obj.userData.queue };
+    if (obj && obj.userData.id != null) return { kind: 'taxi', id: obj.userData.id };
+    return null;
   }
 
   function project(id) {
@@ -948,7 +1130,7 @@ export function createBoard(canvas) {
   function pathPoints(id) {
     const taxi = level.taxis[id];
     const dir = DIRS[taxi.dir];
-    const points = [plan.cell(taxi.c, taxi.r)];
+    const points = [centerOf(taxi)];
     let c = taxi.c + dir.x;
     let r = taxi.r + dir.y;
     while (plan.inside(c, r)) {
@@ -1076,8 +1258,17 @@ export function createBoard(canvas) {
       showSeats(id, 0);
     },
     async board(event) {
-      const person = people[event.pIndex];
-      if (!person) return;
+      const person = people.find((item) => item.userData.queue === (event.queue || 0) && item.userData.index === event.pIndex);
+      if (event.filled > 4) {
+        if (person) person.visible = false;
+        showSeats(event.taxiId, event.filled);
+        placePeople();
+        return;
+      }
+      if (!person) {
+        showSeats(event.taxiId, event.filled);
+        return;
+      }
       if (!person.visible) {
         person.position.set(plus.position.x, 0, plus.position.z);
         person.visible = true;
@@ -1114,9 +1305,28 @@ export function createBoard(canvas) {
       view.group.visible = false;
       showSeats(id, 0);
     },
-    syncPeople(next, pretend) {
+    syncPeople(next) {
       state = next;
-      buildPeople(pretend || []);
+      buildPeople();
+      syncOfficer();
+      syncLights();
+      for (const taxi of level.taxis) if (views[taxi.id]) applyVisual(views[taxi.id], taxi);
+    },
+    flash(id) {
+      const view = views[id];
+      if (!view || !view.flash) return;
+      animate(seconds(180), 'out', (u) => {
+        view.flash.material.opacity = u < 0.5 ? u * 1.2 : (1 - u) * 1.2;
+      });
+    },
+    pulse(id) {
+      const view = views[id];
+      if (!view) return;
+      const base = view.arrow.scale.x || 1;
+      animate(seconds(500), 'out', (u) => {
+        const s = 1 + Math.sin(u * Math.PI) * 0.35;
+        view.arrow.scale.set(base * s, base * s, base * s);
+      });
     },
     shake() {
       shakeAmp = Math.max(shakeAmp, reduced ? 0 : 0.1);
@@ -1124,9 +1334,13 @@ export function createBoard(canvas) {
   };
 }
 
+let colorblind = false;
 function COLORS_HEX(index) {
-  const hex = (COLORS[index] || COLORS[0]).hex;
-  return Number.parseInt(hex.slice(1), 16);
+  return colorHex(index, colorblind);
+}
+
+function regionLook(id) {
+  return REGIONS.find((item) => item.id === id) || REGIONS[0];
 }
 
 export function createTurntable(canvas) {
@@ -1188,10 +1402,24 @@ export function createTurntable(canvas) {
     renderer.render(scene, camera);
   }
 
+  let props = null;
+  function setStage(stage) {
+    if (props) scene.remove(props);
+    props = new Group();
+    if (stage >= 1) props.add(mesh(boxGeo(1.6, 0.08, 0.7), toon(0xf7fbff), 0, 0.9, -0.8));
+    if (stage >= 2) props.add(mesh(boxGeo(0.4, 0.35, 0.3), toon(0xe07a3d), 1.1, 0.2, 0.2));
+    if (stage >= 3) props.add(mesh(boxGeo(0.08, 0.7, 1.1), toon(0x2f6fed), -1.2, 0.4, 0));
+    if (stage >= 4) props.add(mesh(boxGeo(0.22, 0.28, 0.16), toon(0x1c2430), 0.8, 0.2, -0.6));
+    if (stage >= 5) props.add(mesh(sphGeo(0.08, 8, 6), new MeshBasicMaterial({ color: 0xffe08a }), -0.7, 0.85, -0.5));
+    if (stage >= 6) props.add(mesh(boxGeo(2.2, 0.08, 1.6), toon(0xd7dde6), 0, 1.25, 0));
+    scene.add(props);
+  }
+
   return {
     ok: true,
     resize,
     setLook,
+    setStage,
     start() {
       if (running) return;
       running = true;
