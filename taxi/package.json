@@ -1,0 +1,12 @@
+{
+  "name": "taxi-rank-rush",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "art": "node tools/make-art.mjs",
+    "levels": "node tools/make-levels.mjs",
+    "verify": "node tools/verify-levels.mjs",
+    "cache": "node tools/cache-manifest.mjs"
+  }
+}

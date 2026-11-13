@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#E6A23C">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Taxi Rank Rush</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/art/ui/app-icon.png">
+  <style>
+    @font-face {
+      font-family: Fredoka;
+      src: url("assets/fonts/fredoka-700.woff2") format("woff2");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Fredoka;
+      src: url("assets/fonts/fredoka-600.woff2") format("woff2");
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Nunito;
+      src: url("assets/fonts/nunito-400.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Nunito;
+      src: url("assets/fonts/nunito-700.woff2") format("woff2");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #2A1810;
+      color: #3B2416;
+      font-family: Nunito, sans-serif;
+      overflow: hidden;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #stage {
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #game {
+      width: min(100vw, calc(100dvh * 390 / 693), 430px);
+      aspect-ratio: 390 / 693;
+      max-height: 100dvh;
+      position: relative;
+      background: #E2C48A;
+    }
+    #bootmsg {
+      margin: 0;
+      padding: 2rem 1rem;
+      text-align: center;
+      font-family: Fredoka, sans-serif;
+    }
+    #live {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+    }
+  </style>
+</head>
+<body>
+  <div id="live" aria-live="polite"></div>
+  <div id="stage">
+    <div id="game">
+      <p id="bootmsg">Loading the rank…</p>
+    </div>
+  </div>
+  <script src="vendor/phaser.min.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

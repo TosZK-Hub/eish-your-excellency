@@ -1,0 +1,19 @@
+{
+  "name": "Taxi Rank Rush",
+  "short_name": "Rank Rush",
+  "description": "A fictional minibus-taxi rank puzzle. Pull the taxis out, match the queue, clear the bays.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2A1810",
+  "theme_color": "#E6A23C",
+  "icons": [
+    {
+      "src": "assets/art/ui/app-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
