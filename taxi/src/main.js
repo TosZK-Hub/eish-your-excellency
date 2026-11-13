@@ -36,6 +36,8 @@ globalThis.TRR_FLAGS = flags;
 
 const saveAtBoot = storage.load();
 audio.setMuted(flags.mute || saveAtBoot.sound === false);
+audio.setMusicOn(saveAtBoot.music !== false);
+audio.preloadMenu();
 
 const $ = (id) => document.getElementById(id);
 let campaign = null;
@@ -52,6 +54,8 @@ const ICONS = {
   restart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12a7 7 0 1 1-2-4.9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M19 4.5V9h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h3.2L12 6.2v11.6L7.2 14H4v-4Z" fill="currentColor"/><path d="M15.2 9.2a3.6 3.6 0 0 1 0 5.6M17.4 7a6.2 6.2 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h3.2L12 6.2v11.6L7.2 14H4v-4Z" fill="currentColor"/><path d="m16 10 4 4m0-4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  music: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6.2l10-2v9.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="13.5" r="2.5" fill="currentColor"/></svg>',
+  musicOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6.2l10-2v6.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m15 15 5 5m0-5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   arrows: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M12 4l-3.2 3.2M12 4l3.2 3.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   coin: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2" fill="#F2C14E"/><circle cx="12" cy="12" r="5.2" fill="none" stroke="#C9842A" stroke-width="1.6"/></svg>',
   bay: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v6M9 12h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
@@ -155,6 +159,15 @@ function paintSound() {
     button.setAttribute('aria-label', audio.isMuted() ? 'Unmute' : 'Mute');
     button.setAttribute('aria-pressed', audio.isMuted() ? 'true' : 'false');
   }
+  for (const id of ['t-music', 'g-music']) {
+    const button = $(id);
+    if (!button) continue;
+    const on = audio.isMusicOn();
+    button.innerHTML = on ? ICONS.music : ICONS.musicOff;
+    button.classList.toggle('off', !on);
+    button.setAttribute('aria-label', on ? 'Turn music off' : 'Turn music on');
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
   const arrows = $('t-arrows');
   if (arrows) {
     arrows.innerHTML = ICONS.arrows;
@@ -171,6 +184,21 @@ function toggleMute() {
   paintSound();
 }
 
+function toggleMusic() {
+  const next = !audio.isMusicOn();
+  audio.setMusicOn(next);
+  storage.setMusic(next);
+  audio.unlock();
+  if (next) audio.tap();
+  paintSound();
+}
+
+function musicForLevel(level, mode) {
+  if (mode === 'daily') return 'rushhour';
+  if (level && level.id && level.id % 10 === 0) return 'rushhour';
+  return 'gameplay';
+}
+
 function showOnly(name) {
   for (const screen of document.querySelectorAll('.screen')) screen.hidden = true;
   $(`screen-${name}`).hidden = false;
@@ -183,6 +211,7 @@ function showOnly(name) {
       turntable.start();
     }
   } else if (turntable) turntable.stop();
+  if (name !== 'game') audio.setMusicScene('menu');
 }
 
 function showTitle() {
@@ -438,6 +467,7 @@ function startLevel(launch) {
   intro.textContent = level.intro || '';
   closeModal();
   showOnly('game');
+  audio.setMusicScene(musicForLevel(level, modeLaunch.mode));
   announce('game', level.name || `Level ${level.id}`);
   board.load(level, game.state, game.hidden, { livery, showArrows: game.showArrows });
   board.start();
@@ -744,6 +774,7 @@ function showWin() {
     : storage.awardLevel(game.level.id, stars);
   audio.win();
   audio.coin();
+  audio.duck(1.3);
   buzz(20);
   announce('win', `Win ${stars} stars ${game.state.moves} moves`);
   const card = openCard();
@@ -804,6 +835,7 @@ function showLose(reason) {
   if (!game || game.over) return;
   game.over = true;
   game.timing = false;
+  audio.lose();
   announce('lose', reason === 'full' ? COPY.loseFull : COPY.loseJam);
   const card = openCard();
   const title = document.createElement('h2');
@@ -884,6 +916,8 @@ function bind() {
   });
   $('t-mute').addEventListener('click', toggleMute);
   $('g-mute').addEventListener('click', toggleMute);
+  $('t-music').addEventListener('click', toggleMusic);
+  $('g-music').addEventListener('click', toggleMusic);
   $('t-arrows').addEventListener('click', () => {
     storage.setArrows(!storage.load().arrows);
     audio.tap();
@@ -927,7 +961,10 @@ function bind() {
   $('g-bay').addEventListener('click', () => askAd('bay'));
   $('g-undo').addEventListener('click', () => askAd('undo'));
   $('g-shuffle').addEventListener('click', () => askAd('shuffle'));
-  document.body.addEventListener('pointerdown', () => audio.unlock());
+  document.body.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('[data-music]')) return;
+    audio.unlock();
+  });
   requestAnimationFrame(tick);
 }
 

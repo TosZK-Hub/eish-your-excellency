@@ -8,3 +8,6 @@ Fredoka and Nunito are used under the SIL Open Font License. The license texts a
 
 ## Engine
 Three.js r170 is MIT licensed. Copyright © 2010-2024 three.js authors. See `vendor/LICENSE-THREE.txt`.
+
+## Music
+Music: original tracks generated with Suno (Pro plan, commercial licence) for Taxi Rank Rush.

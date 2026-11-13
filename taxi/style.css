@@ -119,6 +119,7 @@ p { margin: 0; }
 
 .icon-btn svg { width: 22px; height: 22px; }
 .icon-btn.on { background: #ffe7cc; box-shadow: 0 3px 0 #f0c48a; }
+.icon-btn.off { opacity: 0.42; }
 .icon-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--line); }
 
 .coin-pill {
