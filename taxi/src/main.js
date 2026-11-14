@@ -235,8 +235,6 @@ function showTitle() {
   $('t-play').textContent = save.unlocked > 1 ? `Play ${next}` : COPY.play;
   paintCoins();
   paintSound();
-  const weekend = [0, 6].includes(new Date().getDay()) || params.has('event');
-  $('t-event').hidden = !weekend;
   showOnly('title');
   if (turntable && turntable.setStage) turntable.setStage(storage.load().rank || 0);
   announce('title', theme.title);
@@ -267,7 +265,7 @@ function drawMap() {
     const open = id <= save.unlocked;
     const stars = storage.starsFor(save, id);
     const level = buildLevel(id);
-    const badge = level.difficulty === 'super' ? 'S' : level.difficulty === 'hard' ? 'H' : '';
+    const badge = level.tutorial ? '' : level.difficulty === 'super' ? 'S' : level.difficulty === 'hard' ? 'H' : '';
     const mark = [badge, level.tutorial ? level.tutorial.mech.slice(0, 1).toUpperCase() : ''].filter(Boolean).join(' ');
     const button = document.createElement('button');
     button.type = 'button';
@@ -503,7 +501,8 @@ function startLevel(launch) {
   board.load(level, game.state, game.hidden, worldOpts());
   const diff = $('g-diff');
   if (diff) {
-    diff.textContent = level.difficulty === 'super' ? 'Super Hard' : level.difficulty === 'hard' ? 'Hard' : '';
+    const lesson = !!level.tutorial;
+    diff.textContent = lesson ? '' : level.difficulty === 'super' ? 'Super Hard' : level.difficulty === 'hard' ? 'Hard' : '';
     diff.hidden = !diff.textContent;
     diff.className = `badge ${level.difficulty || ''}`;
   }
@@ -1044,7 +1043,6 @@ function tick(now) {
 function bind() {
   $('t-title').textContent = theme.title;
   $('t-sub').textContent = theme.subtitle;
-  $('t-foot').textContent = theme.footnote;
   document.title = theme.title;
   $('t-levels').textContent = COPY.levels;
   $('t-daily').textContent = COPY.daily;

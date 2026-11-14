@@ -73,15 +73,16 @@
         <p id="t-sub" class="sub"></p>
       </div>
       <div class="menu">
-        <button id="t-play" class="btn primary" type="button">Play</button>
-        <button id="t-levels" class="btn" type="button">Levels</button>
-        <button id="t-daily" class="btn" type="button">Rush Hour</button>
-        <button id="t-shop" class="btn" type="button">Liveries</button>
-        <button id="t-rank" class="btn" type="button">Your rank</button>
-        <button id="t-missions" class="btn" type="button">Missions</button>
-        <button id="t-event" class="btn" type="button" hidden>Month-End Rush</button>
+        <button id="t-play" class="btn primary play-cta" type="button">Play</button>
+        <div class="tile-grid">
+          <button id="t-levels" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Levels</span></button>
+          <button id="t-daily" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v4.5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Rush Hour</span></button>
+          <button id="t-shop" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14.5 7 8h10l3 6.5v3.2H4v-3.2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 14.5v-2.2M16 14.5v-2.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Liveries</span></button>
+          <button id="t-rank" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5h18M6 16.5V11h12v5.5M4 11h16l-2-4H6l-2 4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Your rank</span></button>
+          <button id="t-missions" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.5h11M8 12h11M8 17.5h11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m4.2 6.5 1.2 1.2 2-2.4M4.2 12l1.2 1.2 2-2.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Missions</span></button>
+          <button id="t-event" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M8 4v3M16 4v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Month-End</span></button>
+        </div>
       </div>
-      <p id="t-foot" class="foot"></p>
     </section>
 
     <section id="screen-map" class="screen" hidden>
@@ -146,6 +147,7 @@
       </header>
       <button id="set-cb" class="btn" type="button">Colour-blind palette</button>
       <p class="sub">Hand signs stay the same. Only the colours shift.</p>
+      <p class="sub">A fictional rank. No real companies, no real routes.</p>
     </section>
     <section id="screen-game" class="screen" hidden>
       <header class="hud">

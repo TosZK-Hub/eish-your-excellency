@@ -898,7 +898,7 @@ function construct(n, spec, rng) {
 }
 
 const NAMES = [
-  'First in line', 'After you', 'Side step', 'Long nose', 'Bay lesson',
+  'First in line', 'After you', 'Side step', 'Long nose', 'Busy bay',
   'Colour mix', 'Morning rank', 'Short hold', 'Last light', 'Tight bay',
   'Deep row', 'Quiet corner', 'Second wave', 'Full load', 'Home stretch',
   'Early bird', 'Queue hop', 'Big yard', 'Nearly home', 'Final hoot',
