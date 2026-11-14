@@ -14,7 +14,7 @@ function walk(dir, out) {
     if (skip.has(rel)) continue;
     const st = statSync(abs);
     if (st.isDirectory()) walk(abs, out);
-    else out.push(rel);
+    else if (!rel.endsWith('vendor/three.module.js')) out.push(rel);
   }
 }
 

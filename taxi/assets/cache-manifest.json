@@ -21,6 +21,5 @@
   "src/theme.js",
   "src/world.js",
   "style.css",
-  "vendor/LICENSE-THREE.txt",
-  "vendor/three.module.js"
+  "vendor/LICENSE-THREE.txt"
 ]
