@@ -41,7 +41,7 @@ import {
 } from '../vendor/three.module.js';
 
 const CELL = 1.16;
-const ELEV = 68 * Math.PI / 180;
+const ELEV = 54 * Math.PI / 180;
 const AZIM = 0;
 
 const geo = new Map();
@@ -103,11 +103,19 @@ function toon(color) {
   return mat;
 }
 
-const glassMat = new MeshBasicMaterial({ color: 0x1a2430 });
-const lampMat = new MeshBasicMaterial({ color: 0xffe08a });
-const tailMat = new MeshBasicMaterial({ color: 0xc5363a });
-const arrowMat = new MeshBasicMaterial({ color: 0xfff6d0 });
-const arrowInk = new MeshBasicMaterial({ color: 0x1c1f26 });
+const glassMat = new MeshBasicMaterial({ color: 0x243044 });
+const lampMat = new MeshBasicMaterial({ color: 0xfff3c4 });
+const tailMat = new MeshBasicMaterial({ color: 0xe23d3d });
+const arrowMat = new MeshBasicMaterial({ color: 0xffffff });
+const flats = new Map();
+function flat(color) {
+  let mat = flats.get(color);
+  if (!mat) {
+    mat = new MeshBasicMaterial({ color });
+    flats.set(color, mat);
+  }
+  return mat;
+}
 const pickMat = new MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
 
 let toonVC;
@@ -221,46 +229,37 @@ export function makeCombi(color) {
   const root = new Group();
   const body = new Group();
   root.add(body);
-  const white = toon(0xf7f8fb);
-  const stripe = toon(color);
-  const black = toon(0x1c1f26);
-  const rubber = toon(0x22262e);
-  const arch = toon(0x2a3038);
+  const white = flat(0xffffff);
+  const ao = flat(0xd5dae3);
+  const stripe = flat(color);
+  const rubber = flat(0x2a3038);
 
-  body.add(slab(0.62, 0.16, 1.18, white, 0, 0.20, 0.04, true));
-  body.add(slab(0.60, 0.36, 0.86, white, 0, 0.44, 0.18, true));
-  body.add(slab(0.64, 0.045, 0.84, glassMat, 0, 0.64, 0.18));
-  body.add(slab(0.50, 0.05, 0.68, white, 0, 0.68, 0.18, true));
-  body.add(slab(0.36, 0.035, 0.46, stripe, 0, 0.72, 0.16));
+  body.add(slab(0.66, 0.14, 1.16, ao, 0, 0.16, 0.02, true));
+  body.add(slab(0.62, 0.28, 0.78, white, 0, 0.36, 0.16, true));
+  const roof = mesh(cylGeo(0.20, 0.72, 12), white, 0, 0.62, 0.18, true);
+  roof.rotation.x = Math.PI / 2;
+  body.add(roof);
+  body.add(slab(0.36, 0.045, 0.42, stripe, 0, 0.86, 0.16));
 
-  const bonnet = slab(0.46, 0.09, 0.30, white, 0, 0.26, -0.50, true);
-  bonnet.rotation.x = -0.7;
+  const bonnet = slab(0.48, 0.08, 0.26, white, 0, 0.24, -0.48, true);
+  bonnet.rotation.x = -0.55;
   body.add(bonnet);
-  body.add(slab(0.50, 0.05, 0.07, black, 0, 0.15, -0.60));
+  body.add(slab(0.07, 0.05, 0.04, lampMat, -0.14, 0.22, -0.60));
+  body.add(slab(0.07, 0.05, 0.04, lampMat, 0.14, 0.22, -0.60));
 
-  body.add(slab(0.05, 0.10, 1.02, stripe, 0.33, 0.28, 0.06));
-  body.add(slab(0.05, 0.10, 1.02, stripe, -0.33, 0.28, 0.06));
-  body.add(slab(0.04, 0.05, 0.84, stripe, 0.30, 0.66, 0.18));
-  body.add(slab(0.04, 0.05, 0.84, stripe, -0.30, 0.66, 0.18));
+  body.add(slab(0.06, 0.08, 0.92, stripe, 0.34, 0.28, 0.08));
+  body.add(slab(0.06, 0.08, 0.92, stripe, -0.34, 0.28, 0.08));
 
-  const wind = slab(0.46, 0.16, 0.03, glassMat, 0, 0.46, -0.26);
-  wind.rotation.x = -0.6;
+  const wind = slab(0.46, 0.14, 0.04, glassMat, 0, 0.42, -0.22);
+  wind.rotation.x = -0.5;
   body.add(wind);
-  body.add(slab(0.025, 0.14, 0.72, glassMat, 0.31, 0.48, 0.20));
-  body.add(slab(0.025, 0.14, 0.72, glassMat, -0.31, 0.48, 0.20));
-  body.add(slab(0.018, 0.30, 0.02, black, 0.315, 0.40, 0.02));
-
-  for (const [x, z] of [[-0.34, -0.36], [0.34, -0.36], [-0.34, 0.46], [0.34, 0.46]]) {
-    body.add(slab(0.16, 0.07, 0.24, arch, x, 0.18, z));
-  }
-
-  body.add(slab(0.08, 0.05, 0.03, lampMat, -0.18, 0.24, -0.60));
-  body.add(slab(0.08, 0.05, 0.03, lampMat, 0.18, 0.24, -0.60));
-  body.add(slab(0.08, 0.05, 0.03, tailMat, -0.20, 0.26, 0.66));
-  body.add(slab(0.08, 0.05, 0.03, tailMat, 0.20, 0.26, 0.66));
+  body.add(slab(0.04, 0.12, 0.62, glassMat, 0.32, 0.42, 0.20));
+  body.add(slab(0.04, 0.12, 0.62, glassMat, -0.32, 0.42, 0.20));
+  body.add(slab(0.08, 0.045, 0.03, tailMat, -0.18, 0.24, 0.60));
+  body.add(slab(0.08, 0.045, 0.03, tailMat, 0.18, 0.24, 0.60));
 
   const wheels = [];
-  for (const [x, z] of [[-0.38, -0.36], [0.38, -0.36], [-0.38, 0.46], [0.38, 0.46]]) {
+  for (const [x, z] of [[-0.40, -0.34], [0.40, -0.34], [-0.40, 0.42], [0.40, 0.42]]) {
     const axle = new Group();
     axle.position.set(x, 0.15, z);
     const tire = mesh(cylGeo(0.155, 0.11, 10), rubber, 0, 0, 0, false);
@@ -442,12 +441,11 @@ function makeQuestion() {
 
 function makeArrow() {
   const g = new Group();
-  g.add(mesh(boxGeo(0.16, 0.02, 0.46), arrowInk, 0, 0.78, 0.16));
-  const shaft = mesh(boxGeo(0.10, 0.03, 0.34), arrowMat, 0, 0.80, 0.18);
-  const left = mesh(boxGeo(0.22, 0.03, 0.08), arrowMat, -0.09, 0.80, -0.02);
-  left.rotation.y = 0.65;
-  const right = mesh(boxGeo(0.22, 0.03, 0.08), arrowMat, 0.09, 0.80, -0.02);
-  right.rotation.y = -0.65;
+  const shaft = mesh(boxGeo(0.10, 0.035, 0.28), arrowMat, 0, 0.94, 0.20);
+  const left = mesh(boxGeo(0.18, 0.035, 0.07), arrowMat, -0.07, 0.94, 0.04);
+  left.rotation.y = 0.6;
+  const right = mesh(boxGeo(0.18, 0.035, 0.07), arrowMat, 0.07, 0.94, 0.04);
+  right.rotation.y = -0.6;
   g.add(shaft, left, right);
   collapse(g);
   return g;
@@ -752,13 +750,13 @@ export function createBoard(canvas) {
 
   function buildEnvironment() {
     const look = regionLook(level && level.region);
-    scene.background = new Color(0x5e5852);
-    const apron = new Mesh(new PlaneGeometry(48, 48), toon(0x6a6258));
+    scene.background = new Color(0xf6e3b0);
+    const apron = new Mesh(new PlaneGeometry(48, 48), toon(0xf3d48a));
     apron.rotation.x = -Math.PI / 2;
     apron.position.set(0, -0.04, (plan.minZ + plan.maxZ) / 2);
     apron.receiveShadow = true;
     root.add(apron);
-    const paving = new Mesh(new PlaneGeometry(plan.span + 6.5, (plan.maxZ - plan.minZ) + 5.5), toon(0xc4b6a4));
+    const paving = new Mesh(new PlaneGeometry(plan.span + 6.5, (plan.maxZ - plan.minZ) + 5.5), toon(0xf7f1e2));
     paving.rotation.x = -Math.PI / 2;
     paving.position.set(0, -0.02, (plan.minZ + plan.maxZ) / 2);
     paving.receiveShadow = true;
@@ -768,7 +766,7 @@ export function createBoard(canvas) {
     const yardFar = plan.maxZ - 0.2;
     const asphalt = new Mesh(
       new PlaneGeometry(plan.span + 1.15, yardFar - yardNear),
-      toon(look.ground),
+      toon(0xb7c0c8),
     );
     asphalt.rotation.x = -Math.PI / 2;
     asphalt.position.set(0, 0, (yardNear + yardFar) / 2);
@@ -785,15 +783,15 @@ export function createBoard(canvas) {
     yard.add(slab(0.12, 0.08, yardD, kerb, -yardW / 2, 0.04, yardZ));
     yard.add(slab(0.12, 0.08, yardD, kerb, yardW / 2, 0.04, yardZ));
 
-    const line = toon(0xf7f4ee);
+    const line = toon(0xffffff);
     for (let r = 0; r < plan.rows; r += 1) {
       for (let c = 0; c < plan.cols; c += 1) {
         const p = plan.cell(c, r);
         const w = CELL * 0.86;
-        yard.add(slab(w, 0.012, 0.035, line, p.x, 0.02, p.z - w / 2));
-        yard.add(slab(w, 0.012, 0.035, line, p.x, 0.02, p.z + w / 2));
-        yard.add(slab(0.035, 0.012, w, line, p.x - w / 2, 0.02, p.z));
-        yard.add(slab(0.035, 0.012, w, line, p.x + w / 2, 0.02, p.z));
+        yard.add(slab(w, 0.016, 0.055, line, p.x, 0.025, p.z - w / 2));
+        yard.add(slab(w, 0.016, 0.055, line, p.x, 0.025, p.z + w / 2));
+        yard.add(slab(0.055, 0.016, w, line, p.x - w / 2, 0.025, p.z));
+        yard.add(slab(0.055, 0.016, w, line, p.x + w / 2, 0.025, p.z));
       }
     }
 
@@ -826,10 +824,16 @@ export function createBoard(canvas) {
     props.add(slab(0.26, 0.4, 0.26, toon(0x2f6b4f), plan.maxX + 1.25, 0.22, plan.maxZ - 0.2));
     props.add(slab(0.07, 1.15, 0.07, toon(0x243044), plan.minX - 1.15, 0.58, plan.maxZ + 0.15));
     props.add(mesh(sphGeo(0.11, 8, 6), new MeshBasicMaterial({ color: 0xffe08a }), plan.minX - 1.15, 1.2, plan.maxZ + 0.15));
+    props.add(slab(0.7, 0.36, 0.4, toon(0xfff8ef), plan.maxX + 1.2, 0.22, plan.queueZ + 0.15));
+    props.add(slab(0.86, 0.06, 0.55, toon(0xe23d3d), plan.maxX + 1.2, 0.52, plan.queueZ + 0.15));
     collapse(props);
     root.add(props);
 
     const foliage = toon(0x3e9b4f);
+    const lawn = new Mesh(new PlaneGeometry(3.2, 2.2), toon(look.grass));
+    lawn.rotation.x = -Math.PI / 2;
+    lawn.position.set(plan.maxX + 1.6, -0.015, plan.minZ + 0.4);
+    root.add(lawn);
     const trunk = toon(0x8a5a32);
     const spots = [
       [plan.minX + 0.35, plan.maxZ - 0.15],
@@ -1550,13 +1554,13 @@ export function createTurntable(canvas) {
   let running = false;
   let raf = 0;
 
-  renderer.setClearColor(0xc4b6a4, 1);
-  const ground = new Mesh(new PlaneGeometry(14, 10), toon(0xc4b6a4));
+  renderer.setClearColor(0xf6e3b0, 1);
+  const ground = new Mesh(new PlaneGeometry(14, 10), toon(0xf3d48a));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.02;
   ground.receiveShadow = true;
   scene.add(ground);
-  const yard = new Mesh(new PlaneGeometry(6.2, 3.4), toon(0x5c564e));
+  const yard = new Mesh(new PlaneGeometry(6.2, 3.4), toon(0xb7c0c8));
   yard.rotation.x = -Math.PI / 2;
   yard.receiveShadow = true;
   scene.add(yard);
@@ -1575,7 +1579,7 @@ export function createTurntable(canvas) {
     camera.bottom = -1.7;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
-    const elev = 42 * Math.PI / 180;
+    const elev = 50 * Math.PI / 180;
     camera.position.set(0.2, Math.sin(elev) * 8.5, Math.cos(elev) * 8.5);
     camera.lookAt(0, 0.35, 0.1);
   }
@@ -1604,7 +1608,7 @@ export function createTurntable(canvas) {
       collapse(combi.userData.body);
       combi.position.set(spot.x, 0, spot.z);
       combi.rotation.y = spot.yaw;
-      combi.scale.setScalar(0.78);
+      combi.scale.setScalar(0.92);
       group.add(combi);
       return combi;
     });

@@ -1044,9 +1044,6 @@ function bind() {
   $('t-title').textContent = theme.title;
   $('t-sub').textContent = theme.subtitle;
   document.title = theme.title;
-  $('t-levels').textContent = COPY.levels;
-  $('t-daily').textContent = COPY.daily;
-  $('t-shop').textContent = COPY.shop;
   $('m-title').textContent = COPY.levels;
   $('s-title').textContent = COPY.shop;
   $('d-title').textContent = theme.dailyName;
