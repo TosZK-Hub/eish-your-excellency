@@ -1,4 +1,4 @@
-const CACHE = 'trr-v4';
+const CACHE = 'trr-v5';
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {

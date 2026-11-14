@@ -207,8 +207,16 @@ function musicForLevel(level, mode) {
 }
 
 function showOnly(name) {
-  for (const screen of document.querySelectorAll('.screen')) screen.hidden = true;
-  $(`screen-${name}`).hidden = false;
+  const next = $(`screen-${name}`);
+  for (const screen of document.querySelectorAll('.screen')) {
+    if (screen !== next) {
+      screen.classList.remove('is-on');
+      screen.hidden = true;
+    }
+  }
+  next.hidden = false;
+  next.classList.remove('is-on');
+  requestAnimationFrame(() => next.classList.add('is-on'));
   announce(name);
   if (name !== 'game' && board && board.stop) board.stop();
   if (name === 'title') {
@@ -439,7 +447,7 @@ function button(label, className, onClick) {
 function startLevel(launch) {
   if (!ensureBoard()) {
     $('boot').hidden = false;
-    $('boot').textContent = 'This browser cannot start the 3D rank.';
+    $('boot-note').textContent = 'This browser cannot start the 3D rank.';
     return;
   }
   const save = storage.load();
@@ -633,7 +641,7 @@ function offerRescue() {
     const title = document.createElement('h2');
     title.textContent = COPY.adTitle;
     const body = document.createElement('p');
-    body.textContent = 'One more bay. Placeholder ad, nothing plays.';
+    body.textContent = 'A short thanks opens one more bay for this try.';
     card.append(title, body, button(COPY.watch, 'btn primary', () => {
       game.adBayUsed = true;
       game.adOpen = false;
@@ -922,7 +930,8 @@ function showWin() {
   audio.duck(1.3);
   if (!daily) storage.clearFail(game.level.id);
   bumpMission('clear');
-  if ((game.level.reward || 1) > 1) storage.addCoins(award.gain);
+  const bonus = !daily && (game.level.reward || 1) > 1 ? award.gain : 0;
+  if (bonus) storage.addCoins(bonus);
   buzz(20);
   announce('win', `Win ${stars} stars ${game.state.moves} moves`);
   const card = openCard();
@@ -942,7 +951,7 @@ function showWin() {
   stats.textContent = `${game.state.moves} moves · ${time}s · par ${game.level.par}`;
   const gain = document.createElement('p');
   gain.className = 'lead';
-  gain.textContent = `+${award.gain} coins`;
+  gain.textContent = `+${award.gain + bonus} coins`;
   card.append(title, row, stats, gain);
   paintCoins();
   refresh();
@@ -1184,7 +1193,7 @@ function showRank() {
     const action = document.createElement('button');
     action.type = 'button';
     action.className = 'btn small primary';
-    action.textContent = index <= save.rank ? 'Built' : 'Build';
+    action.textContent = index < save.rank ? 'Built' : index === save.rank ? 'Yours' : index === save.rank + 1 ? 'Build' : 'Locked';
     action.disabled = index !== save.rank + 1;
     action.addEventListener('click', () => {
       if (save.coins < stage.cost) {
@@ -1286,6 +1295,8 @@ async function boot() {
     turntable.setLook(storage.load().livery);
     turntable.resize();
   }
+  const fill = $('boot-fill');
+  if (fill) fill.style.width = '100%';
   $('boot').hidden = true;
   const mechLevel = {
     size: 4, luggage: 8, twotone: 12, tarp: 16, lock: 20, gaartjie: 24,
@@ -1310,9 +1321,11 @@ async function boot() {
 boot().catch((err) => {
   console.error(err);
   $('boot').hidden = false;
-  $('boot').textContent = 'The rank did not load.';
+  $('boot-note').textContent = 'The rank did not load.';
 });
 
-if (!params.has('nosw') && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {});
-}
+setTimeout(() => {
+  if (!params.has('nosw') && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {});
+  }
+}, 2500);

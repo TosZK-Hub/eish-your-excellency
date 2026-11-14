@@ -79,7 +79,7 @@ export function awardLevel(id, stars) {
   else gain = 2;
   save.coins += gain;
   save.stars[String(id)] = Math.max(prev, stars);
-  if (id >= save.unlocked && id < 60) save.unlocked = id + 1;
+  if (id >= save.unlocked && id < 150) save.unlocked = id + 1;
   persist(save);
   return { gain, save };
 }

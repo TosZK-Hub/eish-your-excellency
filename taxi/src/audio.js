@@ -85,9 +85,7 @@ export function setMusicOn(on) {
   musicOn = !!on;
   if (!ctx || !musicGain) return;
   const now = ctx.currentTime;
-  musicGain.gain.cancelScheduledValues(now);
-  musicGain.gain.setValueAtTime(musicGain.gain.value, now);
-  musicGain.gain.linearRampToValueAtTime(musicOn ? MUSIC_LEVEL : 0, now + 0.25);
+  rampGain(musicGain.gain, musicOn ? MUSIC_LEVEL : 0.0008, 0.25);
   if (musicOn && unlocked) beginDesired();
 }
 
@@ -136,10 +134,10 @@ function startLoop(buffer, destination) {
     gain.connect(destination);
     const end = start + buffer.duration;
     const fadeIn = overlap ? fade : 0.03;
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.linearRampToValueAtTime(1, start + fadeIn);
+    gain.gain.setValueAtTime(0.0008, start);
+    gain.gain.exponentialRampToValueAtTime(1, start + fadeIn);
     gain.gain.setValueAtTime(1, Math.max(start + fadeIn + 0.02, end - fade));
-    gain.gain.linearRampToValueAtTime(0.0001, end);
+    gain.gain.exponentialRampToValueAtTime(0.0008, end);
     src.start(start);
     src.stop(end + 0.03);
     sources.push(src);
@@ -158,25 +156,29 @@ function startLoop(buffer, destination) {
   };
 }
 
+function rampGain(param, value, seconds) {
+  const now = ctx.currentTime;
+  const from = Math.max(0.0008, param.value || 0.0008);
+  const to = Math.max(0.0008, value);
+  param.cancelScheduledValues(now);
+  param.setValueAtTime(from, now);
+  param.exponentialRampToValueAtTime(to, now + Math.max(0.02, seconds));
+}
+
 function crossfadeTo(scene, buffer) {
   if (active === scene && current) return;
-  const now = ctx.currentTime;
   const slot = ctx.createGain();
-  slot.gain.setValueAtTime(0, now);
-  slot.gain.linearRampToValueAtTime(1, now + SCENE_FADE);
+  slot.gain.setValueAtTime(0.0008, ctx.currentTime);
   slot.connect(musicGain);
+  rampGain(slot.gain, 1, SCENE_FADE);
   const stop = startLoop(buffer, slot);
   const previous = current;
   current = { scene, slot, stop };
   active = scene;
-  musicGain.gain.cancelScheduledValues(now);
-  musicGain.gain.setValueAtTime(musicGain.gain.value, now);
-  musicGain.gain.linearRampToValueAtTime(MUSIC_LEVEL, now + 0.08);
+  rampGain(musicGain.gain, MUSIC_LEVEL, 0.08);
   if (previous) {
-    previous.slot.gain.cancelScheduledValues(now);
-    previous.slot.gain.setValueAtTime(previous.slot.gain.value, now);
-    previous.slot.gain.linearRampToValueAtTime(0, now + SCENE_FADE);
-    setTimeout(() => previous.stop(), SCENE_FADE * 1000 + 80);
+    rampGain(previous.slot.gain, 0.0008, SCENE_FADE);
+    setTimeout(() => previous.stop(), SCENE_FADE * 1000 + 60);
   }
 }
 
@@ -193,11 +195,9 @@ export function duck(seconds) {
   const now = ctx.currentTime;
   const until = now + Math.max(0.08, seconds);
   duckRelease = Math.max(duckRelease, until);
-  duckGain.gain.cancelScheduledValues(now);
-  duckGain.gain.setValueAtTime(duckGain.gain.value, now);
-  duckGain.gain.linearRampToValueAtTime(DUCK_LEVEL, now + 0.03);
-  duckGain.gain.setValueAtTime(DUCK_LEVEL, duckRelease);
-  duckGain.gain.linearRampToValueAtTime(1, duckRelease + 0.28);
+  rampGain(duckGain.gain, DUCK_LEVEL, 0.04);
+  duckGain.gain.setValueAtTime(Math.max(0.0008, DUCK_LEVEL), duckRelease);
+  duckGain.gain.exponentialRampToValueAtTime(1, duckRelease + 0.3);
 }
 
 function tone(freq, dur, type, peak, slide) {

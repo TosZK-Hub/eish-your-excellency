@@ -11,6 +11,7 @@
   "assets/fonts/nunito-700.woff2",
   "assets/icon.png",
   "data/levels.json",
+  "game.js",
   "index.html",
   "manifest.webmanifest",
   "src/audio.js",

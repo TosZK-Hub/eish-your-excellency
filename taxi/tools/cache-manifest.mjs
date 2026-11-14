@@ -18,7 +18,7 @@ function walk(dir, out) {
   }
 }
 
-const files = ['index.html', 'style.css', 'manifest.webmanifest'];
+const files = ['index.html', 'style.css', 'manifest.webmanifest', 'game.js'];
 walk(join(root, 'vendor'), files);
 walk(join(root, 'src'), files);
 walk(join(root, 'data'), files);

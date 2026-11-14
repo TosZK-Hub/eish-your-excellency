@@ -90,7 +90,7 @@ export const COPY = {
   loseJam: 'The rank is jammed',
   loseHint: 'No stress. Line them up another way.',
   adTitle: 'Watch a short ad?',
-  adBody: 'Placeholder only. No real advert plays.',
+  adBody: 'A short thanks. Then the booster is yours.',
   adWatching: 'Watching…',
   extraBay: 'Extra bay',
   undo: 'Undo',

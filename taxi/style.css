@@ -40,23 +40,63 @@ button, input { font: inherit; color: inherit; }
   inset: 0;
   display: flex;
   flex-direction: column;
-  padding: calc(10px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
-  gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  gap: 16px;
   overflow: auto;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 250ms ease, transform 250ms ease;
 }
 
+.screen.is-on { opacity: 1; transform: none; }
 .screen[hidden] { display: none; }
 
 #boot {
   position: absolute;
   inset: 0;
   z-index: 8;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   margin: 0;
   background: #f4f7fb;
+  text-align: center;
+}
+
+.boot-name {
+  margin: 0;
   font-family: Fredoka, sans-serif;
-  font-size: 22px;
+  font-size: 32px;
+  letter-spacing: -0.03em;
+}
+
+.boot-bar {
+  width: 176px;
+  height: 8px;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 2px #d7e3ee;
+}
+
+#boot-fill {
+  display: block;
+  height: 100%;
+  width: 12%;
+  border-radius: 8px;
+  background: #ff8a1f;
+  animation: boot-fill 1.4s ease forwards;
+}
+
+@keyframes boot-fill { to { width: 86%; } }
+
+#boot-note {
+  min-height: 16px;
+  margin: 0;
+  color: #5c6b7a;
+  font-size: 14px;
 }
 
 #boot[hidden] { display: none; }
@@ -104,8 +144,8 @@ p { margin: 0; }
 }
 
 .icon-btn {
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   border: 0;
   border-radius: 14px;
   background: var(--paper);
@@ -155,7 +195,7 @@ p { margin: 0; }
 .menu, .pager, .card, .daily-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .menu { margin-top: 4px; }

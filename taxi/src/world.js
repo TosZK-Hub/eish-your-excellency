@@ -8,6 +8,8 @@ import { colorHex, REGIONS } from './theme.js';
 import {
   AmbientLight,
   BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
   CanvasTexture,
   CapsuleGeometry,
   CircleGeometry,
@@ -18,13 +20,13 @@ import {
   DirectionalLight,
   Group,
   HemisphereLight,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshToonMaterial,
   NearestFilter,
   NoColorSpace,
   OrthographicCamera,
-  PCFSoftShadowMap,
   PlaneGeometry,
   Raycaster,
   Scene,
@@ -107,6 +109,100 @@ const tailMat = new MeshBasicMaterial({ color: 0xc5363a });
 const arrowMat = new MeshBasicMaterial({ color: 0xfff3c4 });
 const pickMat = new MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
 
+let toonVC;
+let basicVC;
+function vertexMaterial(kind) {
+  if (kind === 'toon') {
+    if (!toonVC) {
+      toonVC = new MeshToonMaterial({ color: 0xffffff, vertexColors: true, gradientMap: toonGradient() });
+    }
+    return toonVC;
+  }
+  if (!basicVC) basicVC = new MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+  return basicVC;
+}
+
+function paintColor(geometry, color) {
+  const count = geometry.getAttribute('position').count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i += 1) {
+    colors[i * 3] = color.r;
+    colors[i * 3 + 1] = color.g;
+    colors[i * 3 + 2] = color.b;
+  }
+  geometry.setAttribute('color', new BufferAttribute(colors, 3));
+}
+
+function mergeGeometries(geos) {
+  let verts = 0;
+  let indexCount = 0;
+  for (const g of geos) {
+    const count = g.getAttribute('position').count;
+    verts += count;
+    indexCount += g.index ? g.index.count : count;
+  }
+  const positions = new Float32Array(verts * 3);
+  const normals = new Float32Array(verts * 3);
+  const colors = new Float32Array(verts * 3);
+  const indices = new Uint32Array(indexCount);
+  let vertex = 0;
+  let index = 0;
+  for (const g of geos) {
+    const position = g.getAttribute('position');
+    const normal = g.getAttribute('normal');
+    const color = g.getAttribute('color');
+    positions.set(position.array, vertex * 3);
+    if (normal) normals.set(normal.array, vertex * 3);
+    if (color) colors.set(color.array, vertex * 3);
+    if (g.index) {
+      for (let i = 0; i < g.index.count; i += 1) indices[index++] = g.index.getX(i) + vertex;
+    } else {
+      for (let i = 0; i < position.count; i += 1) indices[index++] = vertex + i;
+    }
+    vertex += position.count;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new BufferAttribute(colors, 3));
+  geometry.setIndex(new BufferAttribute(indices, 1));
+  return geometry;
+}
+
+function collapse(root) {
+  root.updateMatrixWorld(true);
+  const inverse = new Matrix4().copy(root.matrixWorld).invert();
+  const buckets = new Map();
+  const remove = [];
+  root.traverse((obj) => {
+    if (!obj.isMesh || obj.material.transparent) return;
+    let parent = obj;
+    while (parent) {
+      if (parent.userData && parent.userData.keep) return;
+      parent = parent.parent;
+    }
+    const geometry = obj.geometry.clone();
+    geometry.applyMatrix4(new Matrix4().multiplyMatrices(inverse, obj.matrixWorld));
+    paintColor(geometry, obj.material.color);
+    const kind = obj.material.type === 'MeshToonMaterial' ? 'toon' : 'basic';
+    let bucket = buckets.get(kind);
+    if (!bucket) {
+      bucket = { kind, cast: false, geos: [] };
+      buckets.set(kind, bucket);
+    }
+    bucket.cast = bucket.cast || obj.castShadow;
+    bucket.geos.push(geometry);
+    remove.push(obj);
+  });
+  for (const obj of remove) obj.removeFromParent();
+  for (const bucket of buckets.values()) {
+    const merged = new Mesh(mergeGeometries(bucket.geos), vertexMaterial(bucket.kind));
+    merged.castShadow = bucket.cast;
+    merged.receiveShadow = true;
+    root.add(merged);
+  }
+}
+
 function mesh(geometry, material, x, y, z, cast = false) {
   const m = new Mesh(geometry, material);
   m.position.set(x, y, z);
@@ -171,11 +267,10 @@ export function makeCombi(color) {
   for (const [x, z] of [[-0.28, -0.32], [0.28, -0.32], [-0.28, 0.40], [0.28, 0.40]]) {
     const axle = new Group();
     axle.position.set(x, 0.135, z);
-    const tire = mesh(cylGeo(0.135, 0.08, 10), rubber, 0, 0, 0, true);
+    const tire = mesh(cylGeo(0.135, 0.08, 10), rubber, 0, 0, 0, false);
     tire.rotation.z = Math.PI / 2;
-    const hub = mesh(cylGeo(0.05, 0.09, 8), silver, 0, 0, 0);
-    hub.rotation.z = Math.PI / 2;
-    axle.add(tire, hub);
+    axle.userData.keep = true;
+    axle.add(tire);
     body.add(axle);
     wheels.push(axle);
   }
@@ -184,6 +279,7 @@ export function makeCombi(color) {
   for (let i = 0; i < 4; i += 1) {
     const dot = mesh(sphGeo(0.045, 6, 5), stripe, 0.30, 0.58, -0.02 + i * 0.16);
     dot.visible = false;
+    dot.userData.keep = true;
     body.add(dot);
     seats.push(dot);
   }
@@ -419,8 +515,8 @@ function makePerson(color, variant, vip, luggage, signIndex) {
   const g = new Group();
   const cloth = toon(color);
   const skin = toon(0xf0c7a2);
-  const body = mesh(new CapsuleGeometry(0.11, 0.16, 2, 8), cloth, 0, 0.32, 0, true);
-  const head = mesh(sphGeo(0.105, 8, 6), skin, 0, 0.56, 0, true);
+  const body = mesh(new CapsuleGeometry(0.11, 0.16, 2, 8), cloth, 0, 0.32, 0, false);
+  const head = mesh(sphGeo(0.105, 8, 6), skin, 0, 0.56, 0, false);
   g.add(body, head);
   if (signIndex != null) {
     const sign = makeSign(signIndex);
@@ -446,6 +542,7 @@ function makePerson(color, variant, vip, luggage, signIndex) {
   }
   const scale = variant === 2 ? 1.06 : variant === 0 ? 0.94 : 1;
   g.scale.setScalar(scale);
+  collapse(g);
   return g;
 }
 
@@ -461,16 +558,17 @@ function lerpAngle(a, b, u) {
 }
 
 function makeRenderer(canvas, alpha) {
+  const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
   const renderer = new WebGLRenderer({
     canvas,
-    antialias: true,
+    antialias: dpr < 1.5,
     alpha,
-    powerPreference: 'default',
+    powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(dpr);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
+  renderer.shadowMap.type = 1;
   if (!alpha) renderer.setClearColor(0xb7def2, 1);
   return renderer;
 }
@@ -482,7 +580,9 @@ function addLights(scene, shadow) {
   sun.position.set(-5, 11, 6);
   if (shadow) {
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(256, 256);
+    sun.shadow.autoUpdate = false;
+    sun.shadow.needsUpdate = true;
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.04;
     const cam = sun.shadow.camera;
@@ -516,6 +616,7 @@ export function createBoard(canvas) {
   const raycaster = new Raycaster();
   const pointer = new Vector2();
   const tweens = [];
+  let shadowWarm = 3;
   const dustPool = [];
   const dustGeo = sphGeo(0.045, 5, 4);
 
@@ -542,6 +643,8 @@ export function createBoard(canvas) {
   let ring = null;
   const forceVisible = new Set();
   const look = new Vector3();
+  const projectScratch = new Vector3();
+  const cornerScratch = new Vector3();
 
   function seconds(ms) {
     return reduced ? Math.min(0.045, ms / 1000) : ms / 1000;
@@ -668,24 +771,25 @@ export function createBoard(canvas) {
     asphalt.receiveShadow = true;
     root.add(asphalt);
 
+    const yard = new Group();
     const kerb = toon(0xe4e0d8);
     const yardW = plan.span + 1.35;
     const yardD = plan.maxZ - plan.minZ - 0.2;
     const yardZ = (plan.minZ + plan.maxZ) / 2;
-    root.add(slab(yardW, 0.08, 0.12, kerb, 0, 0.04, plan.minZ + 0.15));
-    root.add(slab(yardW, 0.08, 0.12, kerb, 0, 0.04, plan.maxZ - 0.15));
-    root.add(slab(0.12, 0.08, yardD, kerb, -yardW / 2, 0.04, yardZ));
-    root.add(slab(0.12, 0.08, yardD, kerb, yardW / 2, 0.04, yardZ));
+    yard.add(slab(yardW, 0.08, 0.12, kerb, 0, 0.04, plan.minZ + 0.15));
+    yard.add(slab(yardW, 0.08, 0.12, kerb, 0, 0.04, plan.maxZ - 0.15));
+    yard.add(slab(0.12, 0.08, yardD, kerb, -yardW / 2, 0.04, yardZ));
+    yard.add(slab(0.12, 0.08, yardD, kerb, yardW / 2, 0.04, yardZ));
 
     const line = toon(0xf7f4ee);
     for (let r = 0; r < plan.rows; r += 1) {
       for (let c = 0; c < plan.cols; c += 1) {
         const p = plan.cell(c, r);
         const w = CELL * 0.86;
-        root.add(slab(w, 0.012, 0.035, line, p.x, 0.02, p.z - w / 2));
-        root.add(slab(w, 0.012, 0.035, line, p.x, 0.02, p.z + w / 2));
-        root.add(slab(0.035, 0.012, w, line, p.x - w / 2, 0.02, p.z));
-        root.add(slab(0.035, 0.012, w, line, p.x + w / 2, 0.02, p.z));
+        yard.add(slab(w, 0.012, 0.035, line, p.x, 0.02, p.z - w / 2));
+        yard.add(slab(w, 0.012, 0.035, line, p.x, 0.02, p.z + w / 2));
+        yard.add(slab(0.035, 0.012, w, line, p.x - w / 2, 0.02, p.z));
+        yard.add(slab(0.035, 0.012, w, line, p.x + w / 2, 0.02, p.z));
       }
     }
 
@@ -693,11 +797,13 @@ export function createBoard(canvas) {
     const bayEdge = toon(0xff8a1f);
     for (let i = 0; i < state.bayTaxi.length; i += 1) {
       const p = plan.bay(i);
-      root.add(slab(plan.bayPitch * 0.82, 0.025, 1.05, bayFill, p.x, 0.02, p.z));
-      root.add(slab(plan.bayPitch * 0.82, 0.02, 0.06, bayEdge, p.x, 0.035, p.z - 0.5));
-      root.add(slab(0.05, 0.02, 1.05, line, p.x - plan.bayPitch * 0.41, 0.035, p.z));
-      root.add(slab(0.05, 0.02, 1.05, line, p.x + plan.bayPitch * 0.41, 0.035, p.z));
+      yard.add(slab(plan.bayPitch * 0.82, 0.025, 1.05, bayFill, p.x, 0.02, p.z));
+      yard.add(slab(plan.bayPitch * 0.82, 0.02, 0.06, bayEdge, p.x, 0.035, p.z - 0.5));
+      yard.add(slab(0.05, 0.02, 1.05, line, p.x - plan.bayPitch * 0.41, 0.035, p.z));
+      yard.add(slab(0.05, 0.02, 1.05, line, p.x + plan.bayPitch * 0.41, 0.035, p.z));
     }
+    collapse(yard);
+    root.add(yard);
 
     const roofW = Math.min(plan.span + 0.4, Math.max(plan.rowW, 2.4));
     const post = toon(0xd5dbe3);
@@ -722,7 +828,7 @@ export function createBoard(canvas) {
       root.add(slab(0.1, 0.35, 0.1, trunk, x, 0.18, z, true));
       const crown = new Mesh(new ConeGeometry(0.28 + (i % 2) * 0.06, 0.55, 6), foliage);
       crown.position.set(x, 0.62, z);
-      crown.castShadow = true;
+      crown.castShadow = false;
       root.add(crown);
     });
 
@@ -947,18 +1053,16 @@ export function createBoard(canvas) {
     camera.position.copy(camBase);
     camera.lookAt(look);
     camera.updateMatrixWorld(true);
-    const corners = [];
-    for (const x of [plan.minX, plan.maxX]) {
-      for (const y of [0, 1.25]) {
-        for (const z of [plan.minZ, plan.maxZ]) corners.push(new Vector3(x, y, z));
-      }
-    }
     let maxX = 0.001;
     let maxY = 0.001;
-    for (const corner of corners) {
-      const v = corner.clone().project(camera);
-      maxX = Math.max(maxX, Math.abs(v.x));
-      maxY = Math.max(maxY, Math.abs(v.y));
+    for (const x of [plan.minX, plan.maxX]) {
+      for (const y of [0, 1.25]) {
+        for (const z of [plan.minZ, plan.maxZ]) {
+          const v = cornerScratch.set(x, y, z).project(camera);
+          maxX = Math.max(maxX, Math.abs(v.x));
+          maxY = Math.max(maxY, Math.abs(v.y));
+        }
+      }
     }
     camera.zoom = 0.9 / Math.max(maxX, maxY);
     camera.updateProjectionMatrix();
@@ -1019,6 +1123,7 @@ export function createBoard(canvas) {
       const sign = makeSign(colors[0]);
       sign.position.set(0, 1.08, -0.2);
       group.userData.body.add(sign);
+      collapse(group.userData.body);
       const tarp = makeTarp();
       const question = makeQuestion();
       const lock = makeNumberLock();
@@ -1028,8 +1133,12 @@ export function createBoard(canvas) {
         new MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0, depthWrite: false }),
         0, 0.5, 0,
       );
+      flashBox.visible = false;
       const pick = mesh(boxGeo(CELL * 0.92, 1.3, 1.05), pickMat, 0, 0.65, 0);
       pick.userData.id = taxi.id;
+      pick.layers.set(1);
+      pick.castShadow = false;
+      pick.receiveShadow = false;
       group.add(tarp, question, lock, arrow, pick, flashBox);
       root.add(group);
       views[taxi.id] = {
@@ -1080,6 +1189,8 @@ export function createBoard(canvas) {
       camera.position.y += (Math.random() - 0.5) * shakeAmp * 0.45;
       shakeAmp *= 0.86;
     }
+    sun.shadow.needsUpdate = shadowWarm > 0 || tweens.length > 0 || shakeAmp > 0.001;
+    if (shadowWarm > 0) shadowWarm -= 1;
     renderer.render(scene, camera);
   }
 
@@ -1100,6 +1211,7 @@ export function createBoard(canvas) {
     if (!rect.width || !rect.height) return -1;
     pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.layers.enable(1);
     raycaster.setFromCamera(pointer, camera);
     const targets = [];
     for (const head of heads) targets.push(head);
@@ -1118,13 +1230,47 @@ export function createBoard(canvas) {
   function project(id) {
     const view = views[id];
     if (!view) return null;
-    const v = new Vector3(view.group.position.x, 1.2, view.group.position.z);
+    const v = projectScratch;
+  v.set(view.group.position.x, 1.2, view.group.position.z);
     v.project(camera);
     const rect = canvas.getBoundingClientRect();
     return {
       x: rect.left + (v.x * 0.5 + 0.5) * rect.width,
       y: rect.top + (-v.y * 0.5 + 0.5) * rect.height,
     };
+  }
+
+  function fillet(points) {
+    const out = [points[0]];
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const prev = points[i - 1];
+      const at = points[i];
+      const next = points[i + 1];
+      const inLen = Math.hypot(at.x - prev.x, at.z - prev.z) || 1;
+      const outLen = Math.hypot(next.x - at.x, next.z - at.z) || 1;
+      const trim = Math.min(0.55, inLen * 0.45, outLen * 0.45);
+      const a = {
+        x: at.x - ((at.x - prev.x) / inLen) * trim,
+        z: at.z - ((at.z - prev.z) / inLen) * trim,
+      };
+      const b = {
+        x: at.x + ((next.x - at.x) / outLen) * trim,
+        z: at.z + ((next.z - at.z) / outLen) * trim,
+      };
+      out.push(a);
+      for (let step = 1; step <= 4; step += 1) {
+        const t = step / 5;
+        const u = 1 - t;
+        out.push({
+          x: u * u * a.x + 2 * u * t * at.x + t * t * b.x,
+          z: u * u * a.z + 2 * u * t * at.z + t * t * b.z,
+        });
+      }
+      out.push(b);
+    }
+    out.push(points[points.length - 1]);
+    points.length = 0;
+    for (const point of out) points.push(point);
   }
 
   function pathPoints(id) {
@@ -1156,7 +1302,7 @@ export function createBoard(canvas) {
     if (total < 0.001) return;
     let spun = 0;
     let lastPuff = 0;
-    await animate(seconds(160 + total * 130), 'in', (u) => {
+    await animate(seconds(160 + total * 130), 'out', (u) => {
       const dist = u * total;
       let acc = 0;
       let seg = 0;
@@ -1252,8 +1398,35 @@ export function createBoard(canvas) {
       const view = views[id];
       view.pick.visible = false;
       const points = pathPoints(id);
-      points.push(plan.bay(bay));
+      const bayPoint = plan.bay(bay);
+      const taxi = level.taxis[id];
+      const dir = DIRS[taxi.dir];
+      const end = points[points.length - 1];
+      const clear = ((taxi.len || 2) - 1) * CELL + 0.6;
+      const out = { x: end.x + dir.x * clear, z: end.z + dir.y * clear };
+      points.push(out);
+      const frontZ = plan.bayZ - 1.7;
+      const sideX = out.x >= 0 ? plan.maxX + 1.8 : plan.minX - 1.8;
+      if (dir.y < 0) {
+        const laneZ = Math.min(out.z, frontZ);
+        if (out.z > laneZ + 0.05) points.push({ x: out.x, z: laneZ });
+        points.push({ x: bayPoint.x, z: laneZ });
+      } else if (dir.y > 0) {
+        points.push({ x: sideX, z: out.z });
+        points.push({ x: sideX, z: frontZ });
+        points.push({ x: bayPoint.x, z: frontZ });
+      } else {
+        points.push({ x: out.x, z: frontZ });
+        points.push({ x: bayPoint.x, z: frontZ });
+      }
+      points.push(bayPoint);
+      fillet(points);
+      const from = view.group.scale.z;
       await drive(view.group, points, true);
+      await animate(seconds(200), 'out', (u) => {
+        const s = 1 + (0.4 - 1) * u;
+        view.group.scale.set(s, s, from + (0.4 - from) * u);
+      });
       await turnYaw(view.group, 0, 160);
       showSeats(id, 0);
     },
@@ -1315,8 +1488,10 @@ export function createBoard(canvas) {
     flash(id) {
       const view = views[id];
       if (!view || !view.flash) return;
+      view.flash.visible = true;
       animate(seconds(180), 'out', (u) => {
         view.flash.material.opacity = u < 0.5 ? u * 1.2 : (1 - u) * 1.2;
+        if (u > 0.98) view.flash.visible = false;
       });
     },
     pulse(id) {
