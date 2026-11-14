@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#FF8A1F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Taxi Rank Rush</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    @font-face {
+      font-family: Fredoka;
+      src: url("assets/fonts/fredoka-700.woff2") format("woff2");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Fredoka;
+      src: url("assets/fonts/fredoka-600.woff2") format("woff2");
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Nunito;
+      src: url("assets/fonts/nunito-400.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: Nunito;
+      src: url("assets/fonts/nunito-700.woff2") format("woff2");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+  </style>
+</head>
+<body>
+  <div id="live" aria-live="polite"></div>
+  <div id="app">
+    <div id="boot">
+      <p class="boot-name">Taxi Rank Rush</p>
+      <div class="boot-bar" aria-hidden="true"><span id="boot-fill"></span></div>
+      <p id="boot-note"></p>
+    </div>
+    <div id="toast" class="toast" hidden></div>
+    <div id="coach" class="modal" hidden>
+      <div class="card">
+        <h2>How this works</h2>
+        <p id="coach-text"></p>
+        <button id="coach-go" class="btn primary" type="button">Let's go</button>
+      </div>
+    </div>
+    <div id="coach-hand" class="hand" hidden>☝</div>
+
+    <section id="screen-title" class="screen" hidden>
+      <header class="topbar">
+        <div id="t-coins" class="coin-pill"></div>
+        <span style="flex:1"></span>
+        <button id="t-settings" class="icon-btn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 3.1-1.7-.3a6.6 6.6 0 0 0-.8-1.9l1-1.4a.9.9 0 0 0-.1-1.1l-1.4-1.4a.9.9 0 0 0-1.1-.1l-1.4 1a6.6 6.6 0 0 0-1.9-.8l-.3-1.7A.9.9 0 0 0 11.6 3h-2a.9.9 0 0 0-.9.8l-.3 1.7a6.6 6.6 0 0 0-1.9.8l-1.4-1a.9.9 0 0 0-1.1.1L2.6 6.8a.9.9 0 0 0-.1 1.1l1 1.4a6.6 6.6 0 0 0-.8 1.9l-1.7.3a.9.9 0 0 0-.8.9v2c0 .4.3.8.8.9l1.7.3c.1.7.4 1.3.8 1.9l-1 1.4a.9.9 0 0 0 .1 1.1l1.4 1.4c.3.3.8.4 1.1.1l1.4-1c.6.4 1.2.7 1.9.8l.3 1.7c.1.4.5.8.9.8h2c.4 0 .8-.3.9-.8l.3-1.7c.7-.1 1.3-.4 1.9-.8l1.4 1c.3.3.8.2 1.1-.1l1.4-1.4a.9.9 0 0 0 .1-1.1l-1-1.4c.4-.6.7-1.2.8-1.9l1.7-.3c.4-.1.8-.5.8-.9v-2a.9.9 0 0 0-.8-.9Z"/></svg></button>
+        <button id="t-music" class="icon-btn" type="button" data-music aria-label="Music"></button>
+        <button id="t-mute" class="icon-btn" type="button" aria-label="Sound"></button>
+      </header>
+      <div class="title-hero">
+        <canvas id="turntable"></canvas>
+        <h1 id="t-title">Taxi Rank Rush</h1>
+        <p id="t-sub" class="sub"></p>
+      </div>
+      <div class="menu">
+        <button id="t-play" class="btn primary play-cta" type="button">Play</button>
+        <div class="tile-grid">
+          <button id="t-levels" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2" fill="#ff8a1f"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#ff8a1f"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#ff8a1f"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#ff8a1f"/></svg><span>Levels</span></button>
+          <button id="t-daily" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="#ff8a1f"/><path d="M12 7.5V12l3.2 2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg><span>Rush Hour</span></button>
+          <button id="t-shop" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 7.2 7h9.6L20 15v4H4v-4Z" fill="#ff8a1f"/><path d="M8 15v-2.4M16 15v-2.4" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg><span>Liveries</span></button>
+          <button id="t-rank" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5h18M6 16.5V11h12v5.5M4 11h16l-2-4H6l-2 4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Your rank</span></button>
+          <button id="t-missions" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.5h11M8 12h11M8 17.5h11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m4.2 6.5 1.2 1.2 2-2.4M4.2 12l1.2 1.2 2-2.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Missions</span></button>
+          <button id="t-event" class="tile" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M8 4v3M16 4v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Month-End</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-map" class="screen" hidden>
+      <header class="topbar">
+        <button id="m-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1 id="m-title">Levels</h1>
+        <div id="m-coins" class="coin-pill"></div>
+      </header>
+      <p id="m-range" class="range"></p>
+      <div id="m-grid" class="level-grid"></div>
+      <div class="pager">
+        <button id="m-prev" class="btn" type="button">Prev</button>
+        <button id="m-next" class="btn" type="button">Next</button>
+      </div>
+    </section>
+
+    <section id="screen-shop" class="screen" hidden>
+      <header class="topbar">
+        <button id="s-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1 id="s-title">Liveries</h1>
+        <div id="s-coins" class="coin-pill"></div>
+      </header>
+      <div id="s-list" class="shop-list"></div>
+    </section>
+
+    <section id="screen-daily" class="screen" hidden>
+      <header class="topbar">
+        <button id="d-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1 id="d-title">Rush Hour</h1>
+        <span style="width:42px"></span>
+      </header>
+      <div class="daily-card">
+        <h1>Rush Hour</h1>
+        <p id="d-date"></p>
+        <p id="d-lead"></p>
+        <p id="d-streak"></p>
+        <p id="d-done" hidden></p>
+        <p id="d-stars" class="stars-done" hidden></p>
+        <button id="d-play" class="btn primary" type="button">Play</button>
+        <button id="d-share" class="btn" type="button" hidden>Share</button>
+      </div>
+    </section>
+
+    <section id="screen-rank" class="screen" hidden>
+      <header class="topbar">
+        <button id="r-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1>Your rank</h1>
+      </header>
+      <div id="rank-list" class="shop-list"></div>
+    </section>
+    <section id="screen-missions" class="screen" hidden>
+      <header class="topbar">
+        <button id="n-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1>Missions</h1>
+      </header>
+      <div id="mission-list" class="shop-list"></div>
+    </section>
+    <section id="screen-settings" class="screen" hidden>
+      <header class="topbar">
+        <button id="set-back" class="icon-btn" type="button" aria-label="Back"></button>
+        <h1>Settings</h1>
+      </header>
+      <button id="set-cb" class="btn" type="button">Colour-blind palette</button>
+      <p class="sub">Hand signs stay the same. Only the colours shift.</p>
+      <p class="sub">A fictional rank. No real companies, no real routes.</p>
+    </section>
+    <section id="screen-game" class="screen" hidden>
+      <header class="hud">
+        <div class="topbar">
+          <button id="g-back" class="icon-btn" type="button" aria-label="Back"></button>
+          <h1 id="g-title"></h1>
+          <button id="g-restart" class="icon-btn" type="button" aria-label="Restart"></button>
+          <button id="g-music" class="icon-btn" type="button" data-music aria-label="Music"></button>
+          <button id="g-mute" class="icon-btn" type="button" aria-label="Sound"></button>
+        </div>
+        <div class="stats">
+          <span id="g-moves">Moves 0</span>
+          <span id="g-time">0s</span>
+          <span id="g-par">Par</span>
+          <span id="g-diff" class="badge" hidden></span>
+          <span id="g-coins" class="coin-pill"></span>
+        </div>
+        <p id="g-intro" class="intro" hidden></p>
+      </header>
+      <div id="board-wrap"><canvas id="board"></canvas></div>
+      <div class="boosters">
+        <button id="g-bay" class="btn" type="button">Extra bay</button>
+        <button id="g-undo" class="btn" type="button">Undo</button>
+        <button id="g-shuffle" class="btn" type="button">Shuffle</button>
+      </div>
+      <div id="modal" class="modal" hidden></div>
+    </section>
+  </div>
+  <script type="module" src="game.js"></script>
+</body>
+</html>
