@@ -14,4 +14,4 @@ Every bird, gate, suburb, veld, medal, and icon is hand-authored vector drawing 
 
 ## Sound
 
-Flap, coin, score, hit, the hadeda call, and the music loop are synthesised in the browser in `js/audio.js`. No sampled audio is shipped. The call is an original three-note nasal honk written to suggest the famous dawn chorus, not a recording of a bird.
+Flap, coin, score, hit, the hadeda call, and the music loop are synthesised in the browser in `js/audio.js`. No sampled audio is shipped. The call is an original four-note nasal honk (short, short, short, longer and falling) written to suggest the dawn chorus, not a field recording. A public-domain field recording was not used: the recordings that turn up are not clearly licensed for a shipped game.

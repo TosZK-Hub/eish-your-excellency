@@ -8,7 +8,8 @@ export function createAudio() {
   let sfxGain = null;
   let comp = null;
   let noiseBuf = null;
-  let muted = false;
+  let sfxOn = true;
+  let musicWanted = true;
   let musicOn = false;
   let nextNote = 0;
   let step = 0;
@@ -28,7 +29,7 @@ export function createAudio() {
     master = ctx.createGain();
     master.gain.value = 0.9;
     musicGain = ctx.createGain();
-    musicGain.gain.value = 0.16;
+    musicGain.gain.value = 0.11;
     sfxGain = ctx.createGain();
     sfxGain.gain.value = 0.85;
     const musicLP = ctx.createBiquadFilter();
@@ -55,12 +56,35 @@ export function createAudio() {
     return !was;
   }
 
-  function setMuted(flag) {
-    muted = !!flag;
+  function applyGains() {
     if (!ctx) return;
     const t = ctx.currentTime;
-    master.gain.cancelScheduledValues(t);
-    master.gain.setTargetAtTime(muted ? 0 : 0.9, t, 0.03);
+    sfxGain.gain.setTargetAtTime(sfxOn ? 0.8 : 0, t, 0.03);
+    musicGain.gain.setTargetAtTime(musicWanted ? 0.11 : 0, t, 0.03);
+  }
+
+  function setSfx(on) {
+    sfxOn = !!on;
+    applyGains();
+  }
+
+  function setMusic(on) {
+    musicWanted = !!on;
+    applyGains();
+  }
+
+  function setMuted(flag) {
+    sfxOn = !flag;
+    musicWanted = !flag;
+    applyGains();
+  }
+
+  function suspend() {
+    if (ctx && ctx.state === "running") ctx.suspend();
+  }
+
+  function resumeCtx() {
+    if (ctx && ctx.state === "suspended") ctx.resume();
   }
 
   function envGain(time, peak, dur) {
@@ -80,7 +104,7 @@ export function createAudio() {
   }
 
   function flap() {
-    if (!ctx || muted) return;
+    if (!ctx || !sfxOn) return;
     const t = ctx.currentTime;
     const src = noise(t, 0.09);
     const bp = ctx.createBiquadFilter();
@@ -104,7 +128,7 @@ export function createAudio() {
   }
 
   function coin() {
-    if (!ctx || muted) return;
+    if (!ctx || !sfxOn) return;
     const t = ctx.currentTime;
     [880, 1320].forEach((f, i) => {
       const o = ctx.createOscillator();
@@ -119,7 +143,7 @@ export function createAudio() {
   }
 
   function score() {
-    if (!ctx || muted) return;
+    if (!ctx || !sfxOn) return;
     const t = ctx.currentTime;
     [523.25, 659.25].forEach((f, i) => {
       const o = ctx.createOscillator();
@@ -134,7 +158,7 @@ export function createAudio() {
   }
 
   function hit() {
-    if (!ctx || muted) return;
+    if (!ctx || !sfxOn) return;
     const t = ctx.currentTime;
     const src = noise(t, 0.28);
     const lp = ctx.createBiquadFilter();
@@ -169,7 +193,7 @@ export function createAudio() {
     bp.type = "bandpass";
     bp.frequency.setValueAtTime(1500, time);
     bp.frequency.exponentialRampToValueAtTime(880, time + dur);
-    bp.Q.value = 6;
+    bp.Q.value = 8;
     const peakF = ctx.createBiquadFilter();
     peakF.type = "peaking";
     peakF.frequency.value = 2500;
@@ -208,13 +232,16 @@ export function createAudio() {
   }
 
   function squawk() {
-    if (!ctx || muted) return;
+    if (!ctx || !sfxOn) return;
     const t = ctx.currentTime + 0.01;
-    musicGain.gain.setTargetAtTime(0.04, t, 0.04);
-    musicGain.gain.setTargetAtTime(muted ? 0 : 0.16, t + 0.85, 0.25);
-    honk(t, 620, 0.15, 0.28);
-    honk(t + 0.2, 690, 0.13, 0.26);
-    honk(t + 0.38, 540, 0.46, 0.32);
+    if (musicWanted) {
+      musicGain.gain.setTargetAtTime(0.025, t, 0.03);
+      musicGain.gain.setTargetAtTime(0.11, t + 0.95, 0.22);
+    }
+    honk(t, 430, 0.14, 0.18);
+    honk(t + 0.16, 520, 0.11, 0.16);
+    honk(t + 0.3, 470, 0.16, 0.2);
+    honk(t + 0.48, 340, 0.62, 0.24);
   }
 
   const PENT = [0, 2, 4, 7, 9, 12, 14];
@@ -269,16 +296,16 @@ export function createAudio() {
   }
 
   function tickMusic() {
-    if (!ctx || !musicOn || muted) return;
+    if (!ctx || !musicOn || !musicWanted) return;
     const now = ctx.currentTime;
     if (nextNote < now - 0.05) nextNote = now + 0.02;
     const stepDur = 0.46;
     while (nextNote < now + 0.35) {
       const slot = PATTERN[step % PATTERN.length];
       if (slot) {
-        for (const d of slot) pluck(nextNote, noteFreq(d, 293.66), 0.045, 0.42);
+        for (const d of slot) pluck(nextNote, noteFreq(d, 293.66), 0.032, 0.42);
       }
-      if (step % 8 === 0) pluck(nextNote, 146.83, 0.05, 0.7);
+      if (step % 8 === 0) pluck(nextNote, 146.83, 0.036, 0.7);
       step = (step + 1) % PATTERN.length;
       nextNote += stepDur;
     }
@@ -297,6 +324,10 @@ export function createAudio() {
   return {
     unlock,
     setMuted,
+    setSfx,
+    setMusic,
+    suspend,
+    resumeCtx,
     flap,
     coin,
     score,

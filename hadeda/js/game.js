@@ -12,6 +12,7 @@ import {
   drawAppIcon,
 } from "./art.js";
 import { createAudio } from "./audio.js";
+import { beginRewarded, completeRewarded } from "./ads.js";
 
 const W = 390;
 const H = 844;
@@ -68,7 +69,7 @@ const sheet = params.get("sheet");
 const scene = params.get("scene");
 const bot = params.has("bot");
 const freezeSave = !!(scene || sheet || params.has("icon"));
-const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const systemReduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const audio = createAudio();
 const canvas = document.getElementById("view");
@@ -107,6 +108,18 @@ let gapLevel = 0;
 let sweetLevel = 0;
 let shields = 0;
 let muted = false;
+let sfxOn = true;
+let musicOn = true;
+let hapticsOn = true;
+let motionOff = systemReduce;
+let hintSeen = false;
+let hintFlaps = 0;
+let doubled = false;
+let countLeft = 0;
+let lowQ = false;
+let adSession = null;
+let adKind = "continue";
+let exitFrom = "title";
 let shield = false;
 let invuln = 0;
 let continued = false;
@@ -180,7 +193,17 @@ function loadSave() {
     gapLevel = clamp(d.gap | 0, 0, 3);
     sweetLevel = clamp(d.sweet | 0, 0, 2);
     shields = clamp(d.shields | 0, 0, 3);
-    muted = !!d.mute;
+    if (typeof d.sfx === "boolean" || typeof d.music === "boolean") {
+      sfxOn = d.sfx !== false;
+      musicOn = d.music !== false;
+    } else if (d.mute) {
+      sfxOn = false;
+      musicOn = false;
+    }
+    muted = !sfxOn && !musicOn;
+    hapticsOn = d.haptics !== false;
+    if (typeof d.reduce === "boolean") motionOff = d.reduce;
+    hintSeen = !!d.hint;
   } catch (err) {
     /* private mode or bad JSON — start fresh */
   }
@@ -199,7 +222,13 @@ function save() {
         gap: gapLevel,
         sweet: sweetLevel,
         shields,
-        mute: muted,
+        mute: !sfxOn && !musicOn,
+        sfx: sfxOn,
+        music: musicOn,
+        haptics: hapticsOn,
+        reduce: motionOff,
+        hint: hintSeen,
+        v: 2,
       })
     );
   } catch (err) {
@@ -317,6 +346,8 @@ function resetRun() {
   wingT = 0;
   caption = "";
   captionT = 0;
+  doubled = false;
+  hintFlaps = 0;
   if (shields > 0) {
     shields -= 1;
     shield = true;
@@ -326,7 +357,7 @@ function resetRun() {
 }
 
 function puff(n, power) {
-  if (reduceMotion) n = Math.min(n, 4);
+  if (motionOff || lowQ) n = Math.min(n, lowQ ? 2 : 4);
   for (let i = 0; i < n; i++) {
     const a = rand() * Math.PI * 2;
     const sp = power * (0.35 + rand());
@@ -343,7 +374,8 @@ function puff(n, power) {
       len: 6 + rand() * 7,
     });
   }
-  if (particles.length > 46) particles.splice(0, particles.length - 46);
+  const cap = lowQ ? 22 : 46;
+  if (particles.length > cap) particles.splice(0, particles.length - cap);
 }
 
 function flap() {
@@ -354,12 +386,11 @@ function flap() {
   wingT = 0.22;
   audio.flap();
   puff(3, 70);
-  if (navigator.vibrate && !reduceMotion) {
-    try {
-      navigator.vibrate(8);
-    } catch (err) {
-      /* some browsers throw */
-    }
+  buzz(10);
+  hintFlaps += 1;
+  if (!hintSeen && hintFlaps >= 2) {
+    hintSeen = true;
+    save();
   }
 }
 
@@ -369,8 +400,9 @@ function die() {
   if (shield) {
     shield = false;
     invuln = 1.15;
-    shake = reduceMotion ? 0 : 1;
+    shake = motionOff ? 0 : 1;
     flash = 0.25;
+    buzz(18);
     audio.hit();
     puff(10, 160);
     floaters.push({ text: "Saved", x: bird.x, y: bird.y - 28, vy: -36, life: 0.8, color: "#E7F6EC" });
@@ -378,19 +410,13 @@ function die() {
   }
   mode = "dead";
   deadT = 0;
-  shake = reduceMotion ? 0 : 1;
+  shake = motionOff ? 0 : 1;
   flash = 0.5;
   audio.hit();
   audio.squawk();
   puff(16, 220);
+  buzz(36);
   floaters.push({ text: "HAA!", x: bird.x + 10, y: bird.y - 36, vy: -28, life: 0.9, color: "#FFF8F1" });
-  if (navigator.vibrate && !reduceMotion) {
-    try {
-      navigator.vibrate(40);
-    } catch (err) {
-      /* ignore */
-    }
-  }
 }
 
 function showOver() {
@@ -436,6 +462,9 @@ function fillOver() {
   const showCont = !continued && score > 0;
   cont.hidden = !showCont;
   note.hidden = !showCont;
+  const dbl = document.getElementById("btn-double");
+  const showDbl = runCoins > 0 && !doubled;
+  dbl.hidden = !showDbl;
 }
 
 function startGame(fromTitle) {
@@ -484,17 +513,26 @@ function syncUI() {
   overEl.hidden = mode !== "over";
   shopEl.hidden = mode !== "shop";
   adEl.hidden = mode !== "ad";
-  scoreEl.hidden = mode !== "play" && mode !== "dead";
+  document.getElementById("screen-pause").hidden = mode !== "pause";
+  document.getElementById("screen-settings").hidden = mode !== "settings";
+  document.getElementById("screen-exit").hidden = mode !== "exit";
+  document.getElementById("screen-count").hidden = mode !== "count";
+  scoreEl.hidden = mode !== "play" && mode !== "dead" && mode !== "count";
   captionEl.hidden = captionT <= 0 || (mode !== "play" && mode !== "dead");
-  coinPill.hidden = mode === "shop" || mode === "over" || mode === "ad";
+  coinPill.hidden = mode === "shop" || mode === "over" || mode === "ad" || mode === "settings";
+  document.getElementById("btn-pause").hidden = mode !== "play";
+  const hint = document.getElementById("hint");
+  hint.hidden = hintSeen || mode !== "play" || hintFlaps > 0 || score > 0;
   coinEl.textContent = String(coins);
   bestEl.textContent = String(best);
   bestMedalEl.textContent = medalName(best);
+  muted = !sfxOn && !musicOn;
   muteBtn.classList.toggle("is-muted", muted);
   muteBtn.setAttribute("aria-label", muted ? "Unmute" : "Mute");
   muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
   document.body.dataset.mode = mode;
   if (params.has("fps")) stage.dataset.fps = fpsEma.toFixed(0);
+  paintSettings();
 }
 
 function toast(msg) {
@@ -503,12 +541,104 @@ function toast(msg) {
   toastT = 1.5;
 }
 
+function buzz(ms) {
+  if (!hapticsOn || motionOff) return;
+  try {
+    if (navigator.vibrate) navigator.vibrate(ms);
+  } catch (err) {
+    /* some browsers throw */
+  }
+}
+
 function setMuted(flag) {
+  sfxOn = !flag;
+  musicOn = !flag;
   muted = flag;
-  audio.setMuted(muted);
+  audio.setSfx(sfxOn);
+  audio.setMusic(musicOn);
   muteBtn.classList.toggle("is-muted", muted);
   muteBtn.setAttribute("aria-label", muted ? "Unmute" : "Mute");
   save();
+  paintSettings();
+}
+
+function paintSettings() {
+  const sfx = document.getElementById("tog-sfx");
+  const mus = document.getElementById("tog-music");
+  const hap = document.getElementById("tog-haptics");
+  const red = document.getElementById("tog-motion");
+  if (!sfx) return;
+  sfx.setAttribute("aria-pressed", sfxOn ? "true" : "false");
+  mus.setAttribute("aria-pressed", musicOn ? "true" : "false");
+  hap.setAttribute("aria-pressed", hapticsOn ? "true" : "false");
+  red.setAttribute("aria-pressed", motionOff ? "true" : "false");
+  sfx.textContent = sfxOn ? "On" : "Off";
+  mus.textContent = musicOn ? "On" : "Off";
+  hap.textContent = hapticsOn ? "On" : "Off";
+  red.textContent = motionOff ? "On" : "Off";
+}
+
+function openSettings() {
+  shopFrom = mode === "pause" ? "pause" : mode === "over" ? "over" : "title";
+  mode = "settings";
+  syncUI();
+}
+
+function closeSettings() {
+  mode = shopFrom === "pause" || shopFrom === "over" || shopFrom === "title" ? shopFrom : "title";
+  if (mode === "over") fillOver();
+  syncUI();
+}
+
+function pauseGame() {
+  if (mode !== "play") return;
+  mode = "pause";
+  syncUI();
+}
+
+function askExit() {
+  exitFrom = mode === "pause" ? "pause" : "title";
+  mode = "exit";
+  syncUI();
+}
+
+function hookNative() {
+  const cap = window.Capacitor;
+  if (!cap || typeof cap.isNativePlatform !== "function" || !cap.isNativePlatform()) return;
+  const app = cap.Plugins && cap.Plugins.App;
+  const bar = cap.Plugins && cap.Plugins.StatusBar;
+  if (bar) {
+    if (bar.setOverlaysWebView) bar.setOverlaysWebView({ overlay: true });
+    if (bar.hide) bar.hide();
+  }
+  if (!app || !app.addListener) return;
+  app.addListener("backButton", () => {
+    if (mode === "shop") closeShop();
+    else if (mode === "settings") closeSettings();
+    else if (mode === "play") pauseGame();
+    else if (mode === "pause" || mode === "title") askExit();
+    else if (mode === "over" || mode === "ad" || mode === "count") {
+      mode = "title";
+      syncUI();
+    } else if (mode === "exit") {
+      mode = exitFrom;
+      syncUI();
+    }
+  });
+  app.addListener("appStateChange", (state) => {
+    if (!state.isActive) {
+      audio.suspend();
+      if (mode === "play") pauseGame();
+    } else audio.resumeCtx();
+  });
+}
+
+function resumeGame() {
+  if (mode !== "pause") return;
+  countLeft = 3;
+  mode = "count";
+  document.getElementById("count-num").textContent = "3";
+  syncUI();
 }
 
 function openShop() {
@@ -661,6 +791,7 @@ function onPrimary() {
   else if (mode === "play") flap();
   else if (mode === "dead") queueRestart = true;
   else if (mode === "over") startGame(false);
+  else if (mode === "pause") resumeGame();
 }
 
 function botThink(dt) {
@@ -723,14 +854,47 @@ function update(dt) {
     beak = Math.max(0, Math.sin(u * Math.PI * 3)) * 0.85;
   } else if (mode !== "dead") beak = 0;
 
+  if (mode === "count") {
+    countLeft -= dt;
+    const num = document.getElementById("count-num");
+    num.textContent = countLeft <= 0 ? "Fly" : String(Math.max(1, Math.ceil(countLeft)));
+    if (countLeft <= 0) {
+      mode = "play";
+      syncUI();
+    }
+  }
+
   if (mode === "ad") {
     adT -= dt;
     const p = clamp(1 - adT / 1.7, 0, 1);
     document.getElementById("ad-fill").style.transform = "scaleX(" + p.toFixed(3) + ")";
-    if (adT <= 0) finishAd();
+    if (adT <= 0) {
+      adT = 99;
+      const kind = adKind;
+      completeRewarded(adSession).then((res) => {
+        if (!res || !res.rewarded) {
+          mode = "over";
+          fillOver();
+          syncUI();
+          return;
+        }
+        if (kind === "double") {
+          coins += runCoins;
+          doubled = true;
+          save();
+          mode = "over";
+          fillOver();
+          syncUI();
+        } else finishAd();
+      });
+    }
   }
 
   if (mode === "play") {
+    if (!Number.isFinite(bird.y) || !Number.isFinite(bird.vy)) {
+      bird.y = 400;
+      bird.vy = 0;
+    }
     const d = difficulty(score);
     camera += d.speed * dt;
     if (intro > 0) {
@@ -788,6 +952,7 @@ function update(dt) {
           coins += 1;
           runCoins += 1;
           audio.coin();
+          buzz(12);
           flyers.push({ x: cx, y: cy, t: 0 });
           saveTimer = 0.4;
         }
@@ -952,7 +1117,7 @@ function render() {
     blink,
     skin: showSkin,
     beak: mode === "title" ? beak : 0,
-    night,
+    night: night && !lowQ,
     time,
   });
   ctx.restore();
@@ -1088,14 +1253,15 @@ function renderGateSheet() {
     const y = 8 + i * 166;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, y, W, 158);
+    ctx.rect(0, y, W, 160);
     ctx.clip();
-    ctx.translate(0, y - 250);
+    ctx.translate(70, y + 8);
+    ctx.scale(0.42, 0.42);
     drawGate(
       ctx,
-      { kind, variant: i % 3, x: 146, gapTop: 300, gapBot: 392, scored: false, coin: null },
+      { kind, variant: i % 3, x: 40, gapTop: 78, gapBot: 210, scored: false, coin: null },
       2.2,
-      470,
+      300,
       "day"
     );
     ctx.restore();
@@ -1167,6 +1333,10 @@ function applyStill() {
     coins = Math.max(coins, +(params.get("coins") || 86));
     mode = "shop";
     preview = params.get("skin") || "scarf";
+    if (params.get("skin")) {
+      skin = preview;
+      if (!owned.includes(skin)) owned = owned.concat([skin]);
+    }
     theme = "day";
     camera = 160;
     bird.x = 196;
@@ -1184,6 +1354,10 @@ function applyStill() {
     wing = 0.82;
     beak = 0.7;
     callAnim = 0.7;
+  } else if (scene === "settings") {
+    mode = "settings";
+    theme = tod || "day";
+    camera = 80;
   }
   syncUI();
 }
@@ -1193,7 +1367,8 @@ function boot() {
   if (sheet || params.get("icon") === "1") stage.classList.add("is-sheet");
   loadSave();
   if (params.has("coins") && scene) coins = +params.get("coins") || 0;
-  audio.setMuted(muted);
+  audio.setSfx(sfxOn);
+  audio.setMusic(musicOn);
   fit();
   ensureTheme("dawn", backing);
   const queue = ["day", "sunset", "night"];
@@ -1219,6 +1394,13 @@ function boot() {
   }
 
   document.fonts.load("800 56px Nunito").catch(() => {});
+  hookNative();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      audio.suspend();
+      if (mode === "play") pauseGame();
+    } else audio.resumeCtx();
+  });
 
   last = performance.now();
   requestAnimationFrame(frame);
@@ -1228,6 +1410,8 @@ function frame(now) {
   const dt = Math.min(0.034, Math.max(0.001, (now - last) / 1000));
   last = now;
   fpsEma = fpsEma * 0.94 + (1 / dt) * 0.06;
+  if (fpsEma < 42) lowQ = true;
+  else if (fpsEma > 55) lowQ = false;
   const paused = document.hidden;
   const frozen = !!(scene || sheet || params.get("icon") === "1");
   if (!paused && !frozen) update(dt);
@@ -1255,10 +1439,120 @@ document.getElementById("btn-continue").addEventListener("pointerdown", (e) => {
   e.preventDefault();
   e.stopPropagation();
   if (continued || mode !== "over") return;
+  adKind = "continue";
+  adSession = beginRewarded("continue");
   mode = "ad";
   adT = 1.7;
+  document.getElementById("ad-kicker").textContent = "Stoep Stories";
+  document.getElementById("ad-title").textContent = "Back in a moment";
   document.getElementById("ad-fill").style.transform = "scaleX(0)";
   syncUI();
+});
+document.getElementById("btn-double").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (doubled || runCoins <= 0 || mode !== "over") return;
+  adKind = "double";
+  adSession = beginRewarded("double");
+  mode = "ad";
+  adT = 1.7;
+  document.getElementById("ad-kicker").textContent = "Stoep sweets";
+  document.getElementById("ad-title").textContent = "Twice the koeksisters";
+  document.getElementById("ad-fill").style.transform = "scaleX(0)";
+  syncUI();
+});
+document.getElementById("btn-pause").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  pauseGame();
+});
+document.getElementById("btn-resume").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  resumeGame();
+});
+document.getElementById("btn-pause-quit").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  mode = "title";
+  syncUI();
+});
+document.getElementById("btn-settings").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  openSettings();
+});
+document.getElementById("btn-settings-back").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  closeSettings();
+});
+document.getElementById("tog-sfx").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  sfxOn = !sfxOn;
+  audio.unlock();
+  audio.setSfx(sfxOn);
+  save();
+  syncUI();
+});
+document.getElementById("tog-music").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  musicOn = !musicOn;
+  audio.unlock();
+  audio.setMusic(musicOn);
+  if (musicOn && (mode === "play" || mode === "title")) audio.startMusic();
+  save();
+  syncUI();
+});
+document.getElementById("tog-haptics").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  hapticsOn = !hapticsOn;
+  save();
+  syncUI();
+  buzz(12);
+});
+document.getElementById("tog-motion").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  motionOff = !motionOff;
+  save();
+  syncUI();
+});
+document.getElementById("btn-reset").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  best = 0;
+  coins = 0;
+  owned = ["classic"];
+  skin = "classic";
+  preview = "classic";
+  gapLevel = 0;
+  sweetLevel = 0;
+  shields = 0;
+  hintSeen = false;
+  save();
+  toast("Progress cleared");
+  syncUI();
+});
+document.getElementById("btn-exit-stay").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  mode = exitFrom;
+  syncUI();
+});
+document.getElementById("btn-exit-leave").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const cap = window.Capacitor;
+  const app = cap && cap.Plugins && cap.Plugins.App;
+  if (app && app.exitApp) app.exitApp();
+  else {
+    mode = "title";
+    syncUI();
+  }
 });
 document.getElementById("btn-over-shop").addEventListener("pointerdown", (e) => {
   e.preventDefault();
@@ -1293,17 +1587,23 @@ window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (e.code === "Space" || e.code === "ArrowUp") {
     e.preventDefault();
-    if (mode === "shop") return;
+    if (mode === "shop" || mode === "settings" || mode === "exit" || mode === "ad") return;
     onPrimary();
   } else if (e.code === "KeyM") {
     audio.unlock();
     setMuted(!muted);
-  } else if (e.code === "Escape" && mode === "shop") closeShop();
+  } else if (e.code === "Escape") {
+    if (mode === "play") pauseGame();
+    else if (mode === "pause") resumeGame();
+    else if (mode === "settings") closeSettings();
+    else if (mode === "shop") closeShop();
+    else if (mode === "title") askExit();
+  }
 });
 stage.addEventListener(
   "touchmove",
   (e) => {
-    if (e.target.closest("#shop-scroll")) return;
+    if (e.target.closest("#shop-scroll, #settings-scroll")) return;
     e.preventDefault();
   },
   { passive: false }

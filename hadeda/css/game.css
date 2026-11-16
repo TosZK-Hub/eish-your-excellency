@@ -67,7 +67,21 @@ button { cursor: pointer; }
   right: 0;
   z-index: 3;
   pointer-events: none;
-  padding: 14px 14px 0;
+  padding: calc(14px + env(safe-area-inset-top)) 14px 0;
+}
+#btn-pause {
+  pointer-events: auto;
+  position: absolute;
+  top: calc(62px + env(safe-area-inset-top));
+  left: 14px;
+  height: 42px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: rgba(255, 248, 241, 0.94);
+  font-weight: 800;
+  font-size: 14px;
+  box-shadow: 0 6px 16px rgba(60, 32, 18, 0.12);
 }
 #coin-pill {
   pointer-events: none;
@@ -138,7 +152,7 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 18px 18px 22px;
+  padding: calc(18px + env(safe-area-inset-top)) 18px calc(22px + env(safe-area-inset-bottom));
   pointer-events: none;
 }
 .brand, .title-bottom, .shop-banner { pointer-events: none; }
@@ -397,10 +411,45 @@ h1 .flap { color: var(--coral); }
 .up-copy strong { font-size: 14px; }
 .up-copy span { color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.25; }
 .up-copy em { font-style: normal; font-size: 11px; font-weight: 800; color: var(--green); }
+.row-2 { display: flex; gap: 8px; }
+.row-2 .btn { flex: 1; }
+.text-link { color: var(--green); font-weight: 800; font-size: 14px; }
+#hint {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, 70px);
+  z-index: 3;
+  background: var(--ink);
+  color: var(--cream);
+  font-weight: 800;
+  padding: 8px 14px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+#screen-count {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  background: rgba(28, 18, 14, 0.28);
+  pointer-events: none;
+}
+#count-num {
+  margin: 0;
+  font-size: 120px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 8px 24px rgba(40, 24, 16, 0.35);
+}
+#screen-settings .shop-panel { height: 74%; }
+#settings-scroll { overflow: auto; padding: 8px 16px 16px; touch-action: pan-y; flex: 1; }
+#btn-reset { width: 100%; margin-top: 8px; }
 .shop-foot {
   display: flex;
   gap: 8px;
-  padding: 8px 16px 16px;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
 }
 .shop-foot .btn.primary { flex: 1; }
 .shop-foot .btn.ghost { flex: none; padding-inline: 16px; }

@@ -28,6 +28,7 @@
     </div>
     <div id="score" hidden>0</div>
     <div id="score-caption" hidden></div>
+    <button id="btn-pause" type="button" hidden>Pause</button>
     <button id="btn-mute" type="button" aria-label="Mute" aria-pressed="false">
       <svg class="icon-on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M4 10h3.2L12 6.2v11.6L7.2 14H4v-4z" fill="currentColor"/>
@@ -53,7 +54,10 @@
         <div><span>Best</span><strong id="best-score">0</strong></div>
         <div><span>Medal</span><strong id="best-medal">—</strong></div>
       </div>
-      <button id="btn-shop" class="btn ghost" type="button">Wardrobe</button>
+      <div class="row-2">
+        <button id="btn-shop" class="btn ghost" type="button">Wardrobe</button>
+        <button id="btn-settings" class="btn ghost" type="button">Settings</button>
+      </div>
     </div>
   </section>
 
@@ -67,7 +71,8 @@
       <p class="next-medal" id="over-next">Next medal at 10</p>
       <button id="btn-again" class="btn primary" type="button">Fly again</button>
       <button id="btn-continue" class="btn ghost" type="button">One more flap</button>
-      <p id="continue-note" class="fine">A stoep card stands in for an advert. Nothing is loaded.</p>
+      <button id="btn-double" class="btn ghost" type="button" hidden>Double the koeksisters</button>
+      <p id="continue-note" class="fine">A stoep card stands in for a rewarded advert. Nothing is loaded.</p>
       <button id="btn-over-shop" class="btn text" type="button">Wardrobe</button>
     </div>
   </section>
@@ -93,13 +98,56 @@
 
   <section id="screen-ad" hidden>
     <div class="card ad-card">
-      <p class="eyebrow">Stoep Stories</p>
-      <h2>Back in a moment</h2>
+      <p class="eyebrow" id="ad-kicker">Stoep Stories</p>
+      <h2 id="ad-title">Back in a moment</h2>
       <p class="ad-copy">This card stands in for a rewarded advert. No advert is loaded, and nothing leaves the phone.</p>
       <div class="ad-bar"><div id="ad-fill"></div></div>
     </div>
   </section>
 
+  <section id="screen-pause" hidden>
+    <div class="card">
+      <p class="eyebrow">Paused</p>
+      <h2>The stoep can wait.</h2>
+      <button id="btn-resume" class="btn primary" type="button">Keep flying</button>
+      <button id="btn-pause-quit" class="btn ghost" type="button">Title</button>
+    </div>
+  </section>
+
+  <section id="screen-count" hidden>
+    <p id="count-num">3</p>
+  </section>
+
+  <section id="screen-settings" hidden>
+    <div class="shop-banner">
+      <p class="eyebrow">Settings</p>
+    </div>
+    <div class="shop-panel">
+      <div id="settings-scroll">
+        <div class="up-row"><div class="up-copy"><strong>Sound effects</strong><span>Flaps, coins, and the hadeda.</span></div><button id="tog-sfx" class="btn small" type="button" aria-pressed="true">On</button></div>
+        <div class="up-row"><div class="up-copy"><strong>Music</strong><span>The quiet stoep loop.</span></div><button id="tog-music" class="btn small" type="button" aria-pressed="true">On</button></div>
+        <div class="up-row"><div class="up-copy"><strong>Haptics</strong><span>A short buzz on flap and crash.</span></div><button id="tog-haptics" class="btn small" type="button" aria-pressed="true">On</button></div>
+        <div class="up-row"><div class="up-copy"><strong>Reduced motion</strong><span>Less shake and fewer feathers.</span></div><button id="tog-motion" class="btn small" type="button" aria-pressed="false">Off</button></div>
+        <div class="up-row"><div class="up-copy"><strong>Credits</strong><span>Nunito (OFL). Art and sound made for this game.</span></div></div>
+        <div class="up-row"><div class="up-copy"><strong>Privacy</strong><span>Nothing leaves the phone. Scores stay on this device.</span><a class="text-link" href="privacy.html">Read the policy</a></div></div>
+        <button id="btn-reset" class="btn ghost" type="button">Reset progress</button>
+      </div>
+      <div class="shop-foot">
+        <button id="btn-settings-back" class="btn primary" type="button">Back</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-exit" hidden>
+    <div class="card">
+      <p class="eyebrow">Leaving</p>
+      <h2>Leave the stoep?</h2>
+      <button id="btn-exit-stay" class="btn primary" type="button">Stay</button>
+      <button id="btn-exit-leave" class="btn ghost" type="button">Leave</button>
+    </div>
+  </section>
+
+  <p id="hint" hidden>Tap to flap</p>
   <p id="toast" hidden></p>
 </div>
 <script type="module" src="js/game.js"></script>
