@@ -10,7 +10,7 @@ The file `font/nunito-latin.woff2` is the Latin subset (weights 600–800) from 
 
 ## Art
 
-Every bird, gate, suburb, veld, medal, and icon is hand-authored vector drawing in `js/art.js` and `icon.svg`. No generated images, no stock packs, no third-party game sprites.
+The bird, obstacles, skies, hills, houses, ground and koeksister are original paintings made for this game, cut out and tiled, then shipped as compressed WebP in `assets/`. Anatomy reference photos (not included in the game) are listed in `assets` source notes: Patty McGann (CC BY 2.0), Sumeet Moghe (CC BY-SA 3.0), and Ken and Nyetta (CC BY 2.0), via Wikimedia Commons. They were used only to check the hadeda's shape. No stock sprites.
 
 ## Sound
 

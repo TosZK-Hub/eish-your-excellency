@@ -4,12 +4,18 @@ import {
   clearThemeCaches,
   ensureTheme,
   paintWorld,
+  drawGround,
   drawHadeda,
   drawGate,
   drawKoeksister,
   drawFeather,
+  drawDust,
   drawMedal,
   drawAppIcon,
+  loadArt,
+  artReady,
+  ZONE_ANCHOR,
+  ZONE_TINT,
 } from "./art.js";
 import { createAudio } from "./audio.js";
 import { beginRewarded, completeRewarded } from "./ads.js";
@@ -62,6 +68,20 @@ const THEME_NAME = {
   night: "Stoep lights",
 };
 
+const ZONES = [
+  { id: "suburb", name: "The suburb", kinds: ["jac", "yard"] },
+  { id: "site", name: "Building site", kinds: ["site"] },
+  { id: "freeway", name: "The freeway", kinds: ["freeway"] },
+  { id: "yard", name: "Back yards", kinds: ["yard"] },
+  { id: "jac", name: "Jacaranda street", kinds: ["jac"] },
+];
+
+const MISSIONS = [
+  { id: "cranes", label: "Pass 15 crane loads", goal: 15, reward: 12 },
+  { id: "sweets", label: "Collect 20 koeksisters", goal: 20, reward: 10 },
+  { id: "sunset", label: "Reach the sunset", goal: 1, reward: 14 },
+];
+
 const FEATHERS = ["#7A6556", "#C4B09A", "#1F7A49", "#A56B32", "#EFE6DA", "#3EAA72"];
 
 const params = new URLSearchParams(location.search);
@@ -95,8 +115,12 @@ let mode = "title";
 let time = 0;
 let camera = 0;
 let theme = "dawn";
-let nextTheme = null;
-let fade = 0;
+let tod = 0.15;
+let zoneShown = 0;
+let missionIx = 0;
+let missionN = 0;
+let missionPaid = false;
+let lastZoneName = "";
 let score = 0;
 let best = 0;
 let coins = 0;
@@ -204,6 +228,8 @@ function loadSave() {
     hapticsOn = d.haptics !== false;
     if (typeof d.reduce === "boolean") motionOff = d.reduce;
     hintSeen = !!d.hint;
+    missionIx = clamp(d.mission | 0, 0, MISSIONS.length - 1);
+    missionN = Math.max(0, d.missionN | 0);
   } catch (err) {
     /* private mode or bad JSON — start fresh */
   }
@@ -228,7 +254,9 @@ function save() {
         haptics: hapticsOn,
         reduce: motionOff,
         hint: hintSeen,
-        v: 2,
+        mission: missionIx,
+        missionN,
+        v: 3,
       })
     );
   } catch (err) {
@@ -237,10 +265,31 @@ function save() {
 }
 
 function themeFor(n) {
-  if (n >= 40) return "night";
-  if (n >= 20) return "sunset";
-  if (n >= 10) return "day";
+  if (n >= 46) return "night";
+  if (n >= 28) return "sunset";
+  if (n >= 12) return "day";
   return "dawn";
+}
+
+function todTarget(n) {
+  if (n < 12) return 0.12 + (n / 12) * 0.88;
+  if (n < 28) return 1 + (n - 12) / 16;
+  if (n < 46) return 2 + (n - 28) / 18;
+  return 3;
+}
+
+function zoneTarget(dist) {
+  const span = 1900;
+  return dist / span;
+}
+
+function zoneAt(shown) {
+  const n = ZONES.length;
+  const wrapped = ((shown % n) + n) % n;
+  const i = Math.floor(wrapped) % n;
+  const next = (i + 1) % n;
+  const blend = wrapped - Math.floor(wrapped);
+  return { i, next, blend, zone: ZONES[i], upcoming: ZONES[next] };
 }
 
 function medalTier(n) {
@@ -249,6 +298,26 @@ function medalTier(n) {
   if (n >= 20) return "silver";
   if (n >= 10) return "bronze";
   return null;
+}
+
+function noteMission(id, n) {
+  const mission = MISSIONS[missionIx] || MISSIONS[0];
+  if (missionPaid || mission.id !== id) return;
+  if (id === "sunset") {
+    if (missionN >= 1) return;
+    missionN = 1;
+  } else missionN = Math.min(mission.goal, missionN + n);
+  if (missionN >= mission.goal) {
+    missionPaid = true;
+    coins += mission.reward;
+    floaters.push({ text: "+" + mission.reward, x: bird.x, y: bird.y - 40, vy: -36, life: 0.9, color: "#FFE7A8" });
+    caption = "Mission done";
+    captionT = 1.6;
+    missionIx = (missionIx + 1) % MISSIONS.length;
+    missionN = 0;
+    missionPaid = false;
+    save();
+  }
 }
 
 function medalName(n) {
@@ -275,15 +344,12 @@ function difficulty(n) {
   return { gap, speed, spacing };
 }
 
-function kindFor(i) {
-  const sets = [
-    ["iron", "palisade", "jacaranda", "iron"],
-    ["jacaranda", "pole", "tower", "palisade"],
-    ["tower", "iron", "pole", "jacaranda"],
-    ["pole", "palisade", "tower", "iron"],
-  ];
-  const set = sets[Math.floor(i / 4) % sets.length];
-  return set[i % 4];
+function kindFor() {
+  const z = zoneAt(zoneShown);
+  const useNext = z.blend > 0.72 && rand() < z.blend;
+  const zone = useNext ? z.upcoming : z.zone;
+  const kinds = zone.kinds;
+  return kinds[spawned % kinds.length];
 }
 
 function spawn(x) {
@@ -338,9 +404,7 @@ function resetRun() {
   deadT = 0;
   queueRestart = false;
   theme = "dawn";
-  nextTheme = null;
-  fade = 0;
-  camera = 80;
+  camera = camera % 640;
   shake = 0;
   flash = 0;
   wingT = 0;
@@ -356,7 +420,7 @@ function resetRun() {
   spawn(336);
 }
 
-function puff(n, power) {
+function puff(n, power, dust) {
   if (motionOff || lowQ) n = Math.min(n, lowQ ? 2 : 4);
   for (let i = 0; i < n; i++) {
     const a = rand() * Math.PI * 2;
@@ -372,6 +436,7 @@ function puff(n, power) {
       max: 0.9,
       color: FEATHERS[i % FEATHERS.length],
       len: 6 + rand() * 7,
+      dust: !!dust && i % 2 === 0,
     });
   }
   const cap = lowQ ? 22 : 46;
@@ -383,9 +448,9 @@ function flap() {
   bird.vy = FLAP_V;
   bird.sx = 1.16;
   bird.sy = 0.8;
-  wingT = 0.22;
+  wingT = 0.32;
   audio.flap();
-  puff(3, 70);
+  puff(4, 80, true);
   buzz(10);
   hintFlaps += 1;
   if (!hintSeen && hintFlaps >= 2) {
@@ -414,7 +479,7 @@ function die() {
   flash = 0.5;
   audio.hit();
   audio.squawk();
-  puff(16, 220);
+  puff(22, 260);
   buzz(36);
   floaters.push({ text: "HAA!", x: bird.x + 10, y: bird.y - 36, vy: -28, life: 0.9, color: "#FFF8F1" });
 }
@@ -452,6 +517,13 @@ function fillOver() {
   const tier = medalTier(score);
   const nextAt = tier === "iris" ? null : tier === "gold" ? 80 : tier === "silver" ? 40 : tier === "bronze" ? 20 : 10;
   document.getElementById("over-next").textContent = nextAt ? "Next medal at " + nextAt : "The whole suburb heard you.";
+  const mission = MISSIONS[missionIx] || MISSIONS[0];
+  const line = document.getElementById("over-mission");
+  if (line) {
+    line.textContent = missionPaid
+      ? "Mission done · " + mission.reward + " koeksisters"
+      : mission.label + " · " + Math.min(missionN, mission.goal) + "/" + mission.goal;
+  }
   const dpr = Math.min(2, backing);
   medalCanvas.width = Math.round(96 * dpr);
   medalCanvas.height = Math.round(96 * dpr);
@@ -910,9 +982,9 @@ function update(dt) {
     bird.rot += (targetRot - bird.rot) * Math.min(1, dt * 8);
     if (wingT > 0) {
       wingT -= dt;
-      const u = 1 - clamp(wingT / 0.22, 0, 1);
-      wing = u < 0.28 ? u / 0.28 : 1 - ((u - 0.28) / 0.72) * 1.75;
-    } else wing = -0.28;
+      const u = 1 - clamp(wingT / 0.32, 0, 1);
+      wing = u < 0.22 ? u / 0.22 : 1 - ((u - 0.22) / 0.78) * 1.85;
+    } else wing += (-0.18 - wing) * Math.min(1, dt * 5);
 
     if (bird.y < 34) {
       bird.y = 34;
@@ -930,16 +1002,30 @@ function update(dt) {
         score += 1;
         audio.score();
         updateScore();
+        document.getElementById("hint").hidden = true;
         rings.push({ x: bird.x, y: bird.y, r: 12, a: 0.45 });
         floaters.push({ text: "+1", x: bird.x + 18, y: bird.y - 10, vy: -42, life: 0.6, color: "#FFF8F1" });
+        const clearance = Math.min(bird.y - BIRD_R - o.gapTop, o.gapBot - (bird.y + BIRD_R));
+        if (clearance < 26 && clearance > -4) {
+          coins += 1;
+          runCoins += 1;
+          floaters.push({ text: "Close", x: bird.x - 8, y: bird.y - 26, vy: -30, life: 0.7, color: "#FFE7A8" });
+          noteMission("sweets", 1);
+        }
+        if (o.kind === "site") noteMission("cranes", 1);
         const nt = themeFor(score);
-        if (nt !== theme && nextTheme !== nt) {
-          nextTheme = nt;
-          fade = 0;
+        if (nt !== theme) {
+          theme = nt;
           caption = THEME_NAME[nt];
           captionT = 1.7;
           captionEl.hidden = false;
           captionEl.textContent = caption;
+        }
+        const zname = zoneAt(zoneShown).zone.name;
+        if (zname !== lastZoneName) {
+          lastZoneName = zname;
+          caption = zname;
+          captionT = 1.6;
         }
       }
       if (o.coin && !o.coin.taken) {
@@ -951,9 +1037,20 @@ function update(dt) {
           o.coin.taken = true;
           coins += 1;
           runCoins += 1;
+          noteMission("sweets", 1);
           audio.coin();
           buzz(12);
           flyers.push({ x: cx, y: cy, t: 0 });
+          for (let i = 0; i < 5; i++) {
+            particles.push({
+              x: cx, y: cy,
+              vx: (rand() - 0.5) * 80,
+              vy: -40 - rand() * 50,
+              rot: 0, vr: 0,
+              life: 0.4, max: 0.4,
+              color: "#FFE7A8", len: 3, dust: true,
+            });
+          }
           saveTimer = 0.4;
         }
       }
@@ -961,14 +1058,11 @@ function update(dt) {
     }
     obstacles = obstacles.filter((o) => o.x + GATE[o.kind].w > -50);
 
-    if (nextTheme) {
-      fade += dt / 1.25;
-      if (fade >= 1) {
-        theme = nextTheme;
-        nextTheme = null;
-        fade = 0;
-      }
-    }
+    const wantTod = todTarget(score);
+    tod += (wantTod - tod) * Math.min(1, dt * 0.7);
+    const wantZone = zoneTarget(camera);
+    zoneShown += (wantZone - zoneShown) * Math.min(1, dt * 1.4);
+    if (tod >= 1.85) noteMission("sunset", 1);
 
     if (bird.y + 16 >= GROUND_Y) {
       if (invuln > 0) {
@@ -992,7 +1086,7 @@ function update(dt) {
     bird.vy = Math.min(bird.vy + GRAVITY * dt, 720);
     bird.y += bird.vy * dt;
     bird.rot += dt * 2.4;
-    wing = -0.6;
+    wing = -0.9;
     blink = deadT > 0.25 ? 1 : 0;
     if (bird.y + 16 >= GROUND_Y) {
       bird.y = GROUND_Y - 16;
@@ -1074,40 +1168,46 @@ function render() {
     return;
   }
   ctx.save();
-  if (shake > 0.02 && !reduceMotion) {
+  if (shake > 0.02 && !motionOff) {
     const m = shake * 7;
     ctx.translate((Math.random() - 0.5) * 2 * m, (Math.random() - 0.5) * 2 * m);
   }
-  const night = theme === "night" || (nextTheme === "night" && fade > 0.55);
+  const here = zoneAt(zoneShown);
+  const anchorId = here.blend > 0.55 ? here.upcoming.id : here.zone.id;
   paintWorld(ctx, {
     camera,
-    theme,
-    next: nextTheme,
-    fade,
+    tod: mode === "play" || mode === "dead" ? tod : theme === "night" ? 2.75 : theme === "sunset" ? 1.75 : theme === "dawn" ? 0.2 : 1.05,
     time,
-    dpr: backing,
     w: W,
     h: H,
+    anchor: ZONE_ANCHOR[anchorId] || "limb",
+    zoneTint: ZONE_TINT[here.zone.id],
   });
 
-  if (mode === "play" || mode === "dead" || mode === "over" || mode === "ad") {
-    for (const o of obstacles) drawGate(ctx, o, time, GROUND_Y, theme);
+  if (mode === "play" || mode === "dead" || mode === "over" || mode === "ad" || mode === "pause" || mode === "count") {
+    for (const o of obstacles) drawGate(ctx, o);
     for (const o of obstacles) {
       if (!o.coin || o.coin.taken) continue;
       const spec = GATE[o.kind];
       drawKoeksister(ctx, o.x + spec.w * 0.5, o.coin.y, time, 1);
     }
   }
+  drawGround(ctx, camera);
 
   for (const p of particles) {
-    ctx.globalAlpha = Math.max(0, p.life / p.max);
-    drawFeather(ctx, p.x, p.y, p.rot, p.len, p.color);
-    ctx.globalAlpha = 1;
+    const a = Math.max(0, p.life / p.max);
+    if (p.dust) drawDust(ctx, p.x, p.y, p.len, a * 0.5);
+    else {
+      ctx.globalAlpha = a;
+      drawFeather(ctx, p.x, p.y, p.rot, p.len, p.color);
+      ctx.globalAlpha = 1;
+    }
   }
 
-  const scale = mode === "title" ? 1.28 : mode === "shop" ? 1.62 : 1;
+  const scale = mode === "title" ? 1.08 : mode === "shop" ? 1.4 : 1;
+  const bob = mode === "play" && Math.abs(bird.vy) < 150 ? Math.sin(time * 2.6) * 1.6 : 0;
   ctx.save();
-  ctx.translate(bird.x, bird.y);
+  ctx.translate(bird.x, bird.y + bob);
   ctx.rotate(bird.rot);
   ctx.scale(bird.sx * scale, bird.sy * scale);
   if (invuln > 0 && Math.sin(time * 28) > 0) ctx.globalAlpha = 0.55;
@@ -1117,7 +1217,6 @@ function render() {
     blink,
     skin: showSkin,
     beak: mode === "title" ? beak : 0,
-    night: night && !lowQ,
     time,
   });
   ctx.restore();
@@ -1248,7 +1347,7 @@ function renderBirdSheet() {
 function renderGateSheet() {
   ctx.fillStyle = "#E7F3FB";
   ctx.fillRect(0, 0, W, H);
-  const kinds = ["iron", "jacaranda", "pole", "palisade", "tower"];
+  const kinds = ["site", "freeway", "yard", "jac"];
   kinds.forEach((kind, i) => {
     const y = 8 + i * 166;
     ctx.save();
@@ -1289,14 +1388,20 @@ function fit() {
   }
 }
 
+function paintTod(name) {
+  tod = name === "night" ? 2.85 : name === "sunset" ? 1.8 : name === "dawn" ? 0.22 : 1.08;
+  zoneShown = name === "sunset" ? 3.15 : name === "night" ? 4.05 : name === "dawn" ? 0.2 : 1.1;
+}
+
 function applyStill() {
-  const tod = params.get("tod");
+  const skyName = params.get("tod");
   if (scene === "play") {
-    const wanted = tod || "day";
+    const wanted = skyName || "day";
     const scoreMap = { dawn: 4, day: 14, sunset: 26, night: 48 };
     score = scoreMap[wanted] ?? 14;
     theme = themeFor(score);
-    if (tod) theme = tod;
+    if (skyName) theme = skyName;
+    paintTod(theme);
     mode = "play";
     bird.x = 118;
     bird.y = 392;
@@ -1304,10 +1409,10 @@ function applyStill() {
     bird.rot = -0.28;
     wing = 0.7;
     camera = 240;
-    const gap = 236;
+    const gap = 248;
+    const pair = theme === "sunset" ? "jac" : theme === "night" ? "yard" : theme === "dawn" ? "freeway" : "site";
     obstacles = [
-      { kind: "jacaranda", variant: 0, x: 168, gapTop: 392 - gap / 2, gapBot: 392 + gap / 2, scored: false, coin: { y: 392, taken: false } },
-      { kind: "iron", variant: 1, x: 392, gapTop: 450 - gap / 2, gapBot: 450 + gap / 2, scored: false, coin: null },
+      { kind: pair, variant: 0, x: 150, gapTop: 400 - gap / 2, gapBot: 400 + gap / 2, scored: false, coin: { y: 400, taken: false } },
     ];
     coins = Math.max(coins, 14);
     runCoins = 3;
@@ -1318,6 +1423,7 @@ function applyStill() {
     newBest = true;
     runCoins = 8;
     theme = themeFor(score);
+    paintTod(theme);
     mode = "over";
     bird.x = 150;
     bird.y = GROUND_Y - 18;
@@ -1326,7 +1432,7 @@ function applyStill() {
     blink = 1;
     camera = 420;
     obstacles = [
-      { kind: "palisade", variant: 0, x: -20, gapTop: 280, gapBot: 520, scored: true, coin: null },
+      { kind: "jac", variant: 0, x: -20, gapTop: 280, gapBot: 560, scored: true, coin: null },
     ];
     fillOver();
   } else if (scene === "shop") {
@@ -1346,7 +1452,8 @@ function applyStill() {
     renderShop();
   } else if (scene === "title") {
     mode = "title";
-    theme = tod || "dawn";
+    theme = skyName || "dawn";
+    paintTod(theme);
     camera = 120;
     bird.x = 198;
     bird.y = 392;
@@ -1356,7 +1463,8 @@ function applyStill() {
     callAnim = 0.7;
   } else if (scene === "settings") {
     mode = "settings";
-    theme = tod || "day";
+    theme = skyName || "day";
+    paintTod(theme);
     camera = 80;
   }
   syncUI();
@@ -1370,6 +1478,7 @@ function boot() {
   audio.setSfx(sfxOn);
   audio.setMusic(musicOn);
   fit();
+  loadArt().catch(() => {});
   ensureTheme("dawn", backing);
   const queue = ["day", "sunset", "night"];
   const pump = () => {

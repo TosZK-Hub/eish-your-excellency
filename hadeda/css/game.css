@@ -276,6 +276,19 @@ h1 .flap { color: var(--coral); }
   text-align: center;
   box-shadow: var(--shadow);
   position: relative;
+  animation: rise 0.42s cubic-bezier(0.16, 0.84, 0.28, 1);
+}
+.mission-line {
+  margin: 2px 0 8px;
+  color: var(--green);
+  font-weight: 800;
+  font-size: 13px;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card { animation: none; }
 }
 .card h2 {
   margin: 2px 0 0;

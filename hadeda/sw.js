@@ -1,4 +1,4 @@
-const CACHE = "hadeda-flap-v2";
+const CACHE = "hadeda-flap-v3";
 const FILES = [
   "./",
   "./index.html",
@@ -14,6 +14,18 @@ const FILES = [
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
+  "./assets/sky_dawn.webp",
+  "./assets/sky_day.webp",
+  "./assets/sky_sunset.webp",
+  "./assets/sky_night.webp",
+  "./assets/hills.webp",
+  "./assets/houses.webp",
+  "./assets/ground.webp",
+  "./assets/body.webp",
+  "./assets/wing_up.webp",
+  "./assets/wing_mid.webp",
+  "./assets/wing_down.webp",
+  "./assets/koeksister.webp",
 ];
 
 self.addEventListener("install", (event) => {
