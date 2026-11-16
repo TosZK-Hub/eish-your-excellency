@@ -21,10 +21,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
-      - name: SDK packages
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0
       - name: Sync web assets
         working-directory: hadeda
         run: |
