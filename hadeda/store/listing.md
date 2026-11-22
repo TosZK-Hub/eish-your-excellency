@@ -11,7 +11,7 @@ Hadeda Flap is a one-tap portrait flyer. A hadeda ibis wakes the suburb, and you
 
 Tap to flap. Slip the gap. The first openings are wide. Later they tighten, gently. Gates are corrugated iron, jacaranda, palisade spears, a street pole, and a water tower. The sky moves from dawn, to day, to sunset over the veld, to night on the stoep.
 
-Koeksisters collected in the gaps buy scarves, hats, and small kits. Nothing is required to fly. Scores and coins stay on the device.
+10c coins collected in the gaps add up to ZarBucks (ten coins make Z$1), which buy scarves, hats, and small kits. Nothing is required to fly. Scores and coins stay on the device.
 
 Made as an affectionate suburb story. No brands, no politicians, no real adverts in this build.
 

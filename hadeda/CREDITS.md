@@ -14,4 +14,23 @@ The bird, obstacles, skies, hills, houses, ground and koeksister are original pa
 
 ## Sound
 
-Flap, coin, score, hit, the hadeda call, and the music loop are synthesised in the browser in `js/audio.js`. No sampled audio is shipped. The call is an original four-note nasal honk (short, short, short, longer and falling) written to suggest the dawn chorus, not a field recording. A public-domain field recording was not used: the recordings that turn up are not clearly licensed for a shipped game.
+The hadeda calls are real field recordings of hadeda ibises (*Bostrychia hagedash hagedash*) in Pretoria, South Africa, recorded by **JMK** ([Wikimedia Commons user JMK](https://commons.wikimedia.org/wiki/User:JMK)) and used and adapted under the [Creative Commons Attribution-ShareAlike 4.0 International licence](https://creativecommons.org/licenses/by-sa/4.0/) (CC BY-SA 4.0).
+
+Hadeda calls recorded in Pretoria by JMK, used and adapted under CC BY-SA 4.0 (Wikimedia Commons).
+
+| Game sound | Used for | Source recording (Wikimedia Commons) |
+| --- | --- | --- |
+| `flap_honk_1` | some flaps | [Bostrychia hagedash hagedash, aandskemerroep, 2022-11-26 18h53, Moreletakloof NR](https://commons.wikimedia.org/wiki/File:Bostrychia_hagedash_hagedash,_aandskemerroep,_2022-11-26_18h53,_Moreletakloof_NR,_a.mp3), cut 2.56–3.08 s |
+| `flap_honk_2` | some flaps | [Bostrychia hagedash hagadash, roepe in Pta, 2022-05-24 06h53](https://commons.wikimedia.org/wiki/File:Bostrychia_hagedash_hagadash,_roepe_in_Pta,_2022-05-24_06h53,_a.mp3), cut 17.44–18.14 s |
+| `flap_honk_3` | some flaps | [Bostrychia hagedash hagadash, roepe 20s, 2022-09-25 06h43, Pretoria](https://commons.wikimedia.org/wiki/File:Bostrychia_hagedash_hagadash,_roepe_20s,_2022-09-25_06h43,_Pretoria,_a.mp3), cut 3.38–3.88 s |
+| `crash_squawk` | crash | same roost-departure recording, cut 16.28–17.10 s |
+| `title_call` | title screen | [Bostrychia hagedash hagedash, aandskemerroep, 2022-11-26 18h56, Moreletakloof NR](https://commons.wikimedia.org/wiki/File:Bostrychia_hagedash_hagedash,_aandskemerroep,_2022-11-26_18h56,_Moreletakloof_NR,_a.mp3), cut 0.88–3.74 s |
+| `ambient_flock` | dawn ambience (looped, low) | same roost-departure recording, cut 8.15–15.55 s |
+
+Changes made: cut, downmixed to mono, resampled to 48 kHz, high-passed at 200 Hz, lightly denoised, faded in and out, loudness-normalised, and encoded as 56 kbps AAC. The adapted clips (packed as base64 in `js/pack-sfx.js`) are themselves released under CC BY-SA 4.0, as the licence requires.
+
+The flap whoosh, coin, score and hit blips and the music loop are synthesised in the browser in `js/audio.js`; they are original and not sampled.
+
+## Joburg skyline, Hillbrow Tower, power lines, pylon and 10c coin
+
+Original paintings made for this game in the same pipeline as the rest of the art, shipped as WebP inside `js/pack-art.js`. The Hillbrow Tower and skyline were painted from shape references only; no photographs are shipped. The 10c coin is a made-up game coin in an SA style (arum lily and "10c"); it carries no coat of arms, bank name or other official marking.

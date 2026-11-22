@@ -8,11 +8,11 @@ Open `index.html` in a browser. No build step. Paths are relative, so a static h
 
 ## Play
 
-Tap, click, or press space to flap. Each gap you clear is one point. A koeksister in the gap is a coin. Best score and coins stay in `localStorage` under `hadeda_flap_v1`.
+Tap, click, or press space to flap. Each gap you clear is one point. A 10c coin waits in some gaps; ten of them make one ZarBuck (Z$1). Old saves convert each koeksister into one 10c coin. Best score and coins stay in `localStorage` under `hadeda_flap_v1`.
 
 Medals land at 10, 20, 40 and 80. The suburb changes with the score: dawn chorus, high sun, veld gold, stoep lights.
 
-The wardrobe spends coins on scarves, hats, and wing sheen, plus a one-hit stoep shield, a wider opening for the first ten gaps, and more koeksisters. None of that is required to fly. "One more flap" plays a two-second stand-in card. No advert SDK is loaded.
+The wardrobe spends coins on scarves, hats, and wing sheen, plus a one-hit stoep shield, a wider opening for the first ten gaps, and more 10c coins. None of that is required to fly. "One more flap" plays a two-second stand-in card. No advert SDK is loaded.
 
 ## Query knobs
 
