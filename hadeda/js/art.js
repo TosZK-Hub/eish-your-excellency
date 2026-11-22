@@ -36,11 +36,33 @@ const FILES = [
 // v4 Joburg pack: shipped inline (pack-art.js) so the web preview and the APK read the same bytes.
 const PACKED = [
   "hills_v4", "skyline_day", "skyline_sunset", "hillbrow_tower", "hillbrow_tower_sunset",
-  "powerlines", "pylon", "coin10c",
+  "powerlines", "pylon", "coin10c", "body_hettie", "scarf_tails",
 ];
 
 const img = {};
 const darkWing = {};
+const greenScarf = {};
+
+// The "Bok-green doek" skin: shift only the pink neckerchief pixels to green.
+function recolourScarf(source, minY = 0) {
+  const c = document.createElement("canvas");
+  c.width = source.width;
+  c.height = source.height;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(source, 0, 0);
+  const data = g.getImageData(0, 0, c.width, c.height);
+  const d = data.data;
+  const start = Math.floor(minY * c.height) * c.width * 4; // skip the head (crest tints)
+  for (let i = start; i < d.length; i += 4) {
+    const r = d[i], gr = d[i + 1], b = d[i + 2];
+    if (d[i + 3] < 200 || r < gr + 45 || r < b + 15 || b < gr - 15) continue;
+    const l = r * 0.3 + gr * 0.59 + b * 0.11;
+    const k = l / 150;
+    d[i] = 30 * k + 8; d[i + 1] = 128 * k + 10; d[i + 2] = 78 * k + 8;
+  }
+  g.putImageData(data, 0, 0);
+  return c;
+}
 const bronzeWing = {};
 let ready = false;
 
@@ -76,6 +98,11 @@ export function loadArt() {
   );
   return Promise.all(jobs).then(() => {
     img.hills = img.hills_v4;
+    // Hettie Hadida: the painted rig body with her cheek stripe, lashes and
+    // protea-pink neckerchief. The loose scarf tails are a separate piece.
+    img.body = img.body_hettie;
+    greenScarf.body = recolourScarf(img.body_hettie, 0.17);
+    greenScarf.tails = recolourScarf(img.scarf_tails);
     for (const key of ["wing_up", "wing_mid", "wing_down"]) {
       darkWing[key] = tinted(img[key], "#140e16", 0.48);
       bronzeWing[key] = tinted(img[key], "#c4843c", 0.42);
@@ -469,7 +496,9 @@ export function drawHadeda(ctx, opt = {}) {
     drawWing(ctx, lead[0], darkWing[lead[0]], shoulderX, shoulderY, bodyH, true);
   }
   ctx.globalAlpha = 1;
-  ctx.drawImage(body, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
+  const green = skin === "scarf";
+  drawScarfTails(ctx, green ? greenScarf.tails : img.scarf_tails, bodyH, opt.time || 0, opt.vy || 0);
+  ctx.drawImage(green ? greenScarf.body || body : body, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
   drawSkin(ctx, skin, BODY_W, bodyH, opt.time || 0);
   if (opt.blink > 0.45) drawLid(ctx, BODY_W, bodyH);
   for (const [key, a] of poses) {
@@ -479,6 +508,24 @@ export function drawHadeda(ctx, opt = {}) {
     drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, false);
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// Scarf tails stream back from the knot behind Hettie's neck and flutter.
+// Knot = (460, 97) on the 804 px master body; tails piece pivot = (70, 39).
+const KNOT = [460 / 804, 97 / 387];
+function drawScarfTails(ctx, tails, bodyH, time, vy) {
+  if (!tails) return;
+  const k = BODY_W / 804;
+  const x = -BODY_W / 2 + KNOT[0] * BODY_W;
+  const y = -bodyH / 2 + KNOT[1] * bodyH;
+  const lift = Math.max(-0.25, Math.min(0.25, vy / 1600));
+  const flap = Math.sin(time * 13.0) * 0.16 + Math.sin(time * 5.3 + 1.1) * 0.08;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.42 + flap + lift);
+  ctx.scale(1.05 + Math.sin(time * 9.1) * 0.05, 0.9 + Math.sin(time * 13.0 + 0.8) * 0.12);
+  ctx.drawImage(tails, -70 * k, -39 * k, 72 * k, 56 * k);
   ctx.restore();
 }
 
@@ -496,11 +543,11 @@ function drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, far) {
 }
 
 function drawLid(ctx, bw, bh) {
-  const x = -bw / 2 + 0.735 * bw;
-  const y = -bh / 2 + 0.3 * bh;
-  ctx.fillStyle = "#c2ae9c";
+  const x = -bw / 2 + 0.726 * bw;
+  const y = -bh / 2 + 0.12 * bh;
+  ctx.fillStyle = "#7d6a5b";
   ctx.beginPath();
-  ctx.ellipse(x, y, 5.2, 3.4, -0.2, 0, Math.PI * 2);
+  ctx.ellipse(x, y, 3.6, 2.6, -0.15, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -510,28 +557,6 @@ function drawSkin(ctx, skin, bw, bh, time) {
   const neckY = -bh / 2 + 0.42 * bh;
   const headX = -bw / 2 + 0.7 * bw;
   const headY = -bh / 2 + 0.16 * bh;
-  if (skin === "scarf") {
-    const wave = Math.sin(time * 6) * 2;
-    ctx.save();
-    ctx.translate(neckX, neckY);
-    ctx.rotate(-0.7);
-    ctx.fillStyle = "#1b6b45";
-    roundRect(ctx, -16, -5, 30, 11, 5);
-    ctx.fill();
-    ctx.fillStyle = "#f4efe4";
-    roundRect(ctx, -13, -1.4, 24, 2.6, 1);
-    ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = "#145c38";
-    ctx.beginPath();
-    ctx.moveTo(neckX + 2, neckY + 2);
-    ctx.quadraticCurveTo(neckX - 10, neckY + 10 + wave, neckX - 16, neckY + 20 + wave);
-    ctx.lineTo(neckX - 10, neckY + 21 + wave);
-    ctx.quadraticCurveTo(neckX - 4, neckY + 12, neckX + 6, neckY + 4);
-    ctx.closePath();
-    ctx.fill();
-    return;
-  }
   if (skin === "protea") {
     ctx.save();
     ctx.translate(headX, headY);
