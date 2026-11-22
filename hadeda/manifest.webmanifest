@@ -1,16 +1,37 @@
 {
-  "name": "Hadeda Flap",
-  "short_name": "Hadeda",
-  "description": "A one-tap flight through a South African suburb.",
+  "name": "Hadeda Flap met Hettie",
+  "short_name": "Hadeda Flap",
+  "description": "Fly Hettie Hadida, the loudest tannie on the street, through a South African suburb.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F6C29A",
-  "theme_color": "#E7A07A",
+  "background_color": "#F4C3CB",
+  "theme_color": "#D9677F",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-hettie.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
