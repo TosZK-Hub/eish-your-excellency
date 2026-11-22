@@ -1,4 +1,4 @@
-const CACHE = "hadeda-flap-v3";
+const CACHE = "hadeda-flap-v4";
 const FILES = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const FILES = [
   "./js/art.js",
   "./js/audio.js",
   "./js/ads.js",
+  "./js/pack-art.js",
+  "./js/pack-sfx.js",
   "./privacy.html",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -18,7 +20,6 @@ const FILES = [
   "./assets/sky_day.webp",
   "./assets/sky_sunset.webp",
   "./assets/sky_night.webp",
-  "./assets/hills.webp",
   "./assets/houses.webp",
   "./assets/ground.webp",
   "./assets/body.webp",

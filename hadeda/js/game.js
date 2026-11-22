@@ -7,7 +7,8 @@ import {
   drawGround,
   drawHadeda,
   drawGate,
-  drawKoeksister,
+  drawCoin,
+  coinImage,
   drawFeather,
   drawDust,
   drawMedal,
@@ -30,8 +31,8 @@ const KEY = "hadeda_flap_v1";
 
 const SKINS = [
   { id: "classic", name: "Plain feathers", cost: 0, line: "The classic dawn chorus." },
-  { id: "scarf", name: "Green scarf", cost: 25, line: "Warm wool for cold dawns." },
-  { id: "protea", name: "Protea crown", cost: 45, line: "A little flower from the veld." },
+  { id: "scarf", name: "Green scarf", cost: 30, line: "Warm wool for cold dawns." },
+  { id: "protea", name: "Protea crown", cost: 50, line: "A little flower from the veld." },
   { id: "beanie", name: "Night watch", cost: 60, line: "For the late flight home." },
   { id: "bronze", name: "Bronze sheen", cost: 40, line: "When the sun catches the wing." },
   { id: "straw", name: "Straw brim", cost: 80, line: "A long weekend on the stoep." },
@@ -43,7 +44,7 @@ const UPGRADES = [
     name: "Stoep shield",
     line: "Brush one obstacle. It pops, you carry on.",
     max: 3,
-    costs: [12, 12, 12],
+    costs: [10, 10, 10],
   },
   {
     id: "gap",
@@ -54,8 +55,8 @@ const UPGRADES = [
   },
   {
     id: "sweet",
-    name: "Sweet tooth",
-    line: "Koeksisters show up more often.",
+    name: "Loose change",
+    line: "10c coins show up more often.",
     max: 2,
     costs: [30, 60],
   },
@@ -77,10 +78,24 @@ const ZONES = [
 ];
 
 const MISSIONS = [
-  { id: "cranes", label: "Pass 15 crane loads", goal: 15, reward: 12 },
-  { id: "sweets", label: "Collect 20 koeksisters", goal: 20, reward: 10 },
-  { id: "sunset", label: "Reach the sunset", goal: 1, reward: 14 },
+  { id: "cranes", label: "Pass 15 crane loads", goal: 15, reward: 10 },
+  { id: "sweets", label: "Collect 20 ten-cent coins", goal: 20, reward: 10 },
+  { id: "sunset", label: "Reach the sunset", goal: 1, reward: 20 },
 ];
+
+// Currency: the pickup is a 10c coin; ten of them make one ZarBuck (Z$1).
+// Everything is stored and priced in 10c coins internally.
+function fmtZ(c) {
+  const n = Math.max(0, c | 0);
+  const z = Math.floor(n / 10);
+  const cents = (n % 10) * 10;
+  if (!cents) return "Z$" + z;
+  return z ? "Z$" + z + " + " + cents + "c" : cents + "c";
+}
+
+function fmtPrice(c) {
+  return c % 10 ? "Z$" + (c / 10).toFixed(2) : "Z$" + c / 10;
+}
 
 const FEATHERS = ["#7A6556", "#C4B09A", "#1F7A49", "#A56B32", "#EFE6DA", "#3EAA72"];
 
@@ -99,6 +114,17 @@ const scoreEl = document.getElementById("score");
 const captionEl = document.getElementById("score-caption");
 const coinEl = document.getElementById("coin-count");
 const coinPill = document.getElementById("coin-pill");
+const coinMeter = document.getElementById("coin-meter");
+let migratedFrom = 0;
+
+function showCoins() {
+  coinEl.textContent = fmtZ(coins);
+  if (coinMeter) {
+    const fill = coins % 10;
+    coinMeter.style.setProperty("--fill", String(fill));
+    coinMeter.setAttribute("aria-label", fill + " of 10 coins to the next ZarBuck");
+  }
+}
 const bestEl = document.getElementById("best-score");
 const bestMedalEl = document.getElementById("best-medal");
 const titleEl = document.getElementById("screen-title");
@@ -124,6 +150,7 @@ let lastZoneName = "";
 let score = 0;
 let best = 0;
 let coins = 0;
+let titleCallT = 0;
 let runCoins = 0;
 let skin = "classic";
 let owned = ["classic"];
@@ -210,7 +237,9 @@ function loadSave() {
     const d = JSON.parse(raw);
     if (!d || typeof d !== "object") return;
     best = Number.isFinite(d.best) ? d.best : 0;
-    coins = Number.isFinite(d.coins) ? d.coins : 0;
+    coins = Number.isFinite(d.coins) ? Math.max(0, Math.floor(d.coins)) : 0;
+    // v3 and older counted koeksisters. Each old koeksister becomes one 10c coin.
+    if ((d.v | 0) < 4 && coins > 0) migratedFrom = coins;
     if (Array.isArray(d.owned) && d.owned.includes("classic")) owned = d.owned.slice();
     if (typeof d.skin === "string" && owned.includes(d.skin)) skin = d.skin;
     preview = skin;
@@ -256,7 +285,7 @@ function save() {
         hint: hintSeen,
         mission: missionIx,
         missionN,
-        v: 3,
+        v: 4,
       })
     );
   } catch (err) {
@@ -310,7 +339,7 @@ function noteMission(id, n) {
   if (missionN >= mission.goal) {
     missionPaid = true;
     coins += mission.reward;
-    floaters.push({ text: "+" + mission.reward, x: bird.x, y: bird.y - 40, vy: -36, life: 0.9, color: "#FFE7A8" });
+    floaters.push({ text: "+" + fmtZ(mission.reward), x: bird.x, y: bird.y - 40, vy: -36, life: 0.9, color: "#FFE7A8" });
     caption = "Mission done";
     captionT = 1.6;
     missionIx = (missionIx + 1) % MISSIONS.length;
@@ -478,7 +507,7 @@ function die() {
   shake = motionOff ? 0 : 1;
   flash = 0.5;
   audio.hit();
-  audio.squawk();
+  audio.crash();
   puff(22, 260);
   buzz(36);
   floaters.push({ text: "HAA!", x: bird.x + 10, y: bird.y - 36, vy: -28, life: 0.9, color: "#FFF8F1" });
@@ -513,7 +542,9 @@ function fillOver() {
   }
   document.getElementById("over-score").textContent = String(score);
   document.getElementById("over-best").textContent = String(best);
-  document.getElementById("over-coins").textContent = String(runCoins);
+  document.getElementById("over-coins").textContent = fmtZ(runCoins);
+  const purse = document.getElementById("over-purse");
+  if (purse) purse.textContent = fmtZ(coins);
   const tier = medalTier(score);
   const nextAt = tier === "iris" ? null : tier === "gold" ? 80 : tier === "silver" ? 40 : tier === "bronze" ? 20 : 10;
   document.getElementById("over-next").textContent = nextAt ? "Next medal at " + nextAt : "The whole suburb heard you.";
@@ -521,7 +552,7 @@ function fillOver() {
   const line = document.getElementById("over-mission");
   if (line) {
     line.textContent = missionPaid
-      ? "Mission done · " + mission.reward + " koeksisters"
+      ? "Mission done · +" + fmtZ(mission.reward)
       : mission.label + " · " + Math.min(missionN, mission.goal) + "/" + mission.goal;
   }
   const dpr = Math.min(2, backing);
@@ -591,11 +622,11 @@ function syncUI() {
   document.getElementById("screen-count").hidden = mode !== "count";
   scoreEl.hidden = mode !== "play" && mode !== "dead" && mode !== "count";
   captionEl.hidden = captionT <= 0 || (mode !== "play" && mode !== "dead");
-  coinPill.hidden = mode === "shop" || mode === "over" || mode === "ad" || mode === "settings";
+  coinPill.hidden = mode === "title" || mode === "shop" || mode === "over" || mode === "ad" || mode === "settings" || mode === "exit";
   document.getElementById("btn-pause").hidden = mode !== "play";
   const hint = document.getElementById("hint");
   hint.hidden = hintSeen || mode !== "play" || hintFlaps > 0 || score > 0;
-  coinEl.textContent = String(coins);
+  showCoins();
   bestEl.textContent = String(best);
   bestMedalEl.textContent = medalName(best);
   muted = !sfxOn && !musicOn;
@@ -722,7 +753,8 @@ function openShop() {
   audio.unlock();
   if (!muted && !titleCalled) {
     titleCalled = true;
-    audio.squawk();
+    titleCallT = 0;
+    audio.titleCall();
   }
 }
 
@@ -734,7 +766,9 @@ function closeShop() {
 }
 
 function renderShop() {
-  document.getElementById("shop-coins").textContent = String(coins);
+  document.getElementById("shop-coins").textContent = fmtZ(coins);
+  const sm = document.getElementById("shop-meter");
+  if (sm) sm.style.setProperty("--fill", String(coins % 10));
   const grid = document.getElementById("shop-skins");
   grid.innerHTML = "";
   for (const s of SKINS) {
@@ -742,7 +776,7 @@ function renderShop() {
     btn.type = "button";
     btn.className = "skin-card" + (preview === s.id ? " is-pick" : "") + (skin === s.id ? " is-on" : "");
     const have = owned.includes(s.id);
-    const price = have ? (skin === s.id ? "Wearing" : "Owned") : String(s.cost);
+    const price = have ? (skin === s.id ? "Wearing" : "Owned") : fmtPrice(s.cost);
     btn.innerHTML =
       '<span class="skin-name">' +
       s.name +
@@ -780,7 +814,7 @@ function renderShop() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn small";
-    b.textContent = maxed ? "Maxed" : String(cost);
+    b.textContent = maxed ? "Maxed" : fmtPrice(cost);
     b.disabled = maxed;
     b.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -800,10 +834,10 @@ function renderShop() {
     bar.textContent = "Wear " + s.name;
     bar.disabled = false;
   } else if (coins >= s.cost) {
-    bar.textContent = "Unlock " + s.name + "  ·  " + s.cost;
+    bar.textContent = "Unlock " + s.name + "  ·  " + fmtPrice(s.cost);
     bar.disabled = false;
   } else {
-    bar.textContent = "Need " + (s.cost - coins) + " more";
+    bar.textContent = "Need " + fmtZ(s.cost - coins) + " more";
     bar.disabled = false;
   }
   bar.onclick = (e) => {
@@ -816,7 +850,7 @@ function renderShop() {
       return;
     }
     if (coins < s.cost) {
-      toast("Not enough koeksisters yet");
+      toast("Not enough ZarBucks yet");
       bar.classList.remove("shake");
       void bar.offsetWidth;
       bar.classList.add("shake");
@@ -839,7 +873,7 @@ function buyUpgrade(id) {
   if (level >= u.max) return;
   const cost = u.costs[level];
   if (coins < cost) {
-    toast("Not enough koeksisters yet");
+    toast("Not enough ZarBucks yet");
     return;
   }
   coins -= cost;
@@ -857,7 +891,8 @@ function onPrimary() {
   if (muted) audio.setMuted(true);
   if ((mode === "title" || mode === "shop") && first && !muted && !titleCalled) {
     titleCalled = true;
-    audio.squawk();
+    titleCallT = 0;
+    audio.titleCall();
   }
   if (mode === "title") startGame(true);
   else if (mode === "play") flap();
@@ -1009,7 +1044,7 @@ function update(dt) {
         if (clearance < 26 && clearance > -4) {
           coins += 1;
           runCoins += 1;
-          floaters.push({ text: "Close", x: bird.x - 8, y: bird.y - 26, vy: -30, life: 0.7, color: "#FFE7A8" });
+          floaters.push({ text: "Close! +10c", x: bird.x - 8, y: bird.y - 26, vy: -30, life: 0.8, color: "#FFE7A8" });
           noteMission("sweets", 1);
         }
         if (o.kind === "site") noteMission("cranes", 1);
@@ -1039,6 +1074,9 @@ function update(dt) {
           runCoins += 1;
           noteMission("sweets", 1);
           audio.coin();
+          if (coins % 10 === 0) {
+            floaters.push({ text: "+Z$1", x: bird.x + 6, y: bird.y - 44, vy: -34, life: 0.9, color: "#FFE7A8" });
+          }
           buzz(12);
           flyers.push({ x: cx, y: cy, t: 0 });
           for (let i = 0; i < 5; i++) {
@@ -1129,7 +1167,7 @@ function update(dt) {
     coinPill.classList.remove("pop");
     void coinPill.offsetWidth;
     coinPill.classList.add("pop");
-    coinEl.textContent = String(coins);
+    showCoins();
   }
   flyers = flyers.filter((f) => f.t < 1);
 
@@ -1138,6 +1176,16 @@ function update(dt) {
     if (saveTimer <= 0) save();
   }
   audio.tickMusic();
+  // Dawn flock under the title and the first gaps; fades as the sun gets up.
+  const calm = mode === "title" || mode === "shop" || mode === "settings" || mode === "exit";
+  audio.setAmbience(muted ? 0 : calm ? 1 : mode === "play" || mode === "count" || mode === "pause" ? clamp(1.15 - tod, 0, 1) * 0.6 : 0.25);
+  if (mode === "title" && titleCalled && !muted && audio.unlocked) {
+    titleCallT += dt;
+    if (titleCallT > 22) {
+      titleCallT = 0;
+      audio.titleCall();
+    }
+  }
   if (params.has("fps")) stage.dataset.fps = fpsEma.toFixed(0);
   document.body.dataset.score = String(score);
   document.body.dataset.mode = mode;
@@ -1189,7 +1237,7 @@ function render() {
     for (const o of obstacles) {
       if (!o.coin || o.coin.taken) continue;
       const spec = GATE[o.kind];
-      drawKoeksister(ctx, o.x + spec.w * 0.5, o.coin.y, time, 1);
+      drawCoin(ctx, o.x + spec.w * 0.5, o.coin.y, time, 1);
     }
   }
   drawGround(ctx, camera);
@@ -1255,7 +1303,7 @@ function render() {
     const e = f.t * f.t;
     const x = f.x + (40 - f.x) * e;
     const y = f.y + (36 - f.y) * e;
-    drawKoeksister(ctx, x, y, time, 1 - e * 0.4);
+    drawCoin(ctx, x, y, time, 1 - e * 0.4);
   }
 
   if (mode === "title" && (callAnim > 0 || (scene === "title" && params.has("still")))) {
@@ -1478,7 +1526,17 @@ function boot() {
   audio.setSfx(sfxOn);
   audio.setMusic(musicOn);
   fit();
-  loadArt().catch(() => {});
+  loadArt()
+    .then(() => {
+      const pic = coinImage();
+      const icon = document.getElementById("coin-icon");
+      if (pic && icon) icon.src = pic.src;
+    })
+    .catch(() => {});
+  if (migratedFrom > 0 && !freezeSave) {
+    toast("Your " + migratedFrom + " koeksisters are now " + fmtZ(migratedFrom) + " in 10c coins");
+    save();
+  }
   ensureTheme("dawn", backing);
   const queue = ["day", "sunset", "night"];
   const pump = () => {
@@ -1565,8 +1623,8 @@ document.getElementById("btn-double").addEventListener("pointerdown", (e) => {
   adSession = beginRewarded("double");
   mode = "ad";
   adT = 1.7;
-  document.getElementById("ad-kicker").textContent = "Stoep sweets";
-  document.getElementById("ad-title").textContent = "Twice the koeksisters";
+  document.getElementById("ad-kicker").textContent = "Small change";
+  document.getElementById("ad-title").textContent = "Twice the ZarBucks";
   document.getElementById("ad-fill").style.transform = "scaleX(0)";
   syncUI();
 });
@@ -1680,7 +1738,8 @@ muteBtn.addEventListener("pointerdown", (e) => {
   setMuted(!muted);
   if (!muted && mode === "title" && !titleCalled) {
     titleCalled = true;
-    audio.squawk();
+    titleCallT = 0;
+    audio.titleCall();
   }
 });
 overEl.addEventListener("pointerdown", (e) => {
