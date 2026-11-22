@@ -24,7 +24,7 @@ export const GATE = {
 
 const FILES = [
   "sky_dawn", "sky_day", "sky_sunset", "sky_night",
-  "hills", "houses", "ground", "koeksister",
+  "houses", "ground",
   "body", "wing_up", "wing_mid", "wing_down",
   "crane_top_cap", "crane_top_body", "jojo_bot_cap", "jojo_bot_body",
   "gantry_top_cap", "gantry_top_body", "overpass_bot_cap", "overpass_bot_body",
@@ -33,17 +33,23 @@ const FILES = [
   "anchor_crane", "anchor_gantry", "anchor_wash", "anchor_limb",
 ];
 
+// v4 Joburg pack: shipped inline (pack-art.js) so the web preview and the APK read the same bytes.
+const PACKED = [
+  "hills_v4", "skyline_day", "skyline_sunset", "hillbrow_tower", "hillbrow_tower_sunset",
+  "powerlines", "pylon", "coin10c",
+];
+
 const img = {};
 const darkWing = {};
 const bronzeWing = {};
 let ready = false;
 
-function loadOne(name) {
+function loadOne(name, src) {
   return new Promise((resolve, reject) => {
     const el = new Image();
     el.onload = () => resolve(el);
     el.onerror = () => reject(new Error(name));
-    el.src = "assets/" + name + ".webp";
+    el.src = src || "assets/" + name + ".webp";
   });
 }
 
@@ -62,7 +68,14 @@ function tinted(source, color, alpha) {
 
 export function loadArt() {
   if (ready) return Promise.resolve();
-  return Promise.all(FILES.map((name) => loadOne(name).then((el) => { img[name] = el; }))).then(() => {
+  const jobs = FILES.map((name) => loadOne(name).then((el) => { img[name] = el; }));
+  jobs.push(
+    import("./pack-art.js").then((m) =>
+      Promise.all(PACKED.map((name) => loadOne(name, m.ART[name]).then((el) => { img[name] = el; })))
+    )
+  );
+  return Promise.all(jobs).then(() => {
+    img.hills = img.hills_v4;
     for (const key of ["wing_up", "wing_mid", "wing_down"]) {
       darkWing[key] = tinted(img[key], "#140e16", 0.48);
       bronzeWing[key] = tinted(img[key], "#c4843c", 0.42);
@@ -85,6 +98,165 @@ function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
 
+// ---------------------------------------------------------------------------
+// Time-of-day grading. Each layer is graded once per key (dawn, day, sunset,
+// night) into an offscreen canvas, then neighbouring keys are cross-faded.
+// No full-screen multiply rectangles, so no hard horizontal seams.
+// ---------------------------------------------------------------------------
+
+const KEYS = ["dawn", "day", "sunset", "night"];
+const graded = {};
+let curTod = 1;
+let lightPhase = 0;
+
+// Window panes on houses_tile (1216 px wide master), lit at night.
+const WINDOWS = [
+  [1, 155, 12, 17], [48, 151, 18, 21], [147, 152, 19, 20], [232, 156, 16, 16],
+  [299, 150, 12, 9], [329, 150, 13, 9], [383, 149, 17, 24], [521, 152, 22, 20],
+  [689, 155, 16, 17], [757, 154, 20, 18], [873, 155, 20, 17], [951, 157, 13, 15],
+  [1051, 154, 36, 18], [1138, 153, 19, 19],
+];
+
+function gradePixels(d, key) {
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    let r = d[i], g = d[i + 1], b = d[i + 2];
+    const l = r * 0.3 + g * 0.59 + b * 0.11;
+    if (key === "dawn") {
+      r = r * 0.9 + l * 0.08 + 14; g = g * 0.84 + l * 0.06 + 4; b = b * 0.86 + l * 0.06 + 16;
+    } else if (key === "sunset") {
+      r = r * 0.96 + l * 0.1 + 18; g = g * 0.76 + l * 0.06; b = b * 0.56 + l * 0.04 + 6;
+    } else if (key === "night") {
+      const m = l * 0.55 + (r + g + b) * 0.15;
+      r = m * 0.26 + 6; g = m * 0.32 + 10; b = m * 0.52 + 24;
+    }
+    d[i] = r; d[i + 1] = g; d[i + 2] = b;
+  }
+}
+
+function makeGraded(name, key) {
+  const painted = key === "sunset" && img[name + "_sunset"];
+  const source = painted || img[name];
+  const c = document.createElement("canvas");
+  c.width = source.width;
+  c.height = source.height;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(source, 0, 0);
+  if (key === "day" || painted) return c;
+  const data = g.getImageData(0, 0, c.width, c.height);
+  gradePixels(data.data, key);
+  g.putImageData(data, 0, 0);
+  if (key === "night" && name === "houses") litWindows(g, img.houses, c.width / 1216);
+  if (key === "night" && name === "hillbrow_tower") podLights(g, c.width, c.height);
+  if (key === "night" && name === "skyline") cityLights(g, img.skyline_day);
+  return c;
+}
+
+function litWindows(g, source, s) {
+  const tmp = document.createElement("canvas");
+  tmp.width = source.width;
+  tmp.height = source.height;
+  const t = tmp.getContext("2d", { willReadFrequently: true });
+  t.drawImage(source, 0, 0);
+  const glow = document.createElement("canvas");
+  glow.width = source.width;
+  glow.height = source.height;
+  const gg = glow.getContext("2d");
+  WINDOWS.forEach(([x, y, w, h], n) => {
+    const X = Math.round(x * s), Y = Math.round(y * s), Wd = Math.max(2, Math.round(w * s)), Hd = Math.max(2, Math.round(h * s));
+    const px = t.getImageData(X, Y, Wd, Hd);
+    const d = px.data;
+    const warm = n % 4 === 3 ? [255, 228, 170] : [255, 192, 104];
+    for (let i = 0; i < d.length; i += 4) {
+      const l = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
+      const k = clamp(1.15 - l * 1.25, 0.18, 1);
+      d[i] = warm[0] * k; d[i + 1] = warm[1] * k; d[i + 2] = warm[2] * k; d[i + 3] = 255;
+    }
+    g.putImageData(px, X, Y);
+    gg.fillStyle = "rgba(255, 186, 96, 0.55)";
+    gg.fillRect(X, Y, Wd, Hd);
+  });
+  g.save();
+  g.globalCompositeOperation = "lighter";
+  g.filter = "blur(" + Math.max(3, Math.round(9 * s)) + "px)";
+  g.globalAlpha = 0.85;
+  g.drawImage(glow, 0, 0);
+  g.restore();
+}
+
+// Scattered office windows on the far CBD at night (deterministic).
+function cityLights(g, source) {
+  const t = document.createElement("canvas");
+  t.width = source.width;
+  t.height = source.height;
+  const tc = t.getContext("2d", { willReadFrequently: true });
+  tc.drawImage(source, 0, 0);
+  const a = tc.getImageData(0, 0, t.width, t.height).data;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  g.save();
+  g.globalCompositeOperation = "lighter";
+  const n = Math.round((t.width * t.height) / 260);
+  for (let i = 0; i < n; i++) {
+    const x = Math.floor(rnd() * t.width);
+    const y = Math.floor(rnd() * t.height * 0.82);
+    const o = (y * t.width + x) * 4;
+    if (a[o + 3] < 250) continue;
+    const warm = rnd() < 0.8;
+    g.fillStyle = warm ? "rgba(255, 196, 110, 0.75)" : "rgba(200, 225, 255, 0.6)";
+    g.fillRect(x, y, 2, 2);
+  }
+  g.restore();
+}
+
+function podLights(g, w, h) {
+  g.save();
+  g.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 9; i++) {
+    const x = w * (0.16 + i * 0.085);
+    for (const fy of [0.152, 0.172, 0.236]) {
+      if ((i * 7 + Math.round(fy * 1000)) % 3 === 0) continue;
+      g.fillStyle = "rgba(255, 200, 120, 0.85)";
+      g.fillRect(x, h * fy, Math.max(1.5, w * 0.03), Math.max(1.5, h * 0.004));
+    }
+  }
+  g.restore();
+}
+
+function gradedOf(name, key) {
+  const id = name + "|" + key;
+  if (!graded[id]) graded[id] = makeGraded(name, key);
+  return graded[id];
+}
+
+function todPair() {
+  const t = clamp(curTod, 0, 3);
+  const k = Math.min(2, Math.floor(t));
+  return [KEYS[k], KEYS[k + 1], t - k];
+}
+
+// Draw a layer with the current grade (cross-fade between the two nearest keys).
+function dl(ctx, name, x, y, w, h) {
+  const [ka, kb, u] = todPair();
+  if (u < 0.985) ctx.drawImage(gradedOf(name, ka), x, y, w, h);
+  if (u > 0.015) {
+    const a = ctx.globalAlpha;
+    if (u < 0.985) ctx.globalAlpha = a * u;
+    ctx.drawImage(gradedOf(name, kb), x, y, w, h);
+    ctx.globalAlpha = a;
+  }
+}
+
+export function setTod(tod) {
+  curTod = tod;
+}
+
+// Pre-grade the big layers for one key so the first fade does not hitch.
+export function warmArt(key) {
+  if (!ready) return;
+  for (const n of ["hills", "houses", "ground", "skyline", "hillbrow_tower", "powerlines", "pylon"]) gradedOf(n, key || "day");
+}
+
 function skyWeights(tod) {
   const t = clamp(tod, 0, 3);
   if (t < 1) return { sky_dawn: 1 - t, sky_day: t };
@@ -99,14 +271,44 @@ function blitCover(ctx, image, camera, time, w, h) {
   ctx.drawImage(image, 0, 0, image.width, srcH, -28 - (drift % 40), -30, w + 56, Math.round(h * 0.7));
 }
 
-function tileLayer(ctx, image, camera, y, height, parallax) {
+function tileLayer(ctx, name, camera, y, height, parallax, w) {
+  const image = img[name];
   if (!image) return;
   const width = height * (image.width / image.height);
   const shift = ((camera * parallax) % width + width) % width;
-  const start = -shift - width;
-  for (let x = start; x < 390 + width; x += width) {
-    ctx.drawImage(image, x, y, width, height);
+  const start = -shift;
+  for (let x = start; x < (w || 390); x += width) {
+    dl(ctx, name, Math.floor(x), y, Math.ceil(width) + 1, height);
   }
+}
+
+// Landmark on a long loop: returns screen x, or null when off screen.
+function loopX(camera, parallax, period, offset, width, w) {
+  const p = (((offset - camera * parallax) % period) + period) % period;
+  const x = p - width - 40;
+  return x > w + 40 || x < -width - 40 ? null : x;
+}
+
+const TOWER = { h: 340, y: 196 };
+
+function drawTowerLights(ctx, x, w, night, time) {
+  if (night < 0.05) return;
+  const blink = Math.sin(time * 4.2) > 0.35 ? 1 : 0.18;
+  const pts = [[0.5, 0.012, 1], [0.5, 0.06, 0.8], [0.5, 0.11, 0.7]];
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const [fx, fy, s] of pts) {
+    const cx = x + w * fx;
+    const cy = TOWER.y + TOWER.h * fy;
+    const a = night * blink * s;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 12);
+    g.addColorStop(0, "rgba(255, 70, 50," + a + ")");
+    g.addColorStop(0.25, "rgba(255, 40, 30," + a * 0.6 + ")");
+    g.addColorStop(1, "rgba(255, 30, 20, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - 12, cy - 12, 24, 24);
+  }
+  ctx.restore();
 }
 
 export function paintWorld(ctx, opt) {
@@ -115,6 +317,7 @@ export function paintWorld(ctx, opt) {
   const tod = opt.tod ?? 1;
   const time = opt.time || 0;
   const camera = opt.camera || 0;
+  curTod = tod;
   if (!ready) {
     ctx.fillStyle = "#7eb6e6";
     ctx.fillRect(0, 0, w, h);
@@ -127,58 +330,33 @@ export function paintWorld(ctx, opt) {
     blitCover(ctx, img[name], camera, time, w, h);
   });
   ctx.globalAlpha = 1;
+  const night = clamp(tod - 2.2, 0, 0.8) / 0.8;
 
-  tileLayer(ctx, img.hills, camera, 430, 200, 0.18);
-  tileLayer(ctx, img.houses, camera, 548, 168, 0.42);
-
-  const night = clamp(tod - 2, 0, 1);
-  const sunset = tod > 1 && tod < 2.4 ? clamp(1 - Math.abs(tod - 1.7) / 0.9, 0, 1) : 0;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 500, w, h - 500);
-  ctx.clip();
-  ctx.globalCompositeOperation = "multiply";
-  if (sunset > 0.05) {
-    ctx.globalAlpha = sunset * 0.45;
-    ctx.fillStyle = "#e07048";
-    ctx.fillRect(0, 500, w, h);
+  // Far Joburg: skyline band, Hillbrow Tower, then the koppies.
+  tileLayer(ctx, "skyline", camera, 352, 92, 0.05, w);
+  const tw = TOWER.h * (img.hillbrow_tower.width / img.hillbrow_tower.height);
+  const tx = loopX(camera, 0.05, 820, 331, tw, w);
+  if (tx !== null) {
+    dl(ctx, "hillbrow_tower", tx, TOWER.y, tw, TOWER.h);
+    drawTowerLights(ctx, tx, tw, night, time);
   }
-  if (night > 0.05) {
-    ctx.globalAlpha = night * 0.72;
-    ctx.fillStyle = "#1a2748";
-    ctx.fillRect(0, 500, w, h);
-  }
-  const zoneTint = opt.zoneTint;
-  if (zoneTint) {
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = zoneTint;
-    ctx.fillRect(0, 500, w, h);
-  }
-  ctx.restore();
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
-
-  if (night > 0.25) {
-    ctx.globalAlpha = (night - 0.25) * 0.9;
-    const glow = ((camera * 0.42) % 220 + 220) % 220;
-    for (let x = -glow; x < w + 40; x += 220) {
-      const g = ctx.createRadialGradient(x + 70, 640, 2, x + 70, 640, 28);
-      g.addColorStop(0, "rgba(255, 214, 140, 0.9)");
-      g.addColorStop(1, "rgba(255, 214, 140, 0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x + 70, 640, 28, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
+  tileLayer(ctx, "hills", camera, 428, 204, 0.18, w);
+  const ph = 150;
+  const pw = ph * (img.pylon.width / img.pylon.height);
+  const pxp = loopX(camera, 0.24, 1500, 478, pw, w);
+  if (pxp !== null) dl(ctx, "pylon", pxp, 434, pw, ph);
+  tileLayer(ctx, "houses", camera, 548, 168, 0.42, w);
+  tileLayer(ctx, "powerlines", camera, 584, 128, 0.62, w);
 
   drawAnchor(ctx, opt.anchor || "limb", w);
 }
 
+// The packed skyline uses "skyline_day" as its day art.
+Object.defineProperty(img, "skyline", { get() { return img.skyline_day; }, enumerable: false });
+
 export function drawGround(ctx, camera) {
   if (!ready) return;
-  tileLayer(ctx, img.ground, camera, GROUND_Y - 28, 168, 1);
+  tileLayer(ctx, "ground", camera, GROUND_Y - 28, 168, 1);
 }
 
 function drawAnchor(ctx, kind, w) {
@@ -189,16 +367,12 @@ function drawAnchor(ctx, kind, w) {
     limb: ["anchor_limb", 30],
   };
   const spec = map[kind] || map.limb;
-  const bar = img[spec[0]];
-  if (!bar) return;
+  if (!img[spec[0]]) return;
   const h = spec[1];
-  ctx.drawImage(bar, 0, 0, w, h);
-  if (kind === "wash") {
-    const rope = img.washing_top_body;
-    if (rope) {
-      ctx.drawImage(rope, 16, 0, 10, 78);
-      ctx.drawImage(rope, w - 26, 0, 10, 78);
-    }
+  dl(ctx, spec[0], 0, 0, w, h);
+  if (kind === "wash" && img.washing_top_body) {
+    dl(ctx, "washing_top_body", 16, 0, 10, 78);
+    dl(ctx, "washing_top_body", w - 26, 0, 10, 78);
   }
 }
 
@@ -206,18 +380,18 @@ function px(piece, key) {
   return PIECE[piece][key] * R;
 }
 
-function tileBody(ctx, image, x, y0, y1, bw, bh, dir) {
-  if (!image || bh < 2) return;
+function tileBody(ctx, name, x, y0, y1, bw, bh, dir) {
+  if (!img[name] || bh < 2) return;
   if (dir < 0) {
     let y = y0;
     while (y > y1 - bh) {
       y -= bh;
-      ctx.drawImage(image, x, y, bw, bh);
+      dl(ctx, name, x, y, bw, bh + 0.5);
     }
   } else {
     let y = y0;
     while (y < y1) {
-      ctx.drawImage(image, x, y, bw, bh);
+      dl(ctx, name, x, y, bw, bh + 0.5);
       y += bh;
     }
   }
@@ -242,11 +416,11 @@ function drawHalf(ctx, piece, colX, colW, edge, side) {
   const x = colX + (colW - pw) / 2;
   if (side === "top") {
     const capY = edge - capH;
-    tileBody(ctx, body, x, capY, -bodyH, pw, bodyH, -1);
-    ctx.drawImage(cap, x, capY, pw, capH);
+    tileBody(ctx, piece + "_body", x, capY, -bodyH, pw, bodyH, -1);
+    dl(ctx, piece + "_cap", x, capY, pw, capH);
   } else {
-    ctx.drawImage(cap, x, edge, pw, capH);
-    tileBody(ctx, body, x, edge + capH, GROUND_Y + 20, pw, bodyH, 1);
+    dl(ctx, piece + "_cap", x, edge, pw, capH);
+    tileBody(ctx, piece + "_body", x, edge + capH, GROUND_Y + 20, pw, bodyH, 1);
   }
 }
 
@@ -416,22 +590,37 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-export function drawKoeksister(ctx, x, y, time, scale) {
-  const pic = img.koeksister;
+// The pickup: a painted 10c coin that spins on its vertical axis.
+export function drawCoin(ctx, x, y, time, scale) {
+  const pic = img.coin10c;
   if (!pic) return;
   const s = 30 * (scale || 1);
   const h = s * (pic.height / pic.width);
+  const spin = Math.cos((time || 0) * 3.1 + x * 0.013);
+  const sx = Math.max(0.16, Math.abs(spin));
   ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(Math.sin((time || 0) * 2.2) * 0.15);
+  ctx.translate(x, y + Math.sin((time || 0) * 2.4) * 2);
+  ctx.scale(sx, 1);
+  if (spin < 0) ctx.filter = "brightness(0.82)";
   ctx.drawImage(pic, -s / 2, -h / 2, s, h);
-  const spark = 0.35 + 0.45 * Math.sin((time || 0) * 7);
-  ctx.globalAlpha = spark;
-  ctx.fillStyle = "#fff6d2";
-  ctx.beginPath();
-  ctx.arc(s * 0.28, -h * 0.32, 1.7, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.filter = "none";
   ctx.restore();
+  const glint = Math.max(0, Math.sin((time || 0) * 3.1 + x * 0.013 + 1.2));
+  if (glint > 0.85) {
+    ctx.save();
+    ctx.globalAlpha = (glint - 0.85) * 5;
+    ctx.fillStyle = "#fff6d2";
+    ctx.beginPath();
+    ctx.arc(x + s * 0.2, y - h * 0.24, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+export const drawKoeksister = drawCoin;
+
+export function coinImage() {
+  return img.coin10c || null;
 }
 
 export function drawFeather(ctx, x, y, rot, len, color) {

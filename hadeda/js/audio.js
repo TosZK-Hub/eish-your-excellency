@@ -1,5 +1,7 @@
-// Original synthesis only. No samples. The hadeda call is a three-note
-// nasal honk — short, short, longer and falling — the "ha-de-dah" contour.
+// UI blips and the music loop are synthesised. The hadeda itself is real:
+// field recordings by JMK (Pretoria, Wikimedia Commons, CC BY-SA 4.0), packed
+// in pack-sfx.js and decoded on first unlock. The old synthesised honk stays
+// as a fallback until the samples are ready.
 
 export function createAudio() {
   let ctx = null;
@@ -14,6 +16,14 @@ export function createAudio() {
   let nextNote = 0;
   let step = 0;
   let unlocked = false;
+  const buf = {};
+  let samplesWanted = false;
+  let ambGain = null;
+  let ambSrc = null;
+  let ambLevel = 0;
+  let lastHonk = -10;
+  let honkIx = 0;
+  let flapCount = 0;
 
   function ensure() {
     if (ctx) return true;
@@ -45,7 +55,61 @@ export function createAudio() {
     noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    ambGain = ctx.createGain();
+    ambGain.gain.value = 0;
+    ambGain.connect(sfxGain);
     return true;
+  }
+
+  function loadSamples() {
+    if (samplesWanted || !ctx) return;
+    samplesWanted = true;
+    import("./pack-sfx.js")
+      .then((m) =>
+        Promise.all(
+          Object.entries(m.SFX).map(([name, uri]) =>
+            fetch(uri)
+              .then((r) => r.arrayBuffer())
+              .then((ab) => new Promise((ok, bad) => ctx.decodeAudioData(ab, ok, bad)))
+              .then((b) => { buf[name] = b; })
+              .catch(() => {})
+          )
+        )
+      )
+      .then(() => startAmbience())
+      .catch(() => {});
+  }
+
+  function play(name, gain, rate) {
+    const b = buf[name];
+    if (!ctx || !b || !sfxOn) return false;
+    const src = ctx.createBufferSource();
+    src.buffer = b;
+    if (rate) src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g);
+    g.connect(sfxGain);
+    src.start();
+    return true;
+  }
+
+  function startAmbience() {
+    if (ambSrc || !buf.ambient_flock || !ctx) return;
+    ambSrc = ctx.createBufferSource();
+    ambSrc.buffer = buf.ambient_flock;
+    ambSrc.loop = true;
+    ambSrc.connect(ambGain);
+    ambSrc.start();
+    ambGain.gain.setTargetAtTime(ambLevel * 0.2, ctx.currentTime, 0.4);
+  }
+
+  // 0..1, set every frame: full on the title screen, fades out after dawn.
+  function setAmbience(level) {
+    const v = Math.max(0, Math.min(1, level));
+    if (Math.abs(v - ambLevel) < 0.02 || !ctx || !ambGain) return;
+    ambLevel = v;
+    ambGain.gain.setTargetAtTime(v * 0.2, ctx.currentTime, 0.5);
   }
 
   function unlock() {
@@ -53,6 +117,7 @@ export function createAudio() {
     const was = unlocked;
     if (ctx.state === "suspended") ctx.resume();
     unlocked = true;
+    loadSamples();
     return !was;
   }
 
@@ -125,6 +190,38 @@ export function createAudio() {
     g2.connect(sfxGain);
     o.start(t);
     o.stop(t + 0.1);
+    // A real honk on some flaps, never on every tap: at most one every
+    // 1.4 s, about one flap in three, rotating through the three cuts.
+    flapCount += 1;
+    if (flapCount > 1 && t - lastHonk > 1.4 && Math.random() < 0.34) {
+      honkIx = (honkIx + 1 + (Math.random() < 0.3 ? 1 : 0)) % 3;
+      if (play("flap_honk_" + (honkIx + 1), 0.42, 0.96 + Math.random() * 0.08)) lastHonk = t;
+    }
+  }
+
+  function crash() {
+    if (!ctx || !sfxOn) return;
+    if (musicWanted) {
+      const t = ctx.currentTime;
+      musicGain.gain.setTargetAtTime(0.025, t, 0.03);
+      musicGain.gain.setTargetAtTime(0.11, t + 0.95, 0.22);
+    }
+    if (!play("crash_squawk", 0.9)) squawk();
+  }
+
+  function titleCall() {
+    if (!ctx || !sfxOn) return;
+    if (buf.title_call) {
+      if (musicWanted) {
+        const t = ctx.currentTime;
+        musicGain.gain.setTargetAtTime(0.03, t, 0.05);
+        musicGain.gain.setTargetAtTime(0.11, t + 2.9, 0.3);
+      }
+      play("title_call", 0.8);
+      return;
+    }
+    // Samples still decoding on the very first tap: try again shortly.
+    setTimeout(() => { if (buf.title_call) play("title_call", 0.8); else squawk(); }, 350);
   }
 
   function coin() {
@@ -333,6 +430,9 @@ export function createAudio() {
     score,
     hit,
     squawk,
+    crash,
+    titleCall,
+    setAmbience,
     startMusic,
     stopMusic,
     tickMusic,
