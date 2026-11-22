@@ -1,13 +1,15 @@
 # Play listing (do not submit from this folder)
 
 ## App name
-Hadeda Flap
+Hadeda Flap met Hettie
+
+(Keep "Hadeda Flap" first so the hadeda name stays searchable.)
 
 ## Short description (80 characters)
-Tap to flap a hadeda through a South African suburb. One thumb, no rush.
+Fly Hettie the hadeda through a South African suburb. HAA-HAA-HAAA! One thumb.
 
 ## Full description
-Hadeda Flap is a one-tap portrait flyer. A hadeda ibis wakes the suburb, and you keep it in the air.
+Hadeda Flap is a one-tap portrait flyer starring Hettie Hadida, a loud, nosy, loving hadeda tannie who's up at five. She wakes the suburb, and you keep her in the air. Hettie Hadida is a Kleinspan character.
 
 Tap to flap. Slip the gap. The first openings are wide. Later they tighten, gently. Gates are corrugated iron, jacaranda, palisade spears, a street pole, and a water tower. The sky moves from dawn, to day, to sunset over the veld, to night on the stoep.
 

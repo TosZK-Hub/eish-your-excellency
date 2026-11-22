@@ -2,6 +2,18 @@
 
 Hadeda Flap is an original one-tap flyer. It is not affiliated with Nintendo, .GEARS, or any bird-flapping game.
 
+## Hettie Hadida
+
+**Hettie Hadida is a Kleinspan character**, used as the game's mascot. Her standing poses (wave, cheer, think, sleep, crown) and her head for the app icon come from the Kleinspan brand kit by Solo Kit AU. They were copied into the repo, not hotlinked: shrunk to 288 px WebP and packed as base64 in `js/pack-hettie.js`, with the head inside `icons/*.svg` and `tools/icons-pack.json`. They are not covered by this repo's code licence. Ask Kleinspan before reusing them.
+
+The in-flight Hettie is our painted hadeda rig with her markings added: cream cheek stripe, lashed brown eye and protea-pink neckerchief, with the knot tails as a separate sprite. Her turnaround sheet was the reference. The reference sheets themselves are not shipped. See `art/hettie/README.md`.
+
+The Kleinspan Display face in `css/hettie-font.css` is **Fraunces** (Soft, SemiBold), copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces), SIL Open Font License 1.1. See `font/OFL-Fraunces.txt`.
+
+## Ideas from Flappy Hadida
+
+The daily early-bird bonus and streak, the milestone captions, bobbing gates after 30 and the gentler early gap steps were inspired by Jesse Hobbs's earlier prototype, `TosZK-Hub/flappy-hadida`. Only the ideas were reimplemented. No code, art or sound was copied, and that repo has no licence file.
+
 ## Font
 
 Nunito, copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito).

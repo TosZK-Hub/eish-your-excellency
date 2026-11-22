@@ -1,6 +1,8 @@
-# Hadeda Flap
+# Hadeda Flap met Hettie
 
-A one-tap portrait flyer. A hadeda ibis, a suburb, and a gap.
+A one-tap portrait flyer. Hettie Hadida (a Kleinspan character), a suburb, and a gap.
+
+The bird you fly is Hettie: a hadeda in a protea-pink doek. She waves on the title, cheers when you set a new best, and nods off or thinks it over when you crash. *"Ek sê niks nie, ek sê maar net."*
 
 Open `index.html` in a browser. No build step. Paths are relative, so a static host works, including:
 
@@ -9,6 +11,8 @@ Open `index.html` in a browser. No build step. Paths are relative, so a static h
 ## Play
 
 Tap, click, or press space to flap. Each gap you clear is one point. A 10c coin waits in some gaps; ten of them make one ZarBuck (Z$1). Old saves convert each koeksister into one 10c coin. Best score and coins stay in `localStorage` under `hadeda_flap_v1`.
+
+The first flight of each day pays an early-bird bonus: 10c plus 2c for each day of the streak, up to seven days. Hettie calls out milestones at 10, 25, 50 and 100. After 30, one gate in four bobs slowly up and down.
 
 Medals land at 10, 20, 40 and 80. The suburb changes with the score: dawn chorus, high sun, veld gold, stoep lights.
 
@@ -26,7 +30,7 @@ The wardrobe spends coins on scarves, hats, and wing sheen, plus a one-hit stoep
 
 ## Android
 
-App id: `com.tosz.hadedaflap` (change it in `capacitor.config.json` and `android/app/build.gradle` before the first Play upload if you want a different id). App name: Hadeda Flap. Portrait only.
+App id: `com.tosz.hadedaflap` (change it in `capacitor.config.json` and `android/app/build.gradle` before the first Play upload if you want a different id). App name: Hadeda Flap. The launcher icon is Hettie's head on protea pink; the PNGs are base64 in `tools/icons-pack.json` and `tools/sync-www.mjs` writes them into `www/icons` and the Android `mipmap-*` folders. Portrait only.
 
 The web game stays at `index.html`. `node tools/sync-www.mjs` copies the web files into `www/` for Capacitor. That folder is not committed.
 
