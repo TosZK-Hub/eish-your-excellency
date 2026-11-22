@@ -7,6 +7,10 @@
 }
 
 :root {
+  --protea: #d9677f;
+  --protea-deep: #b24a63;
+  --protea-tint: #f4c3cb;
+  --display: "Kleinspan Display", "Fraunces", Georgia, serif;
   --ink: #2a221c;
   --cream: #fff8f1;
   --paper: #f4ebe1;
@@ -189,13 +193,84 @@ button { cursor: pointer; }
   color: var(--muted);
 }
 h1 {
-  margin: 2px 0 0;
-  font-weight: 800;
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-weight: 600;
   font-size: 46px;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
   line-height: 0.95;
 }
-h1 .flap { color: var(--coral); }
+h1 .flap { color: var(--protea); }
+.met {
+  margin: 2px 0 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 19px;
+  color: var(--protea-deep);
+}
+.hettie-greet {
+  position: relative;
+  height: 0;
+}
+.hettie-pose {
+  position: absolute;
+  right: 4px;
+  bottom: -14px;
+  width: 106px;
+  height: auto;
+  filter: drop-shadow(0 8px 10px rgba(40, 24, 16, 0.25));
+  transform-origin: 50% 100%;
+  animation: hettie-bob 2.6s ease-in-out infinite;
+}
+.hettie-say {
+  position: absolute;
+  right: 104px;
+  bottom: 70px;
+  margin: 0;
+  max-width: 180px;
+  padding: 8px 12px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--cream);
+  box-shadow: var(--shadow);
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.hettie-say.is-call {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--protea-deep);
+  animation: haa-pop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+@keyframes hettie-bob {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50% { transform: rotate(2deg) translateY(-3px); }
+}
+@keyframes haa-pop {
+  from { transform: scale(0.6); opacity: 0; }
+}
+.over-hettie {
+  position: absolute;
+  right: -14px;
+  top: -66px;
+  width: 104px;
+  height: auto;
+  filter: drop-shadow(0 8px 10px rgba(40, 24, 16, 0.25));
+}
+.quip {
+  margin: 6px 0 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--protea-deep);
+}
+.shop-hettie {
+  width: 22px;
+  height: auto;
+  vertical-align: -10px;
+  margin-right: 8px;
+}
 .tag {
   margin: 8px 0 0;
   color: var(--muted);
@@ -306,9 +381,10 @@ h1 .flap { color: var(--coral); }
 }
 .card h2 {
   margin: 2px 0 0;
+  font-family: var(--display);
   font-size: 32px;
-  letter-spacing: -0.03em;
-  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 .big-score {
   margin: 4px 0 0;
@@ -508,5 +584,5 @@ h1 .flap { color: var(--coral); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn, #score.pop, #coin-pill.pop { animation: none; transition: none; }
+  .btn, #score.pop, #coin-pill.pop, .hettie-pose, .hettie-say.is-call { animation: none; transition: none; }
 }

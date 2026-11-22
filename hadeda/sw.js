@@ -1,4 +1,4 @@
-const CACHE = "hadeda-flap-v4";
+const CACHE = "hadeda-flap-v5";
 const FILES = [
   "./",
   "./index.html",
@@ -9,6 +9,10 @@ const FILES = [
   "./js/ads.js",
   "./js/pack-art.js",
   "./js/pack-sfx.js",
+  "./js/pack-hettie.js",
+  "./css/hettie-font.css",
+  "./icons/icon-hettie.svg",
+  "./icons/favicon-hettie.svg",
   "./privacy.html",
   "./manifest.webmanifest",
   "./icon.svg",

@@ -30,8 +30,8 @@ const BIRD_R = 14;
 const KEY = "hadeda_flap_v1";
 
 const SKINS = [
-  { id: "classic", name: "Plain feathers", cost: 0, line: "The classic dawn chorus." },
-  { id: "scarf", name: "Green scarf", cost: 30, line: "Warm wool for cold dawns." },
+  { id: "classic", name: "Protea doek", cost: 0, line: "Hettie's everyday pink." },
+  { id: "scarf", name: "Bok-green doek", cost: 30, line: "Her match-day neckerchief." },
   { id: "protea", name: "Protea crown", cost: 50, line: "A little flower from the veld." },
   { id: "beanie", name: "Night watch", cost: 60, line: "For the late flight home." },
   { id: "bronze", name: "Bronze sheen", cost: 40, line: "When the sun catches the wing." },
@@ -93,6 +93,63 @@ function fmtZ(c) {
   return z ? "Z$" + z + " + " + cents + "c" : cents + "c";
 }
 
+// ---- Hettie Hadida (Kleinspan character): poses and lines ----
+const HETTIE_SAY = [
+  "Môre! Up since five, skat.",
+  "Mind the palisade. I'm just saying.",
+  "Wings out, bill forward. Kom!",
+  "The whole street can hear us. Good.",
+  "Ten coins is a ZarBuck. Count them.",
+];
+const QUIP_LOW = [
+  "Ek sê niks nie, ek sê maar net.",
+  "Ag nee, skat. Again.",
+  "That palisade has been there since 1987.",
+  "Probeer weer. I'll wait. I'm up anyway.",
+];
+const QUIP_MID = [
+  "Nie sleg nie! Ek sê maar net.",
+  "Jislaaik, the neighbours are watching.",
+  "Ek sê niks nie, ek sê maar net.",
+];
+const MILESTONE = { 10: "Mooi so, skat!", 25: "Jislaaik!", 50: "Hettie is trots!", 100: "Hadida Koningin!" };
+const hettieImg = {};
+let hettieSayIx = 0;
+let hettieSayT = 0;
+let dailyNote = "";
+
+function loadHettie() {
+  return import("./pack-hettie.js")
+    .then((m) => {
+      Object.assign(hettieImg, m.HETTIE);
+      const set = (id, key) => {
+        const el = document.getElementById(id);
+        if (el && hettieImg[key]) el.src = hettieImg[key];
+      };
+      set("hettie-title", "wave");
+      set("shop-hettie", "crown");
+      if (mode === "over") fillOver();
+    })
+    .catch(() => {});
+}
+
+function hettieSay(text, call) {
+  const el = document.getElementById("title-say");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("is-call", !!call);
+  hettieSayT = call ? 3.2 : 6;
+}
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function todayKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+
 function fmtPrice(c) {
   return c % 10 ? "Z$" + (c / 10).toFixed(2) : "Z$" + c / 10;
 }
@@ -150,6 +207,8 @@ let lastZoneName = "";
 let score = 0;
 let best = 0;
 let coins = 0;
+let lastDay = "";
+let streak = 0;
 let titleCallT = 0;
 let runCoins = 0;
 let skin = "classic";
@@ -259,6 +318,8 @@ function loadSave() {
     hintSeen = !!d.hint;
     missionIx = clamp(d.mission | 0, 0, MISSIONS.length - 1);
     missionN = Math.max(0, d.missionN | 0);
+    if (typeof d.day === "string") lastDay = d.day;
+    streak = Math.max(0, Math.min(7, d.streak | 0));
   } catch (err) {
     /* private mode or bad JSON — start fresh */
   }
@@ -285,6 +346,8 @@ function save() {
         hint: hintSeen,
         mission: missionIx,
         missionN,
+        day: lastDay,
+        streak,
         v: 4,
       })
     );
@@ -385,7 +448,10 @@ function spawn(x) {
   const d = difficulty(score);
   const gap = d.gap;
   const half = gap / 2;
-  let center = spawned < 2 ? 392 : lastCenter + (rand() * 2 - 1) * 118;
+  // First gates wander less, so the opening teaches instead of punishing.
+  const harsh = spawned < 2 ? 0 : spawned < 4 ? 0.45 : spawned < 9 ? 0.75 : 1;
+  const mid = (76 + half + GROUND_Y - 76 - half) / 2;
+  let center = spawned < 2 ? 392 : lastCenter * 0.85 + mid * 0.15 + (rand() * 2 - 1) * 124 * harsh;
   center = clamp(center, 76 + half, GROUND_Y - 76 - half);
   lastCenter = center;
   const kind = kindFor(spawned);
@@ -400,6 +466,13 @@ function spawn(x) {
     scored: false,
     coin: hasCoin ? { y: center + (rand() * 26 - 13), taken: false } : null,
   });
+  if (score >= 31 && spawned % 4 === 3) {
+    const o = obstacles[obstacles.length - 1];
+    o.bob = true;
+    o.bobPhase = rand() * Math.PI * 2;
+    o.baseTop = o.gapTop;
+    o.baseBot = o.gapBot;
+  }
   spawned += 1;
 }
 
@@ -527,18 +600,34 @@ function showOver() {
 function fillOver() {
   const title = document.getElementById("over-title");
   const kicker = document.getElementById("over-kicker");
+  const quip = document.getElementById("over-quip");
+  const pose = document.getElementById("over-hettie");
+  let poseKey = "think";
   if (newBest) {
     kicker.textContent = "New best";
-    title.textContent = "Lekker.";
+    title.textContent = "Lekker, my kind!";
+    quip.textContent = "HAA-HAA-HAAA! The whole street heard that.";
+    poseKey = score >= 50 ? "crown" : "cheer";
   } else if (score >= 40) {
     kicker.textContent = "What a flight";
     title.textContent = "Lekker.";
+    quip.textContent = pick(QUIP_MID);
+    poseKey = "cheer";
   } else if (score >= 10) {
     kicker.textContent = "Nice flight";
     title.textContent = "The suburb clapped.";
+    quip.textContent = pick(QUIP_MID);
   } else {
     kicker.textContent = "Down you go";
     title.textContent = "Ag, shame.";
+    quip.textContent = score <= 2 ? "Ek sê niks nie, ek sê maar net." : pick(QUIP_LOW);
+    poseKey = score <= 2 ? "sleep" : "think";
+  }
+  if (dailyNote) quip.textContent = dailyNote + " " + quip.textContent;
+  if (pose) {
+    if (hettieImg[poseKey]) pose.src = hettieImg[poseKey];
+    pose.hidden = !hettieImg[poseKey];
+    pose.dataset.pose = poseKey;
   }
   document.getElementById("over-score").textContent = String(score);
   document.getElementById("over-best").textContent = String(best);
@@ -572,6 +661,21 @@ function fillOver() {
 
 function startGame(fromTitle) {
   resetRun();
+  dailyNote = "";
+  const today = todayKey();
+  if (!freezeSave && lastDay !== today) {
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const yKey = y.getFullYear() + "-" + (y.getMonth() + 1) + "-" + y.getDate();
+    streak = lastDay === yKey ? Math.min(7, streak + 1) : 1;
+    lastDay = today;
+    const bonus = 10 + (streak - 1) * 2;
+    coins += bonus;
+    caption = streak > 1 ? "Vroeg op! Day " + streak + " · +" + fmtZ(bonus) : "Vroeg op! +" + fmtZ(bonus);
+    captionT = 2.2;
+    dailyNote = "Early-bird bonus +" + fmtZ(bonus) + ".";
+    save();
+  }
   if (fromTitle) {
     intro = 0.3;
     bird.x = 200;
@@ -755,6 +859,7 @@ function openShop() {
     titleCalled = true;
     titleCallT = 0;
     audio.titleCall();
+    callAnim = 1.2;
   }
 }
 
@@ -893,6 +998,7 @@ function onPrimary() {
     titleCalled = true;
     titleCallT = 0;
     audio.titleCall();
+    callAnim = 1.2;
   }
   if (mode === "title") startGame(true);
   else if (mode === "play") flap();
@@ -1030,6 +1136,11 @@ function update(dt) {
     maybeSpawn();
     for (const o of obstacles) {
       o.x -= d.speed * dt;
+      if (o.bob) {
+        const off = Math.sin(time * Math.PI * 2 * 0.55 + o.bobPhase) * 9;
+        o.gapTop = o.baseTop + off;
+        o.gapBot = o.baseBot + off;
+      }
       const spec = GATE[o.kind];
       const right = o.x + spec.hit[1];
       if (!o.scored && right < bird.x) {
@@ -1037,6 +1148,13 @@ function update(dt) {
         score += 1;
         audio.score();
         updateScore();
+        if (MILESTONE[score]) {
+          caption = MILESTONE[score];
+          captionT = 1.6;
+          captionEl.hidden = false;
+          captionEl.textContent = caption;
+          floaters.push({ text: "HAA!", x: bird.x + 24, y: bird.y - 30, vy: -40, life: 0.8, color: "#F4C3CB" });
+        }
         document.getElementById("hint").hidden = true;
         rings.push({ x: bird.x, y: bird.y, r: 12, a: 0.45 });
         floaters.push({ text: "+1", x: bird.x + 18, y: bird.y - 10, vy: -42, life: 0.6, color: "#FFF8F1" });
@@ -1176,6 +1294,13 @@ function update(dt) {
     if (saveTimer <= 0) save();
   }
   audio.tickMusic();
+  if (mode === "title" && hettieSayT > 0) {
+    hettieSayT -= dt;
+    if (hettieSayT <= 0) {
+      hettieSayIx = (hettieSayIx + 1) % HETTIE_SAY.length;
+      hettieSay(HETTIE_SAY[hettieSayIx], false);
+    }
+  }
   // Dawn flock under the title and the first gaps; fades as the sun gets up.
   const calm = mode === "title" || mode === "shop" || mode === "settings" || mode === "exit";
   audio.setAmbience(muted ? 0 : calm ? 1 : mode === "play" || mode === "count" || mode === "pause" ? clamp(1.15 - tod, 0, 1) * 0.6 : 0.25);
@@ -1184,6 +1309,7 @@ function update(dt) {
     if (titleCallT > 22) {
       titleCallT = 0;
       audio.titleCall();
+      callAnim = 1.2;
     }
   }
   if (params.has("fps")) stage.dataset.fps = fpsEma.toFixed(0);
@@ -1266,6 +1392,7 @@ function render() {
     skin: showSkin,
     beak: mode === "title" ? beak : 0,
     time,
+    vy: mode === "play" ? bird.vy : 0,
   });
   ctx.restore();
 
@@ -1344,17 +1471,17 @@ function drawBubble(ctx, x, y) {
   ctx.fillStyle = "#2A221C";
   ctx.font = "800 15px Nunito, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("HAA", 0, 5);
+  ctx.fillText("HAA-HAA-HAAA!", 0, 5);
   ctx.restore();
 }
 
 function roundedBubble(ctx) {
   ctx.beginPath();
-  ctx.moveTo(-28, -16);
-  ctx.arcTo(28, -16, 28, 16, 10);
-  ctx.arcTo(28, 16, -28, 16, 10);
-  ctx.arcTo(-28, 16, -28, -16, 10);
-  ctx.arcTo(-28, -16, 28, -16, 10);
+  ctx.moveTo(-62, -16);
+  ctx.arcTo(62, -16, 62, 16, 10);
+  ctx.arcTo(62, 16, -62, 16, 10);
+  ctx.arcTo(-62, 16, -62, -16, 10);
+  ctx.arcTo(-62, -16, 62, -16, 10);
   ctx.closePath();
 }
 
@@ -1467,8 +1594,8 @@ function applyStill() {
     updateScore();
   } else if (scene === "over") {
     score = +(params.get("score") || 42);
-    best = Math.max(best, score);
-    newBest = true;
+    best = Math.max(best, score, +(params.get("best") || 0));
+    newBest = score >= best;
     runCoins = 8;
     theme = themeFor(score);
     paintTod(theme);
@@ -1526,6 +1653,8 @@ function boot() {
   audio.setSfx(sfxOn);
   audio.setMusic(musicOn);
   fit();
+  loadHettie();
+  hettieSay(HETTIE_SAY[0], false);
   loadArt()
     .then(() => {
       const pic = coinImage();
@@ -1740,6 +1869,7 @@ muteBtn.addEventListener("pointerdown", (e) => {
     titleCalled = true;
     titleCallT = 0;
     audio.titleCall();
+    callAnim = 1.2;
   }
 });
 overEl.addEventListener("pointerdown", (e) => {
