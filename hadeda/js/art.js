@@ -36,12 +36,13 @@ const FILES = [
 // v4 Joburg pack: shipped inline (pack-art.js) so the web preview and the APK read the same bytes.
 const PACKED = [
   "hills_v4", "skyline_day", "skyline_sunset", "hillbrow_tower", "hillbrow_tower_sunset",
-  "powerlines", "pylon", "coin10c", "body_hettie", "scarf_tails",
+  "powerlines", "pylon", "coin10c", "body_hettie", "scarf_bow",
 ];
 
 const img = {};
 const darkWing = {};
 const greenScarf = {};
+const nightTint = {};
 
 // The "Bok-green doek" skin: shift only the pink neckerchief pixels to green.
 function recolourScarf(source, minY = 0) {
@@ -102,11 +103,19 @@ export function loadArt() {
     // protea-pink neckerchief. The loose scarf tails are a separate piece.
     img.body = img.body_hettie;
     greenScarf.body = recolourScarf(img.body_hettie, 0.17);
-    greenScarf.tails = recolourScarf(img.scarf_tails);
+    greenScarf.bow = recolourScarf(img.scarf_bow);
     for (const key of ["wing_up", "wing_mid", "wing_down"]) {
       darkWing[key] = tinted(img[key], "#140e16", 0.48);
       bronzeWing[key] = tinted(img[key], "#c4843c", 0.42);
     }
+    // Night grade for the bird: a cool moonlit wash drawn over each piece.
+    for (const key of ["body_hettie", "scarf_bow", "wing_up", "wing_mid", "wing_down"]) {
+      nightTint[key] = tinted(img[key], "#1c2752", 0.36);
+    }
+    nightTint.dark = {};
+    for (const key of ["wing_up", "wing_mid", "wing_down"]) nightTint.dark[key] = tinted(darkWing[key], "#1c2752", 0.36);
+    nightTint.green = tinted(greenScarf.body, "#1c2752", 0.36);
+    nightTint.greenBow = tinted(greenScarf.bow, "#1c2752", 0.36);
     ready = true;
   });
 }
@@ -488,48 +497,138 @@ export function drawHadeda(ctx, opt = {}) {
   const poses = posesFor(opt.wing ?? 0);
   const skin = opt.skin || "classic";
   const pack = skin === "bronze" ? bronzeWing : img;
+  const night = Math.max(0, Math.min(1, opt.night || 0));
+  const glide = Math.max(0, Math.min(1, opt.glide || 0));
+  const shock = Math.max(0, Math.min(1, opt.shock || 0));
+  const time = opt.time || 0;
+  // Glide: the open wing lifts a touch and holds, primaries trembling.
+  const wingTilt = glide * (-0.32 + Math.sin(time * 17) * 0.025);
+  const green = skin === "scarf";
 
   ctx.save();
   const lead = poses.slice().sort((a, b) => b[1] - a[1])[0];
   if (lead && lead[1] > 0.2) {
     ctx.globalAlpha = 1;
-    drawWing(ctx, lead[0], darkWing[lead[0]], shoulderX, shoulderY, bodyH, true);
+    drawWing(ctx, lead[0], darkWing[lead[0]], shoulderX, shoulderY, bodyH, true, wingTilt * 0.7);
+    if (night > 0.02) {
+      ctx.globalAlpha = night;
+      drawWing(ctx, lead[0], nightTint.dark[lead[0]], shoulderX, shoulderY, bodyH, true, wingTilt * 0.7);
+    }
   }
   ctx.globalAlpha = 1;
-  const green = skin === "scarf";
-  drawScarfTails(ctx, green ? greenScarf.tails : img.scarf_tails, bodyH, opt.time || 0, opt.vy || 0);
-  ctx.drawImage(green ? greenScarf.body || body : body, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
-  drawSkin(ctx, skin, BODY_W, bodyH, opt.time || 0);
-  if (opt.blink > 0.45) drawLid(ctx, BODY_W, bodyH);
+  const bodyImg = green ? greenScarf.body || body : body;
+  ctx.drawImage(bodyImg, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
+  if (night > 0.02) {
+    ctx.globalAlpha = night;
+    ctx.drawImage(green ? nightTint.green : nightTint.body_hettie, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
+    ctx.globalAlpha = 1;
+  }
+  drawSkin(ctx, skin, BODY_W, bodyH, time);
+  if (shock > 0.05) drawShock(ctx, BODY_W, bodyH, shock, night);
+  else if (opt.blink > 0.45) drawLid(ctx, BODY_W, bodyH, night);
   for (const [key, a] of poses) {
     if (a < 0.04) continue;
     ctx.globalAlpha = a;
     const source = skin === "bronze" ? pack[key] : img[key];
-    drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, false);
+    drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, false, wingTilt);
+    if (night > 0.02 && skin !== "bronze") {
+      ctx.globalAlpha = a * night;
+      drawWing(ctx, key, nightTint[key], shoulderX, shoulderY, bodyH, false, wingTilt);
+    }
   }
   ctx.globalAlpha = 1;
+  // The bow rides on top so the wing never hides it.
+  drawBow(ctx, green ? greenScarf.bow : img.scarf_bow, green ? nightTint.greenBow : nightTint.scarf_bow,
+    bodyH, time, opt.vy || 0, night, shock);
   ctx.restore();
 }
 
-// Scarf tails stream back from the knot behind Hettie's neck and flutter.
-// Knot = (460, 97) on the 804 px master body; tails piece pivot = (70, 39).
-const KNOT = [460 / 804, 97 / 387];
-function drawScarfTails(ctx, tails, bodyH, time, vy) {
-  if (!tails) return;
-  const k = BODY_W / 804;
+// Hettie's doek bow, cut from her turnaround and mirrored, tied at the back
+// of the neck (knot = (451, 97) on the 804 px master). Bow pivot = its knot.
+const KNOT = [463 / 804, 100 / 387];
+const BOW_PIVOT = [0.9, 0.52];
+const BOW_W = 0.17;
+function drawBow(ctx, bow, bowNight, bodyH, time, vy, night, shock) {
+  if (!bow) return;
   const x = -BODY_W / 2 + KNOT[0] * BODY_W;
   const y = -bodyH / 2 + KNOT[1] * bodyH;
-  const lift = Math.max(-0.25, Math.min(0.25, vy / 1600));
-  const flap = Math.sin(time * 13.0) * 0.16 + Math.sin(time * 5.3 + 1.1) * 0.08;
+  const w = BODY_W * BOW_W;
+  const h = w * (bow.height / bow.width);
+  const lift = Math.max(-0.3, Math.min(0.3, vy / 1400));
+  const rate = shock > 0.5 ? 2.2 : 1;
+  const flap = Math.sin(time * 13.0 * rate) * 0.13 + Math.sin(time * 5.3 * rate + 1.1) * 0.07;
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(-0.42 + flap + lift);
-  ctx.scale(1.05 + Math.sin(time * 9.1) * 0.05, 0.9 + Math.sin(time * 13.0 + 0.8) * 0.12);
-  ctx.drawImage(tails, -70 * k, -39 * k, 72 * k, 56 * k);
+  ctx.rotate(0.12 + flap - lift);
+  ctx.scale(1 + Math.sin(time * 9.1 * rate) * 0.05, 0.94 + Math.sin(time * 13.0 * rate + 0.8) * 0.08);
+  ctx.drawImage(bow, -BOW_PIVOT[0] * w, -BOW_PIVOT[1] * h, w, h);
+  if (night > 0.02 && bowNight) {
+    ctx.globalAlpha = night;
+    ctx.drawImage(bowNight, -BOW_PIVOT[0] * w, -BOW_PIVOT[1] * h, w, h);
+  }
   ctx.restore();
 }
 
-function drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, far) {
+// Near-miss / crash face: eye flies wide open, brow shoots up.
+const EYE = [0.725, 0.118];
+function drawShock(ctx, bw, bh, k, night) {
+  const x = -bw / 2 + EYE[0] * bw;
+  const y = -bh / 2 + EYE[1] * bh;
+  const s = 0.75 + 0.25 * k;
+  const dim = 1 - night * 0.35;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = `rgba(${Math.round(250 * dim)}, ${Math.round(244 * dim)}, ${Math.round(232 * dim)}, 1)`;
+  ctx.strokeStyle = "#3a2a22";
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 3.9, 4.3, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#2a1b14";
+  ctx.beginPath();
+  ctx.arc(0.9, 0.2, 1.45, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.beginPath();
+  ctx.arc(1.4, -0.4, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Raised brow and two little lashes.
+  ctx.strokeStyle = "#3a2a22";
+  ctx.lineWidth = 1.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0.2, 1.6, 7.4, -2.2, -1.0);
+  ctx.stroke();
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-3.3, -2.6);
+  ctx.lineTo(-4.8, -4.0);
+  ctx.moveTo(-2.2, -3.6);
+  ctx.lineTo(-3.0, -5.3);
+  ctx.stroke();
+  ctx.restore();
+  // A startled sweat bead behind the head.
+  if (k > 0.4) {
+    const a = (k - 0.4) / 0.6;
+    ctx.save();
+    ctx.globalAlpha = a * 0.9;
+    ctx.translate(x - 10, y - 7);
+    ctx.fillStyle = "#d8ecf7";
+    ctx.strokeStyle = "rgba(60, 90, 120, 0.7)";
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(0, -3.2);
+    ctx.quadraticCurveTo(2.3, 0.4, 0, 1.8);
+    ctx.quadraticCurveTo(-2.3, 0.4, 0, -3.2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, far, tilt = 0) {
   const [dw, dh] = wingSize(key, img[key]);
   const root = ROOT[key];
   const scale = far ? 0.72 : 1;
@@ -539,13 +638,21 @@ function drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, far) {
   const h = dh * scale;
   const x = shoulderX - root[0] * w + ox;
   const y = shoulderY - root[1] * h + oy;
-  ctx.drawImage(source, x, y, w, h);
+  if (!tilt) {
+    ctx.drawImage(source, x, y, w, h);
+    return;
+  }
+  ctx.save();
+  ctx.translate(shoulderX + ox, shoulderY + oy);
+  ctx.rotate(tilt);
+  ctx.drawImage(source, x - shoulderX - ox, y - shoulderY - oy, w, h);
+  ctx.restore();
 }
 
-function drawLid(ctx, bw, bh) {
+function drawLid(ctx, bw, bh, night = 0) {
   const x = -bw / 2 + 0.726 * bw;
   const y = -bh / 2 + 0.12 * bh;
-  ctx.fillStyle = "#7d6a5b";
+  ctx.fillStyle = night > 0.5 ? "#4f4a55" : "#7d6a5b";
   ctx.beginPath();
   ctx.ellipse(x, y, 3.6, 2.6, -0.15, 0, Math.PI * 2);
   ctx.fill();

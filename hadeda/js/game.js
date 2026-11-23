@@ -244,6 +244,9 @@ let rings = [];
 let flyers = [];
 let floaters = [];
 let wingT = 0;
+let flapAgo = 9;
+let glide = 0;
+let shockT = 0;
 let wing = 0;
 let blink = 0;
 let blinkT = 1.6;
@@ -510,6 +513,9 @@ function resetRun() {
   shake = 0;
   flash = 0;
   wingT = 0;
+  flapAgo = 9;
+  glide = 0;
+  shockT = 0;
   caption = "";
   captionT = 0;
   doubled = false;
@@ -551,6 +557,7 @@ function flap() {
   bird.sx = 1.16;
   bird.sy = 0.8;
   wingT = 0.32;
+  flapAgo = 0;
   audio.flap();
   puff(4, 80, true);
   buzz(10);
@@ -682,6 +689,14 @@ function startGame(fromTitle) {
     bird.y = 430;
   }
   mode = "play";
+  botStart = time;
+  if (bot && params.has("from")) {
+    // Test knob: start the autopilot run partway up the score ladder.
+    score = +params.get("from") || 0;
+    theme = themeFor(score);
+    paintTod(theme);
+    tod = todTarget(score);
+  }
   syncUI();
   updateScore();
   audio.startMusic();
@@ -1007,7 +1022,10 @@ function onPrimary() {
   else if (mode === "pause") resumeGame();
 }
 
+let botStart = 0;
 function botThink(dt) {
+  // Test knob: ?botcrash=S lets the autopilot give up after S seconds.
+  if (params.has("botcrash") && time - botStart > +params.get("botcrash")) return;
   botCd -= dt;
   if (botCd > 0 || bird.vy < -70) return;
   const next = obstacles.find((o) => o.x + GATE[o.kind].hit[1] > bird.x - 8);
@@ -1126,6 +1144,10 @@ function update(dt) {
       const u = 1 - clamp(wingT / 0.32, 0, 1);
       wing = u < 0.22 ? u / 0.22 : 1 - ((u - 0.22) / 0.78) * 1.85;
     } else wing += (-0.18 - wing) * Math.min(1, dt * 5);
+    flapAgo += dt;
+    shockT = Math.max(0, shockT - dt);
+    const glideWant = wingT <= 0 && bird.vy > 40 ? clamp((flapAgo - 0.42) / 0.3, 0, 1) : 0;
+    glide += (glideWant - glide) * Math.min(1, dt * 7);
 
     if (bird.y < 34) {
       bird.y = 34;
@@ -1162,6 +1184,7 @@ function update(dt) {
         if (clearance < 26 && clearance > -4) {
           coins += 1;
           runCoins += 1;
+          shockT = 0.6;
           floaters.push({ text: "Close! +10c", x: bird.x - 8, y: bird.y - 26, vy: -30, life: 0.8, color: "#FFE7A8" });
           noteMission("sweets", 1);
         }
@@ -1242,8 +1265,10 @@ function update(dt) {
     bird.vy = Math.min(bird.vy + GRAVITY * dt, 720);
     bird.y += bird.vy * dt;
     bird.rot += dt * 2.4;
-    wing = -0.9;
-    blink = deadT > 0.25 ? 1 : 0;
+    // Crash tumble: wings flail for a beat, then fold.
+    wing = deadT < 0.55 ? (Math.sin(deadT * 38) > 0 ? 0.9 : -0.7) : -0.9;
+    glide = 0;
+    blink = bird.vy === 0 ? 1 : 0;
     if (bird.y + 16 >= GROUND_Y) {
       bird.y = GROUND_Y - 16;
       bird.vy = 0;
@@ -1332,8 +1357,9 @@ function hits(o) {
 function render() {
   ctx.setTransform(backing, 0, 0, backing, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  if (sheet === "bird" || sheet === "gates") {
+  if (sheet === "bird" || sheet === "gates" || sheet === "hettie") {
     if (sheet === "bird") renderBirdSheet();
+    else if (sheet === "hettie") renderHettieSheet();
     else renderGateSheet();
     return;
   }
@@ -1386,6 +1412,7 @@ function render() {
   ctx.scale(bird.sx * scale, bird.sy * scale);
   if (invuln > 0 && Math.sin(time * 28) > 0) ctx.globalAlpha = 0.55;
   const showSkin = mode === "shop" ? preview : skin;
+  const birdTod = mode === "play" || mode === "dead" ? tod : theme === "night" ? 2.75 : theme === "sunset" ? 1.75 : theme === "dawn" ? 0.2 : 1.05;
   drawHadeda(ctx, {
     wing,
     blink,
@@ -1393,6 +1420,9 @@ function render() {
     beak: mode === "title" ? beak : 0,
     time,
     vy: mode === "play" ? bird.vy : 0,
+    night: mode === "shop" ? 0 : clamp(birdTod - 2.2, 0, 0.6) / 0.6,
+    glide: mode === "play" ? glide : 0,
+    shock: mode === "dead" && bird.vy !== 0 ? 1 : mode === "play" ? clamp(shockT / 0.25, 0, 1) : 0,
   });
   ctx.restore();
 
@@ -1483,6 +1513,40 @@ function roundedBubble(ctx) {
   ctx.arcTo(-62, 16, -62, -16, 10);
   ctx.arcTo(-62, -16, 62, -16, 10);
   ctx.closePath();
+}
+
+function renderHettieSheet() {
+  ctx.fillStyle = "#F3E6D8";
+  ctx.fillRect(0, 0, W, H);
+  const night = params.get("tod") === "night" ? 1 : 0;
+  const cells = [
+    ["Wing up", { wing: 0.9 }],
+    ["Wing mid", { wing: -0.18 }],
+    ["Wing down", { wing: -0.8 }],
+    ["Glide", { wing: -0.18, glide: 1 }],
+    ["Near miss", { wing: 0.9, shock: 1 }],
+    ["Crash tumble", { wing: -0.7, shock: 1, rot: 2.3 }],
+  ];
+  cells.forEach(([label, p], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const cx = 105 + col * 185;
+    const cy = 150 + row * 245;
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (p.rot) ctx.rotate(p.rot);
+    ctx.scale(1.1, 1.1);
+    drawHadeda(ctx, { ...p, skin: "classic", time: 0.3 + i, night });
+    ctx.restore();
+    ctx.fillStyle = "#2A221C";
+    ctx.font = "700 13px Nunito, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(label, cx, cy + 112);
+  });
+  ctx.fillStyle = "#2A221C";
+  ctx.font = "800 18px Nunito, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("Hettie in flight" + (night ? " (night)" : ""), 16, 30);
 }
 
 function renderBirdSheet() {
@@ -1592,6 +1656,26 @@ function applyStill() {
     coins = Math.max(coins, 14);
     runCoins = 3;
     updateScore();
+    if (params.has("near")) {
+      // Near miss: skimming under the top gate, eyes wide.
+      bird.x = 150;
+      bird.y = 400 - gap / 2 + 30;
+      bird.rot = 0.12;
+      wing = -0.8;
+      shockT = 0.6;
+      floaters.push({ text: "Close! +10c", x: bird.x - 8, y: bird.y - 34, vy: 0, life: 0.8, color: "#FFE7A8" });
+    } else if (params.has("crash")) {
+      // Crash tumble: knocked off the gate edge, wings everywhere.
+      mode = "dead";
+      deadT = 0.2;
+      bird.x = 136;
+      bird.y = 400 - gap / 2 + 40;
+      bird.vy = 320;
+      bird.rot = 1.95;
+      wing = 0.9;
+      flash = 0.18;
+      puff(16, 200);
+    }
   } else if (scene === "over") {
     score = +(params.get("score") || 42);
     best = Math.max(best, score, +(params.get("best") || 0));
