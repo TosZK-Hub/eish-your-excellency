@@ -24,7 +24,7 @@ The wardrobe spends coins on scarves, hats, and wing sheen, plus a one-hit stoep
 - `?scene=title|play|over|shop&still=1` holds a frame
 - `?tod=dawn|day|sunset|night` picks the sky
 - `?sheet=bird` is the model sheet
-- `?sheet=hettie` is Hettie's flight set (wing up/mid/down, glide, near miss, crash); add `&tod=night` for the night grade
+- `?sheet=hettie` is Hettie's flight set (wing up/mid/down, glide, painted near-miss and crash faces); add `&tod=night` for the night grade
 - `?scene=play&still=1&near=1` or `&crash=1` holds a near-miss or crash frame
 - `?bot&from=40` starts the autopilot at score 40; `&botcrash=6` makes it give up after 6 s
 - `?hit=1` draws hitboxes

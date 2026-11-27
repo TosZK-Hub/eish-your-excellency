@@ -6,7 +6,7 @@ Hadeda Flap is an original one-tap flyer. It is not affiliated with Nintendo, .G
 
 **Hettie Hadida is a Kleinspan character**, used as the game's mascot. Her standing poses (wave, cheer, think, sleep, crown) and her head for the app icon come from the Kleinspan brand kit by Solo Kit AU. They were copied into the repo, not hotlinked: shrunk to 288 px WebP and packed as base64 in `js/pack-hettie.js`, with the head inside `icons/*.svg` and `tools/icons-pack.json`. They are not covered by this repo's code licence. Ask Kleinspan before reusing them.
 
-The doek bow on the flying Hettie is cut from her Kleinspan turnaround sheet, mirrored and colour-matched. The in-flight Hettie is our painted hadeda rig with her markings added: cream cheek stripe, lashed brown eye and protea-pink neckerchief. Her turnaround sheet was the reference. The reference sheets themselves are not shipped. See `art/hettie/README.md`.
+The in-flight Hettie is a side-on painted flight body with her mascot face (big eye, lashes, cream cheek), colour-matched and aligned to the v4 wing rig. The calm, shocked (near-miss) and dazed (crash) faces are the same pose. They started as a composite of her Kleinspan head onto the painted body, then were cleaned up and painted over so the neck seam holds; they are not a raw image-model dump. The doek bow is cut from that flight body and drawn last so a wing never hides it. Her Kleinspan turnaround and portraits were the reference. The reference sheets themselves are not shipped. See `art/hettie/README.md`.
 
 The Kleinspan Display face in `css/hettie-font.css` is **Fraunces** (Soft, SemiBold), copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces), SIL Open Font License 1.1. See `font/OFL-Fraunces.txt`.
 

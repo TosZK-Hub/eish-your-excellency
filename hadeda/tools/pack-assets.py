@@ -11,7 +11,7 @@ Usage: python3 tools/pack-assets.py <art_dir_with_webp> <sfx_dir_with_m4a>
 import base64, os, sys
 
 ART = ["hills_v4", "skyline_day", "skyline_sunset", "hillbrow_tower", "hillbrow_tower_sunset",
-       "powerlines", "pylon", "coin10c", "body_hettie", "scarf_bow"]
+       "powerlines", "pylon", "coin10c", "body_hettie", "body_hettie_shock", "body_hettie_crash", "scarf_bow"]
 # Hettie Hadida UI poses (Kleinspan character), loaded into <img> tags by game.js.
 POSES = ["hettie_wave", "hettie_cheer", "hettie_think", "hettie_sleep", "hettie_crown", "hettie_head"]
 SFX = ["flap_honk_1", "flap_honk_2", "flap_honk_3", "crash_squawk", "title_call", "ambient_flock"]

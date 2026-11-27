@@ -6,8 +6,9 @@ Hettie Hadida is a Kleinspan character. The poses and icon come from the Kleinsp
 
 | Use | File | Source |
 | --- | --- | --- |
-| Flying bird | `body_hettie` in `js/pack-art.js` | our painted hadeda rig, with Hettie's cheek stripe, eye and neckerchief painted in and aligned to the old body, so the wing pivots haven't moved. The neckerchief is enlarged 1.32× so it reads at play size |
-| Doek bow | `scarf_bow` in `js/pack-art.js` | the bow from her side-view turnaround, cut out, mirrored to face right and colour-matched to the neckerchief. Drawn last so a wing never hides it |
+| Flying bird | `body_hettie` in `js/pack-art.js` | a side-on painted flight body with Hettie's mascot face, colour-matched and aligned to the v4 rig so the wing pivots haven't moved |
+| Near-miss / crash faces | `body_hettie_shock`, `body_hettie_crash` in `js/pack-art.js` | the same pose and crop, with a painted shocked or dazed face (wide eye, open bill, sweat bead) |
+| Doek bow | `scarf_bow` in `js/pack-art.js` | cut from the v7 flight body and drawn last so a wing never hides it |
 | Title wave, new-best cheer, think, sleep, shop crown | `js/pack-hettie.js` | brand kit standing poses, 288 px WebP |
 | App icon and launcher | `icons/icon-hettie.svg`, `icons/favicon-hettie.svg`, `tools/icons-pack.json` | brand kit head on protea pink `#F4C3CB` |
 
@@ -28,10 +29,10 @@ The flight set is the painted rig plus code, so the existing pivots, tilt and sq
 | --- | --- |
 | Wing up / mid / down | the painted wing frames on Hettie's body |
 | Glide | after about 0.4 s without a flap while falling, the open wing lifts about 0.32 rad and holds, with a small tremble |
-| Near miss | a "Close!" pass opens her eye wide, raises the brow and adds a sweat bead for about 0.6 s |
-| Crash tumble | the wings flail for 0.55 s while she spins, eye wide; once she is down, the eye closes |
+| Near miss | a "Close!" pass swaps in her painted shock face (wide eye, open bill, sweat bead) for about 0.6 s |
+| Crash tumble | the wings flail for 0.55 s while she spins, on the painted crash face; once she is down, the lid closes |
 | Night | each piece gets a cool `#1c2752` wash at 36 % that fades in with the sky |
 
-Solo Kit AU won't make flight frames. A real hand-painted side-on frame set in the v4 style would still be the next step up.
+The v7 flight body started as her Kleinspan mascot head composited onto the painted v4 body, then cleaned up and painted over into one sprite (plus matching shock and crash faces) so the neck reads as one piece. Solo Kit AU won't make flight frames.
 
 Stills: `?still=1&scene=play&near=1` and `?still=1&scene=play&crash=1`.
