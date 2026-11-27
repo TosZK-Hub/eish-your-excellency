@@ -765,6 +765,9 @@ function toast(msg) {
 
 function buzz(ms) {
   if (!hapticsOn || motionOff) return;
+  // Autopilot, stills and sheets never had a user gesture, so Chrome logs
+  // a console error if we call vibrate. Real taps still buzz as before.
+  if (params.has("bot") || params.has("still") || sheet || scene) return;
   try {
     if (navigator.vibrate) navigator.vibrate(ms);
   } catch (err) {
