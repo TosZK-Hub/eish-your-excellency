@@ -36,7 +36,7 @@ const FILES = [
 // v4 Joburg pack: shipped inline (pack-art.js) so the web preview and the APK read the same bytes.
 const PACKED = [
   "hills_v4", "skyline_day", "skyline_sunset", "hillbrow_tower", "hillbrow_tower_sunset",
-  "powerlines", "pylon", "coin10c", "body_hettie", "scarf_bow",
+  "powerlines", "pylon", "coin10c", "body_hettie", "body_hettie_shock", "body_hettie_crash", "scarf_bow",
 ];
 
 const img = {};
@@ -99,22 +99,27 @@ export function loadArt() {
   );
   return Promise.all(jobs).then(() => {
     img.hills = img.hills_v4;
-    // Hettie Hadida: the painted rig body with her cheek stripe, lashes and
-    // protea-pink neckerchief. The loose scarf tails are a separate piece.
+    // Hettie Hadida: a side-on painted flight body with her mascot face,
+    // aligned to the v4 rig so the wing pivots stay put. Shock and crash
+    // are painted faces on the same pose; the doek bow is drawn last.
     img.body = img.body_hettie;
-    greenScarf.body = recolourScarf(img.body_hettie, 0.17);
+    greenScarf.body = recolourScarf(img.body_hettie, 0.33);
+    greenScarf.shock = recolourScarf(img.body_hettie_shock, 0.33);
+    greenScarf.crash = recolourScarf(img.body_hettie_crash, 0.33);
     greenScarf.bow = recolourScarf(img.scarf_bow);
     for (const key of ["wing_up", "wing_mid", "wing_down"]) {
       darkWing[key] = tinted(img[key], "#140e16", 0.48);
       bronzeWing[key] = tinted(img[key], "#c4843c", 0.42);
     }
     // Night grade for the bird: a cool moonlit wash drawn over each piece.
-    for (const key of ["body_hettie", "scarf_bow", "wing_up", "wing_mid", "wing_down"]) {
+    for (const key of ["body_hettie", "body_hettie_shock", "body_hettie_crash", "scarf_bow", "wing_up", "wing_mid", "wing_down"]) {
       nightTint[key] = tinted(img[key], "#1c2752", 0.36);
     }
     nightTint.dark = {};
     for (const key of ["wing_up", "wing_mid", "wing_down"]) nightTint.dark[key] = tinted(darkWing[key], "#1c2752", 0.36);
     nightTint.green = tinted(greenScarf.body, "#1c2752", 0.36);
+    nightTint.greenShock = tinted(greenScarf.shock, "#1c2752", 0.36);
+    nightTint.greenCrash = tinted(greenScarf.crash, "#1c2752", 0.36);
     nightTint.greenBow = tinted(greenScarf.bow, "#1c2752", 0.36);
     ready = true;
   });
@@ -504,6 +509,8 @@ export function drawHadeda(ctx, opt = {}) {
   // Glide: the open wing lifts a touch and holds, primaries trembling.
   const wingTilt = glide * (-0.32 + Math.sin(time * 17) * 0.025);
   const green = skin === "scarf";
+  const crash = Math.max(0, Math.min(1, opt.crash || 0));
+  const paintedFace = crash > 0.4 || shock > 0.15;
 
   ctx.save();
   const lead = poses.slice().sort((a, b) => b[1] - a[1])[0];
@@ -516,16 +523,31 @@ export function drawHadeda(ctx, opt = {}) {
     }
   }
   ctx.globalAlpha = 1;
-  const bodyImg = green ? greenScarf.body || body : body;
+  let bodyImg = green ? greenScarf.body || body : body;
+  let bodyNight = green ? nightTint.green : nightTint.body_hettie;
+  if (crash > 0.4 && img.body_hettie_crash) {
+    bodyImg = green ? (greenScarf.crash || img.body_hettie_crash) : img.body_hettie_crash;
+    bodyNight = green ? nightTint.greenCrash : nightTint.body_hettie_crash;
+  } else if (shock > 0.15 && img.body_hettie_shock) {
+    bodyImg = green ? (greenScarf.shock || img.body_hettie_shock) : img.body_hettie_shock;
+    bodyNight = green ? nightTint.greenShock : nightTint.body_hettie_shock;
+  }
   ctx.drawImage(bodyImg, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
-  if (night > 0.02) {
+  if (night > 0.02 && bodyNight) {
     ctx.globalAlpha = night;
-    ctx.drawImage(green ? nightTint.green : nightTint.body_hettie, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
+    ctx.drawImage(bodyNight, -BODY_W / 2, -bodyH / 2, BODY_W, bodyH);
     ctx.globalAlpha = 1;
   }
   drawSkin(ctx, skin, BODY_W, bodyH, time);
-  if (shock > 0.05) drawShock(ctx, BODY_W, bodyH, shock, night);
-  else if (opt.blink > 0.45) drawLid(ctx, BODY_W, bodyH, night);
+  // Painted shock/crash faces already carry the expression; keep the lid for
+  // a blink or for when she is down after a crash.
+  if (paintedFace) {
+    if (opt.blink > 0.45) drawLid(ctx, BODY_W, bodyH, night);
+  } else if (shock > 0.05) {
+    drawShock(ctx, BODY_W, bodyH, shock, night);
+  } else if (opt.blink > 0.45) {
+    drawLid(ctx, BODY_W, bodyH, night);
+  }
   for (const [key, a] of poses) {
     if (a < 0.04) continue;
     ctx.globalAlpha = a;
@@ -543,11 +565,11 @@ export function drawHadeda(ctx, opt = {}) {
   ctx.restore();
 }
 
-// Hettie's doek bow, cut from her turnaround and mirrored, tied at the back
-// of the neck (knot = (451, 97) on the 804 px master). Bow pivot = its knot.
-const KNOT = [463 / 804, 100 / 387];
-const BOW_PIVOT = [0.9, 0.52];
-const BOW_W = 0.17;
+// Hettie's doek bow, cut from the v7 flight body and drawn last so a wing
+// never hides it. Knot is where the bow meets the nape on the 804 px master.
+const KNOT = [424.49 / 804, 136.25 / 387];
+const BOW_PIVOT = [0.7404, 0.6558];
+const BOW_W = 0.18;
 function drawBow(ctx, bow, bowNight, bodyH, time, vy, night, shock) {
   if (!bow) return;
   const x = -BODY_W / 2 + KNOT[0] * BODY_W;
@@ -569,8 +591,9 @@ function drawBow(ctx, bow, bowNight, bodyH, time, vy, night, shock) {
   ctx.restore();
 }
 
-// Near-miss / crash face: eye flies wide open, brow shoots up.
-const EYE = [0.725, 0.118];
+// Fallback code-drawn near-miss eye (used only if the painted face is missing).
+// Iris centre on the 804 px v7 master.
+const EYE = [0.6583, 0.2098];
 function drawShock(ctx, bw, bh, k, night) {
   const x = -bw / 2 + EYE[0] * bw;
   const y = -bh / 2 + EYE[1] * bh;
@@ -650,20 +673,20 @@ function drawWing(ctx, key, source, shoulderX, shoulderY, bodyH, far, tilt = 0) 
 }
 
 function drawLid(ctx, bw, bh, night = 0) {
-  const x = -bw / 2 + 0.726 * bw;
-  const y = -bh / 2 + 0.12 * bh;
+  const x = -bw / 2 + EYE[0] * bw;
+  const y = -bh / 2 + EYE[1] * bh;
   ctx.fillStyle = night > 0.5 ? "#4f4a55" : "#7d6a5b";
   ctx.beginPath();
-  ctx.ellipse(x, y, 3.6, 2.6, -0.15, 0, Math.PI * 2);
+  ctx.ellipse(x, y, 5.6, 4.3, -0.22, 0, Math.PI * 2);
   ctx.fill();
 }
 
 function drawSkin(ctx, skin, bw, bh, time) {
   if (skin === "classic" || skin === "bronze") return;
-  const neckX = -bw / 2 + 0.6 * bw;
-  const neckY = -bh / 2 + 0.42 * bh;
-  const headX = -bw / 2 + 0.7 * bw;
-  const headY = -bh / 2 + 0.16 * bh;
+  const neckX = -bw / 2 + 0.56 * bw;
+  const neckY = -bh / 2 + 0.48 * bh;
+  const headX = -bw / 2 + 0.64 * bw;
+  const headY = -bh / 2 + 0.18 * bh;
   if (skin === "protea") {
     ctx.save();
     ctx.translate(headX, headY);

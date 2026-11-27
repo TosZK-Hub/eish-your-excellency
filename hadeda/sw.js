@@ -1,4 +1,4 @@
-const CACHE = "hadeda-flap-v6";
+const CACHE = "hadeda-flap-v7";
 const FILES = [
   "./",
   "./index.html",

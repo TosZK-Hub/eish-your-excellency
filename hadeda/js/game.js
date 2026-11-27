@@ -1422,7 +1422,8 @@ function render() {
     vy: mode === "play" ? bird.vy : 0,
     night: mode === "shop" ? 0 : clamp(birdTod - 2.2, 0, 0.6) / 0.6,
     glide: mode === "play" ? glide : 0,
-    shock: mode === "dead" && bird.vy !== 0 ? 1 : mode === "play" ? clamp(shockT / 0.25, 0, 1) : 0,
+    shock: mode === "play" ? clamp(shockT / 0.25, 0, 1) : 0,
+    crash: mode === "dead" ? 1 : 0,
   });
   ctx.restore();
 
@@ -1525,7 +1526,7 @@ function renderHettieSheet() {
     ["Wing down", { wing: -0.8 }],
     ["Glide", { wing: -0.18, glide: 1 }],
     ["Near miss", { wing: 0.9, shock: 1 }],
-    ["Crash tumble", { wing: -0.7, shock: 1, rot: 2.3 }],
+    ["Crash tumble", { wing: -0.7, crash: 1, rot: 2.3 }],
   ];
   cells.forEach(([label, p], i) => {
     const col = i % 2;
