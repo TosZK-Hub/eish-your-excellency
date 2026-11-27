@@ -1,0 +1,22 @@
+{
+  "name": "hadeda-flap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Hadeda Flap, a one-tap portrait flyer.",
+  "scripts": {
+    "sync-www": "node tools/sync-www.mjs",
+    "cap:sync": "node tools/sync-www.mjs && npx cap sync android",
+    "apk:debug": "node tools/sync-www.mjs && npx cap sync android && cd android && ./gradlew assembleDebug",
+    "aab:release": "node tools/sync-www.mjs && npx cap sync android && cd android && ./gradlew bundleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "6.2.0",
+    "@capacitor/app": "6.0.2",
+    "@capacitor/core": "6.2.0",
+    "@capacitor/splash-screen": "6.0.3",
+    "@capacitor/status-bar": "6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "6.2.0"
+  }
+}

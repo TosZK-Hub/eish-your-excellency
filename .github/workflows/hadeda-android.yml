@@ -1,0 +1,62 @@
+name: Hadeda Android
+
+on:
+  push:
+    branches: [cursor/hadeda-flap-27a1]
+    paths:
+      - "hadeda/**"
+      - ".github/workflows/hadeda-android.yml"
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0
+      - name: Sync web assets
+        working-directory: hadeda
+        run: |
+          npm install
+          node tools/sync-www.mjs
+          npx cap sync android
+      - name: Debug APK
+        working-directory: hadeda/android
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hadeda-flap-debug
+          path: hadeda/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Release AAB
+        working-directory: hadeda/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "No upload keystore secret. Debug APK only."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          ./gradlew bundleRelease --no-daemon \
+            -PRELEASE_STORE_FILE="$RUNNER_TEMP/upload.keystore" \
+            -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+            -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+            -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hadeda-flap-release
+          path: hadeda/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: ignore
